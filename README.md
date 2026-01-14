@@ -8,7 +8,7 @@ negative binomial mixed models.
 ```r
 # latest development version
 install.packages("devtools")
-devtools::install_github("hh-zhong/sc-RoPE")
+devtools::install_github("strug-hub/scRoPE")
 ```
 
 ## Example
@@ -21,8 +21,6 @@ fit <- scrope(sample_data$count, sample_data$sid, pred = design, ncore = 1,
               additional_tests = c("score", "lrt"), lrt_details = TRUE)
 head(fit$summary)
 ```
-
-excluded from the package build.
 
 ## Attribution
 

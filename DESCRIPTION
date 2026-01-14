@@ -32,8 +32,8 @@ LinkingTo:
     Rcpp,
     RcppEigen
 RoxygenNote: 7.3.2
-URL: https://github.com/hh-zhong/scRoPE, https://github.com/lhe17/nebula
-BugReports: https://github.com/hh-zhong/scRoPE/issues
+URL: https://github.com/strug-hub/scRoPE, https://github.com/lhe17/nebula
+BugReports: https://github.com/strug-hub/scRoPE/issues
 Suggests:
     utils,
     testthat (>= 3.0.0),
