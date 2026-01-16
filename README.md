@@ -1,7 +1,6 @@
 # scRoPE
 
-Robust inference for multi-donor single-cell RNA-seq association analyses using
-negative binomial mixed models.
+Robust inference for multi-donor single-cell RNA-seq association analyses using negative binomial mixed models (donor-level random effects). Implements Godambe-based robust inference with adjusted Wald, Score, and scaled likelihood-ratio tests for both LN and HL fitting pipelines.
 
 ## Installation
 
