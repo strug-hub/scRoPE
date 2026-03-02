@@ -62,7 +62,9 @@ scrope(
 \item{allow_per_gene_switch}{Logical; allow per-gene LN/HL switching. Defaults to
 `FALSE` so the LN pipeline (required for adjusted LRTs) is used for every gene.}
 
-\item{use_betas}{Which coefficient vector to return (`"betae"` or `"final_betas"`).}
+\item{use_betas}{Which fixed-effect anchor to use in LN variance-refinement
+starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
+`"final_betas"` uses the LN optimizer coefficients.}
 
 \item{output_re}{Logical; return subject-level random effects.}
 

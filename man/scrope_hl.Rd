@@ -54,7 +54,9 @@ scrope_hl(
 
 \item{fmaxsize}{Maximum future.globals size (in bytes) when using parallel execution.}
 
-\item{use_betas}{Which coefficient vector to return (`"betae"` or `"final_betas"`).}
+\item{use_betas}{Retained for API compatibility with `scrope()`. The current
+HL pipeline ignores this argument and always follows the HL-specific fitting
+path.}
 
 \item{output_re}{Logical; return subject-level random effects.}
 

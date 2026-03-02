@@ -20,7 +20,9 @@
 #' @param kappa Kappa threshold for adaptive HL refinement.
 #' @param allow_per_gene_switch Logical; allow per-gene LN/HL switching. Defaults to
 #'   `FALSE` so the LN pipeline (required for adjusted LRTs) is used for every gene.
-#' @param use_betas Which coefficient vector to return (`"betae"` or `"final_betas"`).
+#' @param use_betas Which fixed-effect anchor to use in LN variance-refinement
+#'   starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
+#'   `"final_betas"` uses the LN optimizer coefficients.
 #' @param output_re Logical; return subject-level random effects.
 #' @param additional_tests Optional character vector selecting extra
 #'   contrast-level diagnostics to compute, in addition to the default

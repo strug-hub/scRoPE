@@ -59,6 +59,12 @@ scrope_hl <- function(
   if (!use_betas %in% c("betae", "final_betas")) {
     stop("use_betas must be 'betae' or 'final_betas'.")
   }
+  if (use_betas == "final_betas") {
+    warning(
+      "use_betas is currently ignored in scrope_hl(); retained for API compatibility.",
+      call. = FALSE
+    )
+  }
 
   reml <- 0
 
