@@ -3,6 +3,6 @@
 ^\.RData$
 ^\.Rproj$
 ^private-notes$
-^tests$
+^temp$
 ^\.github$
 ^LICENSE$

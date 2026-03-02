@@ -51,8 +51,9 @@ hl_refresh_constrained_state <- function(res,
   }
 
   idx_beta <- seq_len(nb)
-  idx_log_phi <- nb + 1L
-  idx_tau <- nb + 2L
+  # ptmg_ll_der_hes4 parameter order is: beta, log(sigma2), log(phi)
+  idx_tau <- nb + 1L
+  idx_log_phi <- nb + 2L
 
   score_nat <- c(
     score_full[idx_beta],
