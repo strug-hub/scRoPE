@@ -514,7 +514,7 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
         temp[intcol] <- temp[intcol] - subVar / 2
         temp
       } else {
-        temp <- base_betas
+        temp <- beta_ln
         temp[intcol] <- temp[intcol] - subVar / 2
         temp
       }
@@ -621,7 +621,12 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
         loglik = loglik_val,
         loglik_ln = loglik_ln,
         theta = list(beta = beta_rescued, subVar = subVar, cellVar = cellVar),
-        theta_ln = list(beta = beta_rescued, subVar = subVar, cellVar = cellVar),
+        theta_ln = list(
+          beta = beta_pre_rescue,
+          subVar = theta_pre_rescue[nb + 1],
+          cellVar = theta_pre_rescue[nb + 2]
+        ),
+        theta_ln_rescued = list(beta = beta_rescued, subVar = subVar, cellVar = cellVar),
         theta_unrescued = list(
           beta = beta_pre_rescue,
           subVar = theta_pre_rescue[nb + 1],
@@ -878,7 +883,12 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
         loglik = loglik_val,
         loglik_ln = loglik_ln,
         theta = list(beta = beta_rescued, subVar = vare[1], cellVar = vare[2]),
-        theta_ln = list(beta = beta_rescued, subVar = vare[1], cellVar = vare[2]),
+        theta_ln = list(
+          beta = beta_pre_rescue,
+          subVar = theta_pre_rescue[nb + 1],
+          cellVar = theta_pre_rescue[nb + 2]
+        ),
+        theta_ln_rescued = list(beta = beta_rescued, subVar = vare[1], cellVar = vare[2]),
         theta_unrescued = list(
           beta = beta_pre_rescue,
           subVar = theta_pre_rescue[nb + 1],
@@ -1135,7 +1145,7 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
   }
 
   out_at_op <- ptmg_ll_der_hes4(
-    c(beta_hat, log(subVar), log(cellVar)),
+    c(final_betas, log(subVar), log(cellVar)),
     ctx$pred,
     ctx$offset,
     posv$Y,
@@ -1211,6 +1221,11 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       cellVar = cellVar
     ),
     theta_ln = list(
+      beta = beta_hat,
+      subVar = theta_pre[length(theta_pre) - 1],
+      cellVar = theta_pre[length(theta_pre)]
+    ),
+    theta_ln_rescued = list(
       beta = final_betas,
       subVar = subVar,
       cellVar = cellVar
