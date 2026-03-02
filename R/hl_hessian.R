@@ -181,6 +181,13 @@ hl_laplace_hessian_from_stats <- function(per_stats) {
     f_phitau <- 0
 
     g_tautau <- per_stats$g_tau_tau[i]
+    # In the current model, h_{eta,tau,tau} comes from the random-effect term.
+    # If not explicitly provided, use the closed form f_{tau,tau} = -d_tau.
+    f_tautau <- if (!is.null(per_stats$h_eta_tau_tau)) {
+      per_stats$h_eta_tau_tau[i]
+    } else {
+      -d_tau
+    }
 
     term_bb <- g_bb / a -
       (tcrossprod(e_beta) + b * h_etaeta_bb +
@@ -209,7 +216,7 @@ hl_laplace_hessian_from_stats <- function(per_stats) {
       (2 * b * b * d_phi * d_tau) / (a^4)
 
     term_tautau <- (g_tautau / a) -
-      ((e_tau * e_tau) + 2 * b_tau_val * d_tau) / (a * a) +
+      ((e_tau * e_tau) + b * f_tautau + 2 * b_tau_val * d_tau) / (a * a) +
       (4 * b * e_tau * d_tau + c * d_tau * d_tau) / (a^3) -
       (2 * b * b * d_tau * d_tau) / (a^4)
 
