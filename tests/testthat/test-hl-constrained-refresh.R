@@ -99,14 +99,26 @@ test_that("hl_refresh_constrained_state maps log(phi) and tau indices correctly"
   idx_log_phi <- nb + 2L
   h_scaled[idx_log_phi, ] <- h_scaled[idx_log_phi, ] / phi
   h_scaled[, idx_log_phi] <- h_scaled[, idx_log_phi] / phi
+  h_scaled[idx_log_phi, idx_log_phi] <- h_scaled[idx_log_phi, idx_log_phi] -
+    mock_gradient[idx_log_phi] / (phi * phi)
   reorder_idx <- c(seq_len(nb), idx_log_phi, idx_tau)
   h_nat <- h_scaled[reorder_idx, reorder_idx, drop = FALSE]
   h_nat <- 0.5 * (h_nat + t(h_nat))
+
+  h_scaled_no_correction <- mock_hessian
+  h_scaled_no_correction[idx_log_phi, ] <- h_scaled_no_correction[idx_log_phi, ] / phi
+  h_scaled_no_correction[, idx_log_phi] <- h_scaled_no_correction[, idx_log_phi] / phi
+  h_nat_no_correction <- h_scaled_no_correction[reorder_idx, reorder_idx, drop = FALSE]
+  h_nat_no_correction <- 0.5 * (h_nat_no_correction + t(h_nat_no_correction))
 
   expect_equal(out$hl_state$H_obs$H_bb, h_nat[1:nb, 1:nb, drop = FALSE])
   expect_equal(out$hl_state$H_obs$H_bphi, matrix(h_nat[1:nb, nb + 1L], ncol = 1))
   expect_equal(out$hl_state$H_obs$H_btau, matrix(h_nat[1:nb, nb + 2L], ncol = 1))
   expect_equal(out$hl_state$H_obs$H_phiphi, matrix(h_nat[nb + 1L, nb + 1L], ncol = 1))
+  expect_false(isTRUE(all.equal(
+    out$hl_state$H_obs$H_phiphi,
+    matrix(h_nat_no_correction[nb + 1L, nb + 1L], ncol = 1)
+  )))
   expect_equal(out$hl_state$H_obs$H_phitau, matrix(h_nat[nb + 1L, nb + 2L], ncol = 1))
   expect_equal(out$hl_state$H_obs$H_tautau, matrix(h_nat[nb + 2L, nb + 2L], ncol = 1))
   expect_equal(out$hl_state$H_blocks$H_bl, cbind(out$hl_state$H_obs$H_bphi, out$hl_state$H_obs$H_btau))

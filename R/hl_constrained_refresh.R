@@ -80,6 +80,9 @@ hl_refresh_constrained_state <- function(res,
   hessian_full <- chain$H
   hessian_full[idx_log_phi, ] <- hessian_full[idx_log_phi, ] / phi
   hessian_full[, idx_log_phi] <- hessian_full[, idx_log_phi] / phi
+  # Nonlinear term for y = log(phi): d2/dphi2 = (d2/dy2 - d/dy) / phi^2.
+  hessian_full[idx_log_phi, idx_log_phi] <- hessian_full[idx_log_phi, idx_log_phi] -
+    score_full[idx_log_phi] / (phi * phi)
   hessian_nat <- hessian_full[reorder_idx, reorder_idx, drop = FALSE]
   hessian_nat <- 0.5 * (hessian_nat + t(hessian_nat))
 
