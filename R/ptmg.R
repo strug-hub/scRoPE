@@ -223,7 +223,7 @@ compute_sandwich_variance <- function(out_at_op, nb, return_type = c("full", "be
   return_type <- match.arg(return_type)
   
   # Extract the negative Hessian (observed information matrix)
-  H <- out_at_op$hessian  # Negative because Hessian is negative of observed information
+  H <- if (!is.null(out_at_op$observed_info)) out_at_op$observed_info else out_at_op$hessian
   
   # Extract per-subject gradients
   per_subject_gradients <- out_at_op$per_subject_gradients  # (nb + 2) x k matrix
@@ -265,7 +265,7 @@ compute_sandwich_variance <- function(out_at_op, nb, return_type = c("full", "be
 
 compute_sandwich_variance2 <- function(out_at_op, nb, compute_full = FALSE, invert_function = NULL) {
   # Extract the negative Hessian (observed information matrix)
-  H <- out_at_op$hessian  # Negative because Hessian is negative of observed information
+  H <- if (!is.null(out_at_op$observed_info)) out_at_op$observed_info else out_at_op$hessian
 
   # Extract per-subject gradients
   U <- out_at_op$per_subject_gradients  # (nb + 2) x k matrix
@@ -288,25 +288,35 @@ compute_sandwich_variance2 <- function(out_at_op, nb, compute_full = FALSE, inve
 
   G <- H %*% S_inv %*% H
 
-  # Partition G into blocks
-  G_bb <- G[1:nb, 1:nb]
-  G_bl <- G[1:nb, (nb+1):(nb+2)]
-  G_lb <- G[(nb+1):(nb+2), 1:nb]
-  G_ll <- G[(nb+1):(nb+2), (nb+1):(nb+2)]
-
-  # Compute the partial Godambe information matrix for beta
-  # G_beta = G_bb - G_bl G_ll^{-1} G_lb
-  if (is.null(invert_function)) {
-    G_ll_inv <- tryCatch({
-      Rfast::spdinv(G_ll)
-    }, error = function(e) {
-      warning("Rfast::spdinv failed on G_ll, using solve instead")
-      solve(G_ll)
-    })
-  } else {
-    G_ll_inv <- invert_function(G_ll)
+  q <- nrow(G) - nb
+  if (q < 0) {
+    stop("nb exceeds the parameter dimension in compute_sandwich_variance2().")
   }
-  G_beta <- G_bb - G_bl %*% G_ll_inv %*% G_lb
+
+  if (q == 0L) {
+    G_beta <- G[seq_len(nb), seq_len(nb), drop = FALSE]
+  } else {
+    idx_beta <- seq_len(nb)
+    idx_lambda <- nb + seq_len(q)
+    G_bb <- G[idx_beta, idx_beta, drop = FALSE]
+    G_bl <- G[idx_beta, idx_lambda, drop = FALSE]
+    G_lb <- G[idx_lambda, idx_beta, drop = FALSE]
+    G_ll <- G[idx_lambda, idx_lambda, drop = FALSE]
+
+    # Compute the partial Godambe information matrix for beta
+    # G_beta = G_bb - G_bl G_ll^{-1} G_lb
+    if (is.null(invert_function)) {
+      G_ll_inv <- tryCatch({
+        Rfast::spdinv(G_ll)
+      }, error = function(e) {
+        warning("Rfast::spdinv failed on G_ll, using solve instead")
+        solve(G_ll)
+      })
+    } else {
+      G_ll_inv <- invert_function(G_ll)
+    }
+    G_beta <- G_bb - G_bl %*% G_ll_inv %*% G_lb
+  }
 
   # Invert G_beta to get Var_beta_adjusted
   if (is.null(invert_function)) {
@@ -342,7 +352,7 @@ compute_sandwich_variance2 <- function(out_at_op, nb, compute_full = FALSE, inve
 }
 
 extract_godambe_components <- function(out_at_op, nb) {
-  H <- out_at_op$hessian
+  H <- if (!is.null(out_at_op$observed_info)) out_at_op$observed_info else out_at_op$hessian
   U <- out_at_op$per_subject_gradients
 
   if (is.null(H) || is.null(U)) {
