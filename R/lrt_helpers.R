@@ -42,6 +42,40 @@ invert_with_ridge <- function(mat, cond_limit = 1e8, base_factor = 1e-6, max_ite
   list(success = FALSE, ridge = ridge, inverse = NULL)
 }
 
+invert_general_with_ridge <- function(mat, cond_limit = 1e8, base_factor = 1e-6, max_iter = 6) {
+  d <- nrow(mat)
+  if (d == 0) {
+    return(list(success = FALSE, ridge = 0, inverse = NULL))
+  }
+
+  mat <- 0.5 * (mat + t(mat))
+  diag_scale <- mean(abs(diag(mat)))
+  if (!is.finite(diag_scale) || diag_scale == 0) {
+    diag_scale <- 1
+  }
+  base_ridge <- diag_scale * base_factor
+  ridge <- 0
+
+  cond0 <- tryCatch(kappa(mat), error = function(e) Inf)
+  if (!is.finite(cond0) || cond0 > cond_limit) {
+    ridge <- base_ridge
+  }
+
+  for (iter in seq_len(max_iter + 1)) {
+    mat_adj <- if (ridge > 0) mat + diag(ridge, d) else mat
+    inv_try <- tryCatch(solve(mat_adj), error = function(e) NULL)
+    if (!is.null(inv_try) && all(is.finite(inv_try))) {
+      return(list(success = TRUE, ridge = ridge, inverse = inv_try))
+    }
+    if (iter > max_iter) {
+      break
+    }
+    ridge <- if (ridge == 0) base_ridge else ridge * 10
+  }
+
+  list(success = FALSE, ridge = ridge, inverse = NULL)
+}
+
 solve_sym <- function(mat, rhs) {
   chol_dec <- tryCatch({
     chol(mat)
@@ -287,43 +321,66 @@ compute_adj_score <- function(constrained, L, ridge_factor = 1e-8, check_scalar_
   idx_beta <- seq_len(nb)
   idx_lambda <- nb + seq_len(n_lambda)
 
-  H_lambda_inv <- invert_posdef(H_lambda)
-  H_beta_dot_lambda <- H_beta - H_beta_lambda %*% H_lambda_inv %*% t(H_beta_lambda)
-  H_beta_dot_lambda_inv <- invert_posdef(H_beta_dot_lambda)
-
-  score_beta <- matrix(score_full[idx_beta], ncol = 1)
-  score_lambda <- matrix(score_full[idx_lambda], ncol = 1)
-  score_eff <- score_beta - H_beta_lambda %*% H_lambda_inv %*% score_lambda
-
-  Upsi <- L %*% H_beta_dot_lambda_inv %*% score_eff
-
-  S_full <- godambe$S
-  if (is.null(S_full)) {
-    stop("Constrained fit lacks Godambe meat matrix S.")
-  }
-  S_bb <- S_full[idx_beta, idx_beta, drop = FALSE]
-  S_bl <- S_full[idx_beta, idx_lambda, drop = FALSE]
-  S_lb <- S_full[idx_lambda, idx_beta, drop = FALSE]
-  S_ll <- S_full[idx_lambda, idx_lambda, drop = FALSE]
-
-  S_eff <- S_bb -
-    H_beta_lambda %*% H_lambda_inv %*% S_lb -
-    S_bl %*% H_lambda_inv %*% t(H_beta_lambda) +
-    H_beta_lambda %*% H_lambda_inv %*% S_ll %*% H_lambda_inv %*% t(H_beta_lambda)
-  S_eff <- 0.5 * (S_eff + t(S_eff))
-
   if (is.null(ridge_factor) || length(ridge_factor) == 0 || !is.finite(ridge_factor)) {
     ridge_factor <- 0
   }
   ridge_factor <- max(ridge_factor, 0)
+  base_factor <- if (ridge_factor > 0) ridge_factor else 0
+
+  H_lambda_inv_info <- invert_general_with_ridge(H_lambda, base_factor = base_factor)
+  H_beta_dot_lambda <- matrix(NA_real_, nrow = nb, ncol = nb)
+  H_beta_dot_lambda_inv_info <- list(success = FALSE, ridge = NA_real_, inverse = NULL)
+  score_eff <- matrix(NA_real_, nrow = nb, ncol = 1)
+  Upsi <- matrix(NA_real_, nrow = nrow(L), ncol = 1)
+  Hpsi <- matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
+  Gpsi <- matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
+  S_eff <- matrix(NA_real_, nrow = nb, ncol = nb)
+
+  score_beta <- matrix(score_full[idx_beta], ncol = 1)
+  score_lambda <- matrix(score_full[idx_lambda], ncol = 1)
+
+  if (H_lambda_inv_info$success) {
+    H_lambda_inv <- H_lambda_inv_info$inverse
+    H_beta_dot_lambda <- H_beta - H_beta_lambda %*% H_lambda_inv %*% t(H_beta_lambda)
+    H_beta_dot_lambda_inv_info <- invert_general_with_ridge(H_beta_dot_lambda, base_factor = base_factor)
+
+    score_eff <- score_beta - H_beta_lambda %*% H_lambda_inv %*% score_lambda
+
+    S_full <- godambe$S
+    if (is.null(S_full)) {
+      stop("Constrained fit lacks Godambe meat matrix S.")
+    }
+    S_bb <- S_full[idx_beta, idx_beta, drop = FALSE]
+    S_bl <- S_full[idx_beta, idx_lambda, drop = FALSE]
+    S_lb <- S_full[idx_lambda, idx_beta, drop = FALSE]
+    S_ll <- S_full[idx_lambda, idx_lambda, drop = FALSE]
+
+    S_eff <- S_bb -
+      H_beta_lambda %*% H_lambda_inv %*% S_lb -
+      S_bl %*% H_lambda_inv %*% t(H_beta_lambda) +
+      H_beta_lambda %*% H_lambda_inv %*% S_ll %*% H_lambda_inv %*% t(H_beta_lambda)
+    S_eff <- 0.5 * (S_eff + t(S_eff))
+
+    if (H_beta_dot_lambda_inv_info$success) {
+      H_beta_dot_lambda_inv <- H_beta_dot_lambda_inv_info$inverse
+      Upsi <- L %*% H_beta_dot_lambda_inv %*% score_eff
+      Hpsi <- L %*% H_beta_dot_lambda_inv %*% t(L)
+      Hpsi <- 0.5 * (Hpsi + t(Hpsi))
+
+      G_beta <- H_beta_dot_lambda_inv %*% S_eff %*% H_beta_dot_lambda_inv
+      Gpsi <- L %*% G_beta %*% t(L)
+      Gpsi <- 0.5 * (Gpsi + t(Gpsi))
+    }
+  } else {
+    S_full <- godambe$S
+    if (is.null(S_full)) {
+      stop("Constrained fit lacks Godambe meat matrix S.")
+    }
+  }
+
   stat <- NA_real_
   pval <- NA_real_
   method <- "adj-score"
-
-  base_factor <- if (ridge_factor > 0) ridge_factor else 0
-  G_beta <- H_beta_dot_lambda_inv %*% S_eff %*% H_beta_dot_lambda_inv
-  Gpsi <- L %*% G_beta %*% t(L)
-  Gpsi <- 0.5 * (Gpsi + t(Gpsi))
   Gpsi_inv_info <- invert_with_ridge(Gpsi, base_factor = base_factor)
 
   if (Gpsi_inv_info$success) {
@@ -335,9 +392,6 @@ compute_adj_score <- function(constrained, L, ridge_factor = 1e-8, check_scalar_
     pval <- pchisq(max(stat, 0), df = nrow(L), lower.tail = FALSE)
   }
 
-  Hpsi <- L %*% H_beta_dot_lambda_inv %*% t(L)
-  Hpsi <- 0.5 * (Hpsi + t(Hpsi))
-
   scalar_check <- NA_real_
   if (check_scalar_identity && nrow(L) == 1 && Gpsi_inv_info$success) {
     scalar_check <- 0
@@ -345,7 +399,9 @@ compute_adj_score <- function(constrained, L, ridge_factor = 1e-8, check_scalar_
 
   score_success <- isTRUE(Gpsi_inv_info$success) && is.finite(stat) && is.finite(pval)
   score_failure <- NA_character_
-  if (!isTRUE(Gpsi_inv_info$success)) {
+  if (!isTRUE(H_lambda_inv_info$success) || !isTRUE(H_beta_dot_lambda_inv_info$success)) {
+    score_failure <- normalise_failure("undefined_stat", "score")
+  } else if (!isTRUE(Gpsi_inv_info$success)) {
     score_failure <- normalise_failure("singular_Spsi", "score")
   } else if (!is.finite(stat) || !is.finite(pval)) {
     score_failure <- normalise_failure("undefined_stat", "score")
