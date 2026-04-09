@@ -38,7 +38,9 @@
 #'   HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path. It
 #'   matches legacy `nebula(model = "PMM")` in allowing cell-level fixed
 #'   predictors, but it only models subject-level overdispersion, so inference
-#'   for cell-level predictors should be interpreted with caution.
+#'   for cell-level predictors should be interpreted with caution. For testing
+#'   cell-level predictors when cell-level overdispersion matters, prefer the
+#'   LN/HL NBGMM path.
 #'
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, and optional

@@ -1,5 +1,12 @@
-# scRoPE 0.1.1 (2026-03-02)
+# scRoPE 0.2.0 (2026-04-09)
 
+- Added a top-level exact `scrope(model = "PGMM")` path with robust Wald,
+  adjusted Score, and gated adjusted LRT support.
+- Added PGMM regression coverage against legacy `nebula(model = "PMM")` and
+  residual tests for the one-column PGMM overdispersion output.
+- Clarified the PGMM caveat: cell-level fixed predictors are allowed, but PGMM
+  only models subject-level overdispersion, so PGMM should be used with caution
+  for testing cell-level predictors.
 - Fixed HL Laplace tau-tau block to include the `b_i f_{i,tau,tau}` term.
 - Fixed constrained HL Hessian transform from `log(phi)` to `phi` by adding the
   nonlinear diagonal correction in the `phi-phi` block.

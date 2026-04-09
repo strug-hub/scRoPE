@@ -1,9 +1,11 @@
 Package: scRoPE
 Type: Package
 Title: scRoPE: Robust Differential Analysis for Single-Cell RNA-seq
-Version: 0.1.1
-Date: 2026-03-02
+Version: 0.2.0
+Date: 2026-04-09
 Authors@R: person("Lehang", "Zhong", email = "lehang.zhong@mail.utoronto.ca", role = c("aut", "cre"))
+Author: Lehang Zhong [aut, cre]
+Maintainer: Lehang Zhong <lehang.zhong@mail.utoronto.ca>
 Description: Provides robust inference for negative binomial mixed models in
     multi-donor single-cell RNA-seq studies. scRoPE builds on the NEBULA
     framework (He et al., 2021, <doi:10.1038/s42003-021-02146-6>) by combining

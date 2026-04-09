@@ -70,6 +70,68 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
   expect_true(nrow(res$lrt_details) >= 1)
 })
 
+test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predictors", {
+  fx <- pmg_interior_test_fixture()
+
+  current <- scrope(
+    count = fx$count,
+    id = fx$id,
+    pred = fx$pred,
+    model = "PGMM",
+    verbose = FALSE,
+    cpc = 0,
+    mincp = 1
+  )
+  legacy <- nebula(
+    count = fx$count,
+    id = fx$id,
+    pred = fx$pred,
+    model = "PMM",
+    verbose = FALSE,
+    cpc = 0,
+    mincp = 1,
+    ncore = 1
+  )
+
+  expect_equal(current$summary$logFC_x, legacy$summary$logFC_x, tolerance = 1e-6)
+  expect_equal(current$summary$se_x, legacy$summary$se_x, tolerance = 1e-6)
+  expect_equal(current$summary$p_naive_x, legacy$summary$p_x, tolerance = 1e-6)
+  expect_equal(current$overdispersion$Subject, as.numeric(legacy$overdispersion), tolerance = 1e-6)
+  expect_equal(current$convergence, legacy$convergence)
+  expect_equal(current$algorithm, legacy$algorithm)
+})
+
+test_that("top-level scrope PGMM matches legacy nebula PMM for subject-level predictors", {
+  fx <- pmg_subject_level_test_fixture()
+
+  current <- scrope(
+    count = fx$count,
+    id = fx$id,
+    pred = fx$pred,
+    model = "PGMM",
+    verbose = FALSE,
+    cpc = 0,
+    mincp = 1
+  )
+  legacy <- nebula(
+    count = fx$count,
+    id = fx$id,
+    pred = fx$pred,
+    model = "PMM",
+    verbose = FALSE,
+    cpc = 0,
+    mincp = 1,
+    ncore = 1
+  )
+
+  expect_equal(current$summary$logFC_z_subject, legacy$summary$logFC_z_subject, tolerance = 1e-6)
+  expect_equal(current$summary$se_z_subject, legacy$summary$se_z_subject, tolerance = 1e-6)
+  expect_equal(current$summary$p_naive_z_subject, legacy$summary$p_z_subject, tolerance = 1e-6)
+  expect_equal(current$overdispersion$Subject, as.numeric(legacy$overdispersion), tolerance = 1e-6)
+  expect_equal(current$convergence, legacy$convergence)
+  expect_equal(current$algorithm, legacy$algorithm)
+})
+
 test_that("scrope PGMM allows cell-level predictors and returns results", {
   fx <- pmg_interior_test_fixture()
 

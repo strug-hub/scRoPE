@@ -236,14 +236,14 @@ scrope_pmg_internal <- function(
     plan(cluster, workers = cls)
   }
 
-  gene_results <- foreach(i = gid) %dorng% {
-    posv <- call_posindy(count, i - 1, nind)
-    fit <- fit_gene_pmg_unconstrained(i, posv, ctx)
+  gene_results <- foreach(gene_idx = gid) %dorng% {
+    posv <- call_posindy(count, gene_idx - 1, nind)
+    fit <- fit_gene_pmg_unconstrained(gene_idx, posv, ctx)
 
     if ((want_score || want_lrt) && length(contrast_payload) > 0L) {
       adj_res <- pmg_adjusted_contrasts(
         ctx = ctx,
-        gene_index = i,
+        gene_index = gene_idx,
         posv = posv,
         contrasts = contrast_payload,
         unconstrained = fit
