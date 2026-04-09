@@ -420,6 +420,11 @@ fit_gene_pmg_constrained <- function(gene_index, posv, ctx, L, b, unconstrained_
       robust_cov_full = robust_cov_full,
       godambe = extract_godambe_components(godambe_input, nb),
       convergence = convergence,
+      lrt_gate = list(
+        converged = convergence > 0L,
+        interior = all(active_red),
+        nuisance_interior = if (length(active_red) > 0L) isTRUE(active_red[length(active_red)]) else FALSE
+      ),
       optimizer = fit$optimizer,
       raw_fit = fit$raw,
       constraint = list(

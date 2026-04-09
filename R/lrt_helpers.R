@@ -87,7 +87,43 @@ solve_sym <- function(mat, rhs) {
   }
 }
 
-compute_profile_lrt <- function(unconstrained, constrained, L, b) {
+is_posdef_matrix <- function(mat, tol = 1e-10) {
+  if (is.null(mat) || any(!is.finite(mat))) {
+    return(FALSE)
+  }
+  mat <- 0.5 * (mat + t(mat))
+  if (nrow(mat) == 1L) {
+    return(as.numeric(mat) > tol)
+  }
+  !is.null(tryCatch(chol(mat), error = function(e) NULL))
+}
+
+extract_lrt_gate <- function(fit) {
+  gate <- fit$lrt_gate
+  if (!is.null(gate)) {
+    return(gate)
+  }
+
+  converged <- NA
+  if (!is.null(fit$convergence)) {
+    converged <- isTRUE(fit$convergence > 0)
+  } else if (!is.null(fit$debug$conv_code)) {
+    converged <- isTRUE(fit$debug$conv_code >= 0)
+  }
+
+  list(
+    converged = converged,
+    interior = NA,
+    nuisance_interior = NA
+  )
+}
+
+compute_profile_lrt <- function(unconstrained,
+                                constrained,
+                                L,
+                                b,
+                                ridge_factor = 1e-8,
+                                cond_limit = 1e8) {
   beta_hat <- unconstrained$theta$beta
   beta_con <- constrained$theta$beta
   if (is.null(beta_hat) || is.null(beta_con)) {
@@ -125,49 +161,86 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
   if (is.null(score_full)) {
     stop("Constrained fit lacks gradient for score computation.")
   }
-  score_beta <- score_full[seq_len(nb)]
-  score_lambda <- score_full[(nb + 1):(nb + 2)]
-
-  H_lambda_inv <- invert_posdef(H_lambda)
-  score_eff <- score_beta - H_beta_lambda %*% H_lambda_inv %*% score_lambda
-
-  H_beta_dot_lambda <- H_beta - H_beta_lambda %*% H_lambda_inv %*% t(H_beta_lambda)
-  H_beta_dot_lambda_inv <- invert_posdef(H_beta_dot_lambda)
-  Hpsi_raw <- L %*% H_beta_dot_lambda_inv %*% t(L)
   method <- "lrt"
-
-  S_full <- godambe_con$S
-  if (is.null(S_full)) {
-    stop("Constrained fit lacks Godambe meat matrix S.")
-  }
+  n_lambda <- nrow(H_lambda)
   idx_beta <- seq_len(nb)
-  idx_lambda <- nb + seq_len(nrow(S_full) - nb)
-  S_bb <- S_full[idx_beta, idx_beta, drop = FALSE]
-  S_bl <- S_full[idx_beta, idx_lambda, drop = FALSE]
-  S_lb <- S_full[idx_lambda, idx_beta, drop = FALSE]
-  S_ll <- S_full[idx_lambda, idx_lambda, drop = FALSE]
+  idx_lambda <- nb + seq_len(n_lambda)
 
-  S_eff <- S_bb -
-    H_beta_lambda %*% H_lambda_inv %*% S_lb -
-    S_bl %*% H_lambda_inv %*% t(H_beta_lambda) +
-    H_beta_lambda %*% H_lambda_inv %*% S_ll %*% H_lambda_inv %*% t(H_beta_lambda)
-  S_eff <- 0.5 * (S_eff + t(S_eff))
+  if (is.null(ridge_factor) || length(ridge_factor) == 0 || !is.finite(ridge_factor)) {
+    ridge_factor <- 0
+  }
+  ridge_factor <- max(ridge_factor, 0)
+  base_factor <- if (ridge_factor > 0) ridge_factor else 0
 
-  Spsi_raw <- L %*% S_eff %*% t(L)
+  H_lambda_inv_info <- invert_general_with_ridge(
+    H_lambda,
+    cond_limit = cond_limit,
+    base_factor = base_factor
+  )
 
-  G_beta <- H_beta_dot_lambda_inv %*% S_eff %*% H_beta_dot_lambda_inv
-  Gpsi_raw <- L %*% G_beta %*% t(L)
+  score_beta <- matrix(score_full[idx_beta], ncol = 1)
+  score_lambda <- matrix(score_full[idx_lambda], ncol = 1)
+  profile_score <- matrix(NA_real_, nrow = nrow(L), ncol = 1)
+  score_eff <- matrix(NA_real_, nrow = nb, ncol = 1)
+  H_beta_dot_lambda <- matrix(NA_real_, nrow = nb, ncol = nb)
+  Hpsi_raw <- matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
+  Spsi_raw <- matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
+  Gpsi_raw <- matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
+  S_eff <- matrix(NA_real_, nrow = nb, ncol = nb)
+  G_beta <- matrix(NA_real_, nrow = nb, ncol = nb)
+  H_beta_dot_lambda_inv_info <- list(success = FALSE, ridge = NA_real_, inverse = NULL)
+
+  if (H_lambda_inv_info$success) {
+    H_lambda_inv <- H_lambda_inv_info$inverse
+    score_eff <- score_beta - H_beta_lambda %*% H_lambda_inv %*% score_lambda
+
+    H_beta_dot_lambda <- H_beta - H_beta_lambda %*% H_lambda_inv %*% t(H_beta_lambda)
+    H_beta_dot_lambda <- 0.5 * (H_beta_dot_lambda + t(H_beta_dot_lambda))
+    H_beta_dot_lambda_inv_info <- invert_general_with_ridge(
+      H_beta_dot_lambda,
+      cond_limit = cond_limit,
+      base_factor = base_factor
+    )
+
+    if (H_beta_dot_lambda_inv_info$success) {
+      H_beta_dot_lambda_inv <- H_beta_dot_lambda_inv_info$inverse
+      Hpsi_raw <- L %*% H_beta_dot_lambda_inv %*% t(L)
+      profile_score <- L %*% H_beta_dot_lambda_inv %*% score_eff
+
+      S_full <- godambe_con$S
+      if (is.null(S_full)) {
+        stop("Constrained fit lacks Godambe meat matrix S.")
+      }
+      S_bb <- S_full[idx_beta, idx_beta, drop = FALSE]
+      S_bl <- S_full[idx_beta, idx_lambda, drop = FALSE]
+      S_lb <- S_full[idx_lambda, idx_beta, drop = FALSE]
+      S_ll <- S_full[idx_lambda, idx_lambda, drop = FALSE]
+
+      S_eff <- S_bb -
+        H_beta_lambda %*% H_lambda_inv %*% S_lb -
+        S_bl %*% H_lambda_inv %*% t(H_beta_lambda) +
+        H_beta_lambda %*% H_lambda_inv %*% S_ll %*% H_lambda_inv %*% t(H_beta_lambda)
+      S_eff <- 0.5 * (S_eff + t(S_eff))
+
+      Spsi_raw <- L %*% S_eff %*% t(L)
+      G_beta <- H_beta_dot_lambda_inv %*% S_eff %*% H_beta_dot_lambda_inv
+      G_beta <- 0.5 * (G_beta + t(G_beta))
+      Gpsi_raw <- L %*% G_beta %*% t(L)
+    }
+  }
 
   Hpsi <- 0.5 * (Hpsi_raw + t(Hpsi_raw))
   Spsi <- 0.5 * (Spsi_raw + t(Spsi_raw))
   Gpsi <- 0.5 * (Gpsi_raw + t(Gpsi_raw))
 
-  profile_score <- L %*% H_beta_dot_lambda_inv %*% score_eff
-
   d0 <- nrow(L)
   fallback <- FALSE
 
-  Gpsi_inv_info <- invert_with_ridge(Gpsi)
+  Gpsi_inv_info <- invert_with_ridge(
+    Gpsi,
+    cond_limit = cond_limit,
+    base_factor = base_factor
+  )
   wU_val <- if (Gpsi_inv_info$success) {
     val <- as.numeric(t(profile_score) %*% Gpsi_inv_info$inverse %*% profile_score)
     if (!is.na(val) && val < 0 && abs(val) <= 1e-8) 0 else val
@@ -175,12 +248,26 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
     NA_real_
   }
 
-  Hpsi_inv_info <- invert_with_ridge(Hpsi)
+  Hpsi_inv_info <- invert_general_with_ridge(
+    Hpsi,
+    cond_limit = cond_limit,
+    base_factor = base_factor
+  )
   qP_val <- if (Hpsi_inv_info$success) {
     val <- as.numeric(t(profile_score) %*% Hpsi_inv_info$inverse %*% profile_score)
     if (!is.na(val) && val < 0 && abs(val) <= 1e-8) 0 else val
   } else {
     NA_real_
+  }
+  Hpsi_info <- if (Hpsi_inv_info$success) {
+    0.5 * (Hpsi_inv_info$inverse + t(Hpsi_inv_info$inverse))
+  } else {
+    matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
+  }
+  Gpsi_info <- if (Gpsi_inv_info$success) {
+    0.5 * (Gpsi_inv_info$inverse + t(Gpsi_inv_info$inverse))
+  } else {
+    matrix(NA_real_, nrow = nrow(L), ncol = nrow(L))
   }
 
   scale <- NA_real_
@@ -193,19 +280,28 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
     }
     failure_reason <<- normalise_failure(code, "lrt")
   }
+  adjusted_failure_reason <- NA_character_
   if (!is.finite(wP)) {
     set_failure("missing_profile_lr", overwrite = TRUE)
   }
   negative_raw_lr <- is.finite(wP) && wP < -1e-6
 
   if (is.finite(wU_val) && is.finite(qP_val) && abs(qP_val) > .Machine$double.eps) {
-    scale <- wU_val / qP_val
-    wP_adj <- scale * wP
-    if (Gpsi_inv_info$ridge > 0 && method == "lrt") {
-      method <- "lrt_ridge"
-    }
-    if (is.finite(wP_adj)) {
-      success <- TRUE
+    scale_candidate <- wU_val / qP_val
+    if (is.finite(scale_candidate) && scale_candidate > 0) {
+      scale <- scale_candidate
+      wP_adj <- scale * wP
+      if (!is.na(wP_adj) && wP_adj < 0 && abs(wP_adj) <= 1e-8) {
+        wP_adj <- 0
+      }
+      if (Gpsi_inv_info$ridge > 0 && method == "lrt") {
+        method <- "lrt_ridge"
+      }
+      if (is.finite(wP_adj) && wP_adj >= 0) {
+        success <- TRUE
+      }
+    } else {
+      method <- "lrt_fail"
     }
   } else {
     h_val <- as.numeric(Hpsi)
@@ -213,10 +309,13 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
     if (is.finite(h_val) && h_val > 0 && is.finite(g_val) && g_val > 0) {
       scale <- h_val / g_val
       wP_adj <- scale * wP
+      if (!is.na(wP_adj) && wP_adj < 0 && abs(wP_adj) <= 1e-8) {
+        wP_adj <- 0
+      }
       if (Gpsi_inv_info$ridge > 0 && method == "lrt") {
         method <- "lrt_ridge"
       }
-      if (is.finite(wP_adj)) {
+      if (is.finite(wP_adj) && wP_adj >= 0) {
         success <- TRUE
       }
     } else {
@@ -224,8 +323,43 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
     }
   }
 
+  fit_gate <- extract_lrt_gate(constrained)
+  diagnostics <- list(
+    converged = isTRUE(fit_gate$converged),
+    nuisance_hessian_invertible = isTRUE(H_lambda_inv_info$success),
+    interior = isTRUE(fit_gate$interior),
+    nuisance_interior = isTRUE(fit_gate$nuisance_interior),
+    profiled_curvature_positive = is_posdef_matrix(Hpsi_info),
+    scale_positive = is.finite(scale) && scale > 0
+  )
+  adjusted_available <- all(unlist(diagnostics))
+
+  if (!adjusted_available) {
+    if (!is.finite(wP)) {
+      adjusted_failure_reason <- normalise_failure("missing_profile_lr", "lrt")
+    } else if (negative_raw_lr) {
+      adjusted_failure_reason <- normalise_failure("negative_raw_lr", "lrt")
+    } else if (!diagnostics$converged) {
+      adjusted_failure_reason <- normalise_failure("nonconverged_constrained", "lrt")
+    } else if (!diagnostics$nuisance_hessian_invertible) {
+      adjusted_failure_reason <- normalise_failure("singular_Hlambda", "lrt")
+    } else if (!diagnostics$interior || !diagnostics$nuisance_interior) {
+      adjusted_failure_reason <- normalise_failure("boundary_constrained", "lrt")
+    } else if (!diagnostics$profiled_curvature_positive) {
+      adjusted_failure_reason <- normalise_failure("nonpositive_curvature", "lrt")
+    } else if (!diagnostics$scale_positive) {
+      adjusted_failure_reason <- normalise_failure("nonpositive_scale", "lrt")
+    } else {
+      adjusted_failure_reason <- normalise_failure("undefined_adjustment", "lrt")
+    }
+  }
+
+  success <- adjusted_available && is.finite(wP_adj) && wP_adj >= 0
+
   if (!success) {
-    if (!Hpsi_inv_info$success) {
+    if (!is.na(adjusted_failure_reason)) {
+      set_failure(adjusted_failure_reason, overwrite = TRUE)
+    } else if (!H_lambda_inv_info$success || !H_beta_dot_lambda_inv_info$success || !Hpsi_inv_info$success) {
       set_failure("singular_Hpsi")
     } else if (!Gpsi_inv_info$success) {
       set_failure("singular_Gpsi")
@@ -245,10 +379,24 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
     wald = 0
   )
 
-  if (!is.finite(wP_adj)) {
+  if (is.finite(wP_adj) && wP_adj < 0 && abs(wP_adj) <= 1e-8) {
+    wP_adj <- 0
+  }
+
+  if (!adjusted_available || !is.finite(wP_adj) || wP_adj < 0) {
     beta_diff <- as.matrix(L %*% beta_hat - b)
-    wald_cov_raw <- L %*% G_beta %*% t(L)
-    wald_inv_info <- invert_with_ridge(wald_cov_raw)
+    wald_cov_raw <- if (!is.null(unconstrained$robust_cov) &&
+      all(dim(unconstrained$robust_cov) == c(nb, nb))) {
+      L %*% unconstrained$robust_cov %*% t(L)
+    } else {
+      L %*% G_beta %*% t(L)
+    }
+    wald_cov_raw <- 0.5 * (wald_cov_raw + t(wald_cov_raw))
+    wald_inv_info <- invert_with_ridge(
+      wald_cov_raw,
+      cond_limit = cond_limit,
+      base_factor = base_factor
+    )
     if (wald_inv_info$success) {
       ridge_info$wald <- wald_inv_info$ridge
       method <- if (wald_inv_info$ridge > 0) "wald_ridge" else "wald"
@@ -286,14 +434,19 @@ compute_profile_lrt <- function(unconstrained, constrained, L, b) {
     scale = scale,
     wP_adjusted = wP_adj,
     score = profile_score,
-    Hpsi = Hpsi_raw,
-    Gpsi = Gpsi_raw,
+    Hpsi = Hpsi_info,
+    Gpsi = Gpsi_info,
     Gbeta = G_beta,
     Jpsi = Spsi_raw,
+    Vpsi_model = Hpsi_raw,
+    Vpsi_godambe = Gpsi_raw,
     method = method,
     ridge = ridge_info,
     fallback = fallback,
     success = success,
+    adjusted_available = adjusted_available,
+    adjusted_failure_reason = adjusted_failure_reason,
+    gate = diagnostics,
     failure_reason = failure_reason
   )
 }

@@ -1236,6 +1236,17 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       cellVar = theta_pre[length(theta_pre)]
     ),
     score = out_at_op$gradient,
+    lrt_gate = list(
+      converged = conv_code >= 0,
+      interior = isTRUE(
+        subVar > ctx$min[1] && subVar < ctx$max[1] &&
+          cellVar > ctx$min[2] && cellVar < ctx$max[2]
+      ),
+      nuisance_interior = isTRUE(
+        subVar > ctx$min[1] && subVar < ctx$max[1] &&
+          cellVar > ctx$min[2] && cellVar < ctx$max[2]
+      )
+    ),
     debug = list(
       method = "scrope_constrained",
       gene_index = gene_index,

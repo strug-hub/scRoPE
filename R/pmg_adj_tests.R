@@ -119,6 +119,14 @@ pmg_adjusted_contrasts <- function(ctx,
       L = def$L,
       ridge_factor = ridge_factor
     )
+    lrt_res <- compute_profile_lrt(
+      unconstrained = unconstrained,
+      constrained = fit_con,
+      L = def$L,
+      b = def$b,
+      ridge_factor = ridge_factor,
+      cond_limit = cond_limit
+    )
     wald_res <- pmg_robust_wald(
       unconstrained = unconstrained,
       L = def$L,
@@ -137,9 +145,11 @@ pmg_adjusted_contrasts <- function(ctx,
       constrained = fit_con,
       adj = list(
         wald = wald_res,
-        score = score_res
+        score = score_res,
+        lr = lrt_res
       ),
       p_values = list(
+        lr = if (is.finite(lrt_res$wP_adjusted)) pchisq(max(lrt_res$wP_adjusted, 0), df = df, lower.tail = FALSE) else NA_real_,
         wald = if (is.finite(wald_res$stat)) pchisq(max(wald_res$stat, 0), df = df, lower.tail = FALSE) else NA_real_,
         score = if (is.finite(score_res$stat)) pchisq(max(score_res$stat, 0), df = df, lower.tail = FALSE) else NA_real_
       )
