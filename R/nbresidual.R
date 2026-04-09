@@ -59,8 +59,13 @@ nbresidual = function(nebulaSand, count, id, pred = NULL, offset = NULL, conditi
   
   # nbres = matrix(NA,ngene,ncell)
   
-  sigma2ind = as.matrix(nebulaSand$overdispersion)[,1]
-  sigma2cell = nebulaSand$overdispersion[,2]
+  overdisp = as.matrix(nebulaSand$overdispersion)
+  sigma2ind = overdisp[,1]
+  sigma2cell = if (ncol(overdisp) >= 2) {
+    overdisp[,2]
+  } else {
+    rep(0, ngene)
+  }
   sigma2cell[which(nebulaSand$algorithm=='PGMM')] = 0
   
   if(conditional==FALSE)

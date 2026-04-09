@@ -54,9 +54,9 @@ scrope_hl(
 
 \item{fmaxsize}{Maximum future.globals size (in bytes) when using parallel execution.}
 
-\item{use_betas}{Retained for API compatibility with `scrope()`. The current
-HL pipeline ignores this argument and always follows the HL-specific fitting
-path.}
+\item{use_betas}{Which fixed-effect anchor to use in LN variance-refinement
+starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
+`"final_betas"` uses the LN optimizer coefficients.}
 
 \item{output_re}{Logical; return subject-level random effects.}
 

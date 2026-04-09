@@ -34,6 +34,10 @@
 #' @param lrt_include_scale Logical; include the H/G scale factor in the summary.
 #' @param lrt_details Logical; return a tidy data frame with raw LRT diagnostics.
 #' @param keep_diagnostics Logical; retain per-gene diagnostic objects.
+#' @param model Fitting path. `"LN"` uses the existing LN pipeline with optional
+#'   HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path and
+#'   currently supports only subject-level predictors that are constant within
+#'   subject.
 #'
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, and optional
@@ -66,7 +70,37 @@ scrope <- function(
     lrt_contrasts = NULL,
     lrt_include_scale = FALSE,
     lrt_details = FALSE,
-    keep_diagnostics = TRUE) {
+    keep_diagnostics = TRUE,
+    model = c("LN", "PGMM")) {
+  model <- match.arg(model)
+  if (identical(model, "PGMM")) {
+    return(scrope_pmg_internal(
+      count = count,
+      id = id,
+      pred = pred,
+      offset = offset,
+      min = min,
+      max = max,
+      opt = opt,
+      verbose = verbose,
+      cpc = cpc,
+      mincp = mincp,
+      ncore = ncore,
+      fmaxsize = fmaxsize,
+      cutoff_cell = cutoff_cell,
+      kappa = kappa,
+      allow_per_gene_switch = allow_per_gene_switch,
+      use_betas = use_betas,
+      output_re = output_re,
+      additional_tests = additional_tests,
+      lrt = lrt,
+      lrt_contrasts = lrt_contrasts,
+      lrt_include_scale = lrt_include_scale,
+      lrt_details = lrt_details,
+      keep_diagnostics = keep_diagnostics
+    ))
+  }
+
   # fail-safe for use_betas
   if (!use_betas %in% c("betae", "final_betas")) {
     stop("use_betas must be 'betae' or 'final_betas'.")

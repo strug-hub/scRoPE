@@ -27,7 +27,8 @@ scrope(
   lrt_contrasts = NULL,
   lrt_include_scale = FALSE,
   lrt_details = FALSE,
-  keep_diagnostics = TRUE
+  keep_diagnostics = TRUE,
+  model = c("LN", "PGMM")
 )
 }
 \arguments{
@@ -83,6 +84,11 @@ including `"lrt"` in `additional_tests`.}
 \item{lrt_details}{Logical; return a tidy data frame with raw LRT diagnostics.}
 
 \item{keep_diagnostics}{Logical; retain per-gene diagnostic objects.}
+
+\item{model}{Fitting path. `"LN"` uses the existing LN pipeline with optional
+HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path and
+currently supports only subject-level predictors that are constant within
+subject.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,
