@@ -1,12 +1,12 @@
-pmg_validate_subject_level_predictors <- function(pred,
-                                                  fid,
-                                                  intcol,
-                                                  predictor_names = NULL,
-                                                  tol = 1e-10) {
+pmg_find_within_subject_predictors <- function(pred,
+                                               fid,
+                                               intcol,
+                                               predictor_names = NULL,
+                                               tol = 1e-10) {
   nb <- ncol(pred)
   non_intercept <- setdiff(seq_len(nb), intcol)
   if (length(non_intercept) == 0L) {
-    return(invisible(NULL))
+    return(character(0))
   }
 
   bad_cols <- logical(length(non_intercept))
@@ -26,7 +26,7 @@ pmg_validate_subject_level_predictors <- function(pred,
   }
 
   if (!any(bad_cols)) {
-    return(invisible(NULL))
+    return(character(0))
   }
 
   labels <- if (is.null(predictor_names)) {
@@ -34,13 +34,7 @@ pmg_validate_subject_level_predictors <- function(pred,
   } else {
     predictor_names
   }
-  bad_labels <- labels[non_intercept[bad_cols]]
-  stop(
-    sprintf(
-      "model='PGMM' only supports subject-level predictors that are constant within subject. Within-subject variation detected in: %s.",
-      paste(bad_labels, collapse = ", ")
-    )
-  )
+  labels[non_intercept[bad_cols]]
 }
 
 scrope_pmg_internal <- function(
@@ -106,12 +100,23 @@ scrope_pmg_internal <- function(
   k <- ctx$k
   intcol <- ctx$intcol
 
-  pmg_validate_subject_level_predictors(
+  within_subject_predictors <- pmg_find_within_subject_predictors(
     pred = ctx$pred,
     fid = ctx$fid,
     intcol = intcol,
     predictor_names = predn
   )
+  if (length(within_subject_predictors) > 0L && verbose) {
+    warning(sprintf(
+      paste(
+        "model='PGMM' permits cell-level fixed predictors, matching legacy",
+        "nebula(model='PMM'), but it only models subject-level overdispersion.",
+        "Inference for predictors varying within subject should be used with caution.",
+        "Detected within-subject variation in: %s."
+      ),
+      paste(within_subject_predictors, collapse = ", ")
+    ))
+  }
 
   extra_tests <- additional_tests
   if (!is.null(extra_tests)) {

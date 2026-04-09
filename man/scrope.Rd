@@ -86,9 +86,10 @@ including `"lrt"` in `additional_tests`.}
 \item{keep_diagnostics}{Logical; retain per-gene diagnostic objects.}
 
 \item{model}{Fitting path. `"LN"` uses the existing LN pipeline with optional
-HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path and
-currently supports only subject-level predictors that are constant within
-subject.}
+HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path. It
+matches legacy `nebula(model = "PMM")` in allowing cell-level fixed
+predictors, but it only models subject-level overdispersion, so inference
+for cell-level predictors should be interpreted with caution.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,

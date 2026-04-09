@@ -70,19 +70,37 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
   expect_true(nrow(res$lrt_details) >= 1)
 })
 
-test_that("scrope PGMM rejects cell-level predictors", {
+test_that("scrope PGMM allows cell-level predictors and returns results", {
   fx <- pmg_interior_test_fixture()
 
-  expect_error(
+  res <- scrope(
+    count = fx$count,
+    id = fx$id,
+    pred = fx$pred,
+    model = "PGMM",
+    verbose = FALSE,
+    cpc = 0,
+    mincp = 1
+  )
+
+  expect_equal(res$algorithm, "PGMM")
+  expect_true(all(c("logFC_x", "se_x", "se_robust_x", "p_robust_x") %in% colnames(res$summary)))
+  expect_equal(nrow(res$summary), 1)
+})
+
+test_that("scrope PGMM warns when predictors vary within subject", {
+  fx <- pmg_interior_test_fixture()
+
+  expect_warning(
     scrope(
       count = fx$count,
       id = fx$id,
       pred = fx$pred,
       model = "PGMM",
-      verbose = FALSE,
+      verbose = TRUE,
       cpc = 0,
       mincp = 1
     ),
-    "subject-level predictors"
+    "permits cell-level fixed predictors"
   )
 })
