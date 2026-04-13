@@ -9,8 +9,8 @@ likelihood-ratio tests for both approximate NBGMM fits and the exact PGMM path.
 
 ```r
 # latest development version
-install.packages("devtools")
-devtools::install_github("strug-hub/scRoPE")
+install.packages("remotes")
+remotes::install_github("strug-hub/scRoPE")
 ```
 
 ## Fitting Paths
