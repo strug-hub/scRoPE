@@ -1,3 +1,19 @@
+# scRoPE 0.2.1 (2026-04-16)
+
+- Added an internal exact PGMM profile-likelihood layer for scalar fixed-effect
+  targets, including unconstrained and constrained helpers plus pointwise and
+  grid evaluation utilities.
+- Added ordinary relative profile likelihood and robust adjusted relative
+  profile likelihood calculations for exact PGMM profile points and profile
+  grids.
+- Refactored shared scalar-profile reparameterization and bookkeeping in the
+  PGMM LRT helpers so the new profile layer and the existing robust PGMM LRT
+  path use aligned constrained-fit machinery.
+- Added regression tests covering profile-point outputs, profile-grid
+  structure, standardized profile-curve maxima, custom scalar contrasts, and
+  agreement between the pointwise robust adjusted profile LR quantity and the
+  existing robust PGMM LRT at matched null points.
+
 # scRoPE 0.2.0 (2026-04-09)
 
 - Added a top-level exact `scrope(model = "PGMM")` path with robust Wald,
