@@ -107,7 +107,11 @@ pgmm_profile_normalize_unconstrained <- function(unconstrained,
                                                  gene_index = NULL,
                                                  posv = NULL,
                                                  psi_index = NULL,
-                                                 c = NULL) {
+                                                 c = NULL,
+                                                 start = NULL,
+                                                 control = NULL,
+                                                 retry_failed_profiles = FALSE,
+                                                 use_average_objective = FALSE) {
   if (!is.null(unconstrained) &&
     !is.null(unconstrained$fit) &&
     !is.null(unconstrained$target) &&
@@ -129,7 +133,11 @@ pgmm_profile_normalize_unconstrained <- function(unconstrained,
     unconstrained <- fit_gene_pmg_unconstrained(
       gene_index = gene_index,
       posv = posv,
-      ctx = ctx
+      ctx = ctx,
+      start = start,
+      control = control,
+      retry = retry_failed_profiles,
+      use_average_objective = use_average_objective
     )
   }
 
@@ -150,16 +158,105 @@ pgmm_profile_standardize_curve <- function(stat, tol = 1e-8) {
   out
 }
 
+pgmm_clip_raw_lr <- function(raw_lr, tol = 1e-8) {
+  lr_tol <- max(tol, 1e-6)
+  clipped <- is.finite(raw_lr) && raw_lr < 0 && abs(raw_lr) <= lr_tol
+  list(
+    wP = if (isTRUE(clipped)) 0 else raw_lr,
+    raw_lr_clipped = clipped,
+    tol = lr_tol
+  )
+}
+
+pgmm_profile_accept_constrained <- function(point,
+                                            wP_nonnegative,
+                                            accept_nonzero_optimizer_code = TRUE,
+                                            gradient_tol = 1e-2,
+                                            average_gradient_tol = 1e-4) {
+  diag <- point$diagnostics
+  fit_c <- point$constrained
+  theta <- fit_c$theta
+  full_par <- c(theta$beta, theta$subVar)
+  reduced_grad <- if (!is.null(diag$reduced_gradient_max_abs)) diag$reduced_gradient_max_abs else NA_real_
+  n_subjects <- if (!is.null(diag$n_subjects)) diag$n_subjects else NA_real_
+  objective <- if (!is.null(diag$objective)) diag$objective else NA_real_
+  avg_reduced_grad <- if (is.finite(reduced_grad) && is.finite(n_subjects) && n_subjects > 0) {
+    reduced_grad / n_subjects
+  } else {
+    NA_real_
+  }
+
+  finite_fit <- is.finite(point$loglik_profile) &&
+    all(is.finite(full_par)) &&
+    is.finite(objective)
+  constraint_ok <- isTRUE(diag$constraint_satisfied)
+  h_eta_ok <- isTRUE(diag$H_etaeta_invertible)
+  boundary_ok <- !isTRUE(diag$boundary_reduced_any)
+  lr_ok <- isTRUE(wP_nonnegative)
+  gradient_ok <- is.finite(reduced_grad) &&
+    (reduced_grad <= gradient_tol ||
+      (is.finite(avg_reduced_grad) && avg_reduced_grad <= average_gradient_tol))
+  optimizer_ok <- isTRUE(diag$converged) ||
+    (isTRUE(accept_nonzero_optimizer_code) && gradient_ok)
+
+  accepted <- finite_fit &&
+    constraint_ok &&
+    h_eta_ok &&
+    boundary_ok &&
+    lr_ok &&
+    optimizer_ok
+
+  failure_reason <- NA_character_
+  if (!accepted) {
+    failure_reason <- if (!finite_fit) {
+      "nonfinite_profile_fit"
+    } else if (!constraint_ok) {
+      "constraint_not_satisfied"
+    } else if (!lr_ok) {
+      "negative_raw_lr"
+    } else if (!h_eta_ok) {
+      "singular_H_etaeta"
+    } else if (!boundary_ok) {
+      "boundary_constrained"
+    } else if (!optimizer_ok) {
+      "nonconverged_constrained"
+    } else {
+      "profile_point_failed"
+    }
+  }
+
+  list(
+    accepted = accepted,
+    optimizer_warning = accepted && !isTRUE(diag$converged),
+    finite_fit = finite_fit,
+    constraint_ok = constraint_ok,
+    h_eta_ok = h_eta_ok,
+    boundary_ok = boundary_ok,
+    lr_ok = lr_ok,
+    gradient_ok = gradient_ok,
+    avg_reduced_gradient_max_abs = avg_reduced_grad,
+    failure_reason = failure_reason
+  )
+}
+
 pgmm_fit_unconstrained <- function(gene_index,
                                    posv,
                                    ctx,
                                    psi_index = NULL,
-                                   c = NULL) {
+                                   c = NULL,
+                                   start = NULL,
+                                   control = NULL,
+                                   retry_failed_profiles = FALSE,
+                                   use_average_objective = FALSE) {
   target <- pgmm_profile_target(ctx, psi_index = psi_index, c = c)
   fit <- fit_gene_pmg_unconstrained(
     gene_index = gene_index,
     posv = posv,
-    ctx = ctx
+    ctx = ctx,
+    start = start,
+    control = control,
+    retry = retry_failed_profiles,
+    use_average_objective = use_average_objective
   )
   pgmm_profile_wrap_unconstrained(fit, target)
 }
@@ -172,12 +269,19 @@ pgmm_relative_profile_coef_grid <- function(ctx,
                                             compute_robust = TRUE,
                                             ridge_factor = 1e-8,
                                             cond_limit = 1e8,
-                                            tol = 1e-8) {
+                                            tol = 1e-8,
+                                            accept_nonzero_optimizer_code = TRUE,
+                                            retry_failed_profiles = TRUE,
+                                            use_average_objective = FALSE,
+                                            profile_gradient_tol = 1e-2,
+                                            profile_average_gradient_tol = 1e-4) {
   unc <- pgmm_fit_unconstrained(
     gene_index = gene_index,
     posv = posv,
     ctx = ctx,
-    psi_index = psi_index
+    psi_index = psi_index,
+    retry_failed_profiles = retry_failed_profiles,
+    use_average_objective = use_average_objective
   )
 
   pgmm_relative_profile_grid(
@@ -189,7 +293,12 @@ pgmm_relative_profile_coef_grid <- function(ctx,
     compute_robust = compute_robust,
     ridge_factor = ridge_factor,
     cond_limit = cond_limit,
-    tol = tol
+    tol = tol,
+    accept_nonzero_optimizer_code = accept_nonzero_optimizer_code,
+    retry_failed_profiles = retry_failed_profiles,
+    use_average_objective = use_average_objective,
+    profile_gradient_tol = profile_gradient_tol,
+    profile_average_gradient_tol = profile_average_gradient_tol
   )
 }
 
@@ -203,7 +312,10 @@ pgmm_profile_point <- function(ctx,
                                include_robust = TRUE,
                                ridge_factor = 1e-8,
                                cond_limit = 1e8,
-                               tol = 1e-8) {
+                               tol = 1e-8,
+                               retry_failed_profiles = TRUE,
+                               use_average_objective = FALSE,
+                               warm_start = NULL) {
   psi_value <- as.numeric(psi_value)
   if (length(psi_value) != 1L || !is.finite(psi_value)) {
     stop("psi_value must be a single finite number.")
@@ -215,7 +327,9 @@ pgmm_profile_point <- function(ctx,
     gene_index = gene_index,
     posv = posv,
     psi_index = psi_index,
-    c = c
+    c = c,
+    retry_failed_profiles = retry_failed_profiles,
+    use_average_objective = use_average_objective
   )
   target <- unc$target
 
@@ -225,8 +339,41 @@ pgmm_profile_point <- function(ctx,
     ctx = ctx,
     L = target$L,
     b = psi_value,
-    unconstrained_fit = unc$fit
+    unconstrained_fit = unc$fit,
+    warm_start = warm_start,
+    retry = retry_failed_profiles,
+    use_average_objective = use_average_objective
   )
+
+  lr_tol <- max(tol, 1e-6)
+  raw_lr_initial <- 2 * (unc$loglik - fit_c$loglik)
+  if (isTRUE(retry_failed_profiles) &&
+    is.finite(raw_lr_initial) &&
+    raw_lr_initial < -lr_tol) {
+    retry_start <- c(fit_c$theta$beta, fit_c$theta$subVar)
+    fit_u_retry <- fit_gene_pmg_unconstrained(
+      gene_index = gene_index,
+      posv = posv,
+      ctx = ctx,
+      start = retry_start,
+      retry = TRUE,
+      use_average_objective = use_average_objective
+    )
+    if (is.finite(fit_u_retry$loglik) && fit_u_retry$loglik > unc$loglik + lr_tol / 2) {
+      unc <- pgmm_profile_wrap_unconstrained(fit_u_retry, target)
+      fit_c <- fit_gene_pmg_constrained(
+        gene_index = gene_index,
+        posv = posv,
+        ctx = ctx,
+        L = target$L,
+        b = psi_value,
+        unconstrained_fit = unc$fit,
+        warm_start = fit_c,
+        retry = TRUE,
+        use_average_objective = use_average_objective
+      )
+    }
+  }
 
   profile_state <- compute_scalar_profile_quantities(
     full_score = -fit_c$score,
@@ -240,6 +387,10 @@ pgmm_profile_point <- function(ctx,
 
   constraint_residual <- as.numeric(target$L %*% fit_c$theta$beta - psi_value)
   constraint_satisfied <- is.finite(constraint_residual) && abs(constraint_residual) <= sqrt(.Machine$double.eps)
+  constrained_diagnostics <- fit_c$diagnostics
+  if (is.null(constrained_diagnostics)) {
+    constrained_diagnostics <- list()
+  }
 
   list(
     psi = psi_value,
@@ -268,6 +419,21 @@ pgmm_profile_point <- function(ctx,
       converged = isTRUE(fit_c$convergence > 0L),
       convergence = fit_c$convergence,
       optimizer = fit_c$optimizer,
+      raw_convergence = constrained_diagnostics$raw_convergence,
+      raw_message = constrained_diagnostics$raw_message,
+      objective = constrained_diagnostics$objective,
+      full_gradient_max_abs = constrained_diagnostics$full_gradient_max_abs,
+      full_gradient_l2 = constrained_diagnostics$full_gradient_l2,
+      reduced_gradient_max_abs = constrained_diagnostics$reduced_gradient_max_abs,
+      reduced_gradient_l2 = constrained_diagnostics$reduced_gradient_l2,
+      active_reduced_all = constrained_diagnostics$active_reduced_all,
+      boundary_reduced_any = constrained_diagnostics$boundary_reduced_any,
+      retry_used = constrained_diagnostics$retry_used,
+      use_average_objective = constrained_diagnostics$use_average_objective,
+      n_subjects = ctx$k,
+      active_reduced = constrained_diagnostics$active_reduced,
+      at_lower_reduced = constrained_diagnostics$at_lower_reduced,
+      at_upper_reduced = constrained_diagnostics$at_upper_reduced,
       constraint_residual = constraint_residual,
       constraint_satisfied = constraint_satisfied,
       H_etaeta_invertible = isTRUE(profile_state$diagnostics$H_etaeta_invertible),
@@ -288,7 +454,13 @@ pgmm_relative_profile_point <- function(ctx,
                                         compute_robust = TRUE,
                                         ridge_factor = 1e-8,
                                         cond_limit = 1e8,
-                                        tol = 1e-8) {
+                                        tol = 1e-8,
+                                        accept_nonzero_optimizer_code = TRUE,
+                                        retry_failed_profiles = TRUE,
+                                        use_average_objective = FALSE,
+                                        warm_start = NULL,
+                                        profile_gradient_tol = 1e-2,
+                                        profile_average_gradient_tol = 1e-4) {
   point <- pgmm_profile_point(
     ctx = ctx,
     gene_index = gene_index,
@@ -300,15 +472,26 @@ pgmm_relative_profile_point <- function(ctx,
     include_robust = compute_robust,
     ridge_factor = ridge_factor,
     cond_limit = cond_limit,
-    tol = tol
+    tol = tol,
+    retry_failed_profiles = retry_failed_profiles,
+    use_average_objective = use_average_objective,
+    warm_start = warm_start
   )
 
-  wP <- 2 * (point$loglik_unconstrained - point$loglik_profile)
-  if (is.finite(wP) && wP < 0 && abs(wP) <= tol) {
-    wP <- 0
-  }
-  wP_nonnegative <- is.finite(wP) && wP >= -tol
+  raw_lr <- 2 * (point$loglik_unconstrained - point$loglik_profile)
+  raw_lr_info <- pgmm_clip_raw_lr(raw_lr, tol = tol)
+  wP <- raw_lr_info$wP
+  lr_tol <- raw_lr_info$tol
+  raw_lr_clipped <- raw_lr_info$raw_lr_clipped
+  wP_nonnegative <- is.finite(wP) && wP >= -lr_tol
   relLik <- if (wP_nonnegative) exp(-0.5 * max(wP, 0)) else NA_real_
+  acceptance <- pgmm_profile_accept_constrained(
+    point = point,
+    wP_nonnegative = wP_nonnegative,
+    accept_nonzero_optimizer_code = accept_nonzero_optimizer_code,
+    gradient_tol = profile_gradient_tol,
+    average_gradient_tol = profile_average_gradient_tol
+  )
 
   UP <- NA_real_
   Jpsi <- NA_real_
@@ -352,15 +535,15 @@ pgmm_relative_profile_point <- function(ctx,
 
     if (is.finite(scale) && scale > 0 && wP_nonnegative) {
       wP_star <- scale * max(wP, 0)
-      if (is.finite(wP_star) && wP_star < 0 && abs(wP_star) <= tol) {
+      if (is.finite(wP_star) && wP_star < 0 && abs(wP_star) <= lr_tol) {
         wP_star <- 0
       }
     }
 
-    wP_star_nonnegative <- is.finite(wP_star) && wP_star >= -tol
+    wP_star_nonnegative <- is.finite(wP_star) && wP_star >= -lr_tol
     relLik_star <- if (wP_star_nonnegative) exp(-0.5 * max(wP_star, 0)) else NA_real_
 
-    robust_available <- isTRUE(point$diagnostics$converged) &&
+    robust_available <- isTRUE(acceptance$accepted) &&
       isTRUE(point$diagnostics$H_etaeta_invertible) &&
       isTRUE(point$diagnostics$Hpsi_positive) &&
       isTRUE(point$diagnostics$Jpsi_positive) &&
@@ -368,8 +551,8 @@ pgmm_relative_profile_point <- function(ctx,
       wP_star_nonnegative
 
     if (!robust_available) {
-      if (!isTRUE(point$diagnostics$converged)) {
-        failure_reason <- "nonconverged_constrained"
+      if (!isTRUE(acceptance$accepted)) {
+        failure_reason <- acceptance$failure_reason
       } else if (!wP_nonnegative) {
         failure_reason <- "negative_raw_lr"
       } else if (!isTRUE(point$diagnostics$H_etaeta_invertible)) {
@@ -389,7 +572,9 @@ pgmm_relative_profile_point <- function(ctx,
   }
 
   point$relative_profile <- list(
+    raw_lr = raw_lr,
     wP = wP,
+    raw_lr_clipped = raw_lr_clipped,
     relLik = relLik,
     UP = UP,
     Jpsi = Jpsi,
@@ -403,6 +588,10 @@ pgmm_relative_profile_point <- function(ctx,
     wP_nonnegative = wP_nonnegative,
     wP_star_nonnegative = wP_star_nonnegative,
     robust_available = robust_available,
+    profile_accepted = acceptance$accepted,
+    optimizer_warning = acceptance$optimizer_warning,
+    acceptance_failure_reason = acceptance$failure_reason,
+    avg_reduced_gradient_max_abs = acceptance$avg_reduced_gradient_max_abs,
     failure_reason = failure_reason
   )
   point
@@ -418,7 +607,13 @@ pgmm_relative_profile_grid <- function(ctx,
                                        compute_robust = TRUE,
                                        ridge_factor = 1e-8,
                                        cond_limit = 1e8,
-                                       tol = 1e-8) {
+                                       tol = 1e-8,
+                                       accept_nonzero_optimizer_code = TRUE,
+                                       retry_failed_profiles = TRUE,
+                                       use_average_objective = FALSE,
+                                       warm_start = TRUE,
+                                       profile_gradient_tol = 1e-2,
+                                       profile_average_gradient_tol = 1e-4) {
   psi_values <- as.numeric(psi_values)
   if (length(psi_values) == 0L) {
     stop("psi_values must contain at least one profile point.")
@@ -430,11 +625,19 @@ pgmm_relative_profile_grid <- function(ctx,
     gene_index = gene_index,
     posv = posv,
     psi_index = psi_index,
-    c = c
+    c = c,
+    retry_failed_profiles = retry_failed_profiles,
+    use_average_objective = use_average_objective
   )
 
   rows <- vector("list", length(psi_values))
-  for (idx in seq_along(psi_values)) {
+  eval_order <- if (isTRUE(warm_start)) {
+    order(abs(psi_values - unc$psi_hat), psi_values)
+  } else {
+    seq_along(psi_values)
+  }
+  current_warm_start <- NULL
+  for (idx in eval_order) {
     point <- pgmm_relative_profile_point(
       ctx = ctx,
       gene_index = gene_index,
@@ -444,8 +647,17 @@ pgmm_relative_profile_grid <- function(ctx,
       compute_robust = compute_robust,
       ridge_factor = ridge_factor,
       cond_limit = cond_limit,
-      tol = tol
+      tol = tol,
+      accept_nonzero_optimizer_code = accept_nonzero_optimizer_code,
+      retry_failed_profiles = retry_failed_profiles,
+      use_average_objective = use_average_objective,
+      warm_start = current_warm_start,
+      profile_gradient_tol = profile_gradient_tol,
+      profile_average_gradient_tol = profile_average_gradient_tol
     )
+    if (isTRUE(point$relative_profile$profile_accepted) && !is.null(point$constrained)) {
+      current_warm_start <- point$constrained
+    }
 
     rel <- point$relative_profile
     rows[[idx]] <- data.frame(
@@ -455,7 +667,9 @@ pgmm_relative_profile_grid <- function(ctx,
       psi_index = point$target$psi_index,
       loglik_unconstrained = point$loglik_unconstrained,
       loglik_profile = point$loglik_profile,
+      raw_lr = rel$raw_lr,
       wP = rel$wP,
+      raw_lr_clipped = rel$raw_lr_clipped,
       relLik = rel$relLik,
       UP = rel$UP,
       Jpsi = rel$Jpsi,
@@ -469,6 +683,18 @@ pgmm_relative_profile_grid <- function(ctx,
       converged = point$diagnostics$converged,
       convergence = point$diagnostics$convergence,
       optimizer = point$diagnostics$optimizer,
+      raw_convergence = point$diagnostics$raw_convergence,
+      raw_message = point$diagnostics$raw_message,
+      objective = point$diagnostics$objective,
+      full_gradient_max_abs = point$diagnostics$full_gradient_max_abs,
+      full_gradient_l2 = point$diagnostics$full_gradient_l2,
+      reduced_gradient_max_abs = point$diagnostics$reduced_gradient_max_abs,
+      reduced_gradient_l2 = point$diagnostics$reduced_gradient_l2,
+      avg_reduced_gradient_max_abs = rel$avg_reduced_gradient_max_abs,
+      active_reduced_all = point$diagnostics$active_reduced_all,
+      boundary_reduced_any = point$diagnostics$boundary_reduced_any,
+      retry_used = point$diagnostics$retry_used,
+      use_average_objective = point$diagnostics$use_average_objective,
       constraint_residual = point$diagnostics$constraint_residual,
       constraint_satisfied = point$diagnostics$constraint_satisfied,
       H_etaeta_invertible = point$diagnostics$H_etaeta_invertible,
@@ -478,6 +704,9 @@ pgmm_relative_profile_grid <- function(ctx,
       wP_nonnegative = rel$wP_nonnegative,
       wP_star_nonnegative = rel$wP_star_nonnegative,
       robust_available = rel$robust_available,
+      profile_accepted = rel$profile_accepted,
+      optimizer_warning = rel$optimizer_warning,
+      acceptance_failure_reason = rel$acceptance_failure_reason,
       failure_reason = rel$failure_reason,
       stringsAsFactors = FALSE
     )

@@ -241,3 +241,41 @@ test_that("PGMM-truth simulation gives finite profile curves and peaks near the 
   expect_lte(abs(ord_peak - true_scaled), grid_step)
   expect_lte(abs(rob_peak - true_scaled), grid_step)
 })
+
+test_that("PGMM raw LR clipping only accepts tiny negative values", {
+  clip_fn <- getFromNamespace("pgmm_clip_raw_lr", "scRoPE")
+
+  tiny <- clip_fn(-5e-7)
+  expect_equal(tiny$wP, 0)
+  expect_true(tiny$raw_lr_clipped)
+
+  substantial <- clip_fn(-5e-4)
+  expect_equal(substantial$wP, -5e-4)
+  expect_false(substantial$raw_lr_clipped)
+})
+
+test_that("PGMM profile acceptance can warn-accept nonzero optimizer codes", {
+  accept_fn <- getFromNamespace("pgmm_profile_accept_constrained", "scRoPE")
+
+  point <- list(
+    loglik_profile = -10,
+    constrained = list(theta = list(beta = c(0, 1), subVar = 0.2)),
+    diagnostics = list(
+      objective = 10,
+      reduced_gradient_max_abs = 5e-3,
+      n_subjects = 100,
+      constraint_satisfied = TRUE,
+      H_etaeta_invertible = TRUE,
+      boundary_reduced_any = FALSE,
+      converged = FALSE
+    )
+  )
+
+  accepted <- accept_fn(point, wP_nonnegative = TRUE)
+  expect_true(accepted$accepted)
+  expect_true(accepted$optimizer_warning)
+
+  rejected <- accept_fn(point, wP_nonnegative = TRUE, gradient_tol = 1e-6, average_gradient_tol = 1e-8)
+  expect_false(rejected$accepted)
+  expect_equal(rejected$failure_reason, "nonconverged_constrained")
+})
