@@ -266,6 +266,8 @@ test_that("PGMM profile acceptance can warn-accept nonzero optimizer codes", {
       n_subjects = 100,
       constraint_satisfied = TRUE,
       H_etaeta_invertible = TRUE,
+      Hpsi_positive = TRUE,
+      Jpsi_positive = TRUE,
       boundary_reduced_any = FALSE,
       converged = FALSE
     )
@@ -278,4 +280,109 @@ test_that("PGMM profile acceptance can warn-accept nonzero optimizer codes", {
   rejected <- accept_fn(point, wP_nonnegative = TRUE, gradient_tol = 1e-6, average_gradient_tol = 1e-8)
   expect_false(rejected$accepted)
   expect_equal(rejected$failure_reason, "nonconverged_constrained")
+})
+
+test_that("PGMM profile acceptance supports information-scaled warning checks", {
+  accept_fn <- getFromNamespace("pgmm_profile_accept_constrained", "scRoPE")
+
+  point <- list(
+    loglik_profile = -10,
+    constrained = list(theta = list(beta = c(0, 1), subVar = 0.2)),
+    diagnostics = list(
+      objective = 10,
+      reduced_gradient_max_abs = 1,
+      n_subjects = 100,
+      constraint_satisfied = TRUE,
+      H_etaeta_invertible = TRUE,
+      Hpsi_positive = TRUE,
+      Jpsi_positive = TRUE,
+      boundary_reduced_any = FALSE,
+      converged = FALSE,
+      max_abs_newton_step_scaled = 5e-6,
+      gradient_quadratic_lr_bound = 5e-7
+    )
+  )
+
+  legacy <- accept_fn(
+    point,
+    wP_nonnegative = TRUE,
+    gradient_tol = 1e-6,
+    average_gradient_tol = 1e-6
+  )
+  expect_false(legacy$accepted)
+
+  accepted <- accept_fn(
+    point,
+    wP_nonnegative = TRUE,
+    gradient_tol = 1e-6,
+    average_gradient_tol = 1e-6,
+    use_information_scaled_convergence = TRUE,
+    newton_step_scaled_tol = 1e-5,
+    gradient_quadratic_lr_bound_tol = 1e-6
+  )
+  expect_true(accepted$accepted)
+  expect_true(accepted$information_scaled_convergence_ok)
+  expect_true(accepted$newton_step_scaled_ok)
+  expect_true(accepted$gradient_quadratic_lr_bound_ok)
+  expect_true(accepted$optimizer_warning)
+})
+
+test_that("PGMM profile acceptance rejects nonpositive robust profile information", {
+  accept_fn <- getFromNamespace("pgmm_profile_accept_constrained", "scRoPE")
+
+  point <- list(
+    loglik_profile = -10,
+    constrained = list(theta = list(beta = c(0, 1), subVar = 0.2)),
+    diagnostics = list(
+      objective = 10,
+      reduced_gradient_max_abs = 1,
+      n_subjects = 100,
+      constraint_satisfied = TRUE,
+      H_etaeta_invertible = TRUE,
+      Hpsi_positive = FALSE,
+      Jpsi_positive = TRUE,
+      boundary_reduced_any = FALSE,
+      converged = FALSE,
+      max_abs_newton_step_scaled = 5e-6,
+      gradient_quadratic_lr_bound = 5e-7
+    )
+  )
+
+  rejected <- accept_fn(
+    point,
+    wP_nonnegative = TRUE,
+    gradient_tol = 1e-6,
+    average_gradient_tol = 1e-6,
+    use_information_scaled_convergence = TRUE
+  )
+  expect_false(rejected$accepted)
+  expect_equal(rejected$failure_reason, "nonpositive_Hpsi")
+})
+
+test_that("PGMM profile output includes reduced information convergence diagnostics", {
+  fx <- pmg_interior_test_fixture()
+  fit_uncached_fn <- getFromNamespace("pgmm_fit_unconstrained", "scRoPE")
+  point_fn <- getFromNamespace("pgmm_relative_profile_point", "scRoPE")
+
+  fit_u <- fit_uncached_fn(
+    gene_index = fx$gene_index,
+    posv = fx$posv,
+    ctx = fx$prep$ctx,
+    psi_index = 2
+  )
+
+  point <- point_fn(
+    ctx = fx$prep$ctx,
+    gene_index = fx$gene_index,
+    posv = fx$posv,
+    psi_value = 0,
+    unconstrained = fit_u,
+    profile_use_information_scaled_convergence = TRUE
+  )
+
+  expect_true("H_red_positive_definite" %in% names(point$diagnostics))
+  expect_true("max_abs_newton_step_scaled" %in% names(point$diagnostics))
+  expect_true("gradient_quadratic_lr_bound" %in% names(point$diagnostics))
+  expect_true(length(point$diagnostics$newton_step_red) == length(point$constrained$reduced$theta))
+  expect_true(is.logical(point$relative_profile$information_scaled_convergence_ok))
 })

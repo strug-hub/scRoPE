@@ -172,7 +172,10 @@ pgmm_profile_accept_constrained <- function(point,
                                             wP_nonnegative,
                                             accept_nonzero_optimizer_code = TRUE,
                                             gradient_tol = 1e-2,
-                                            average_gradient_tol = 1e-4) {
+                                            average_gradient_tol = 1e-4,
+                                            use_information_scaled_convergence = FALSE,
+                                            newton_step_scaled_tol = 1e-5,
+                                            gradient_quadratic_lr_bound_tol = 1e-6) {
   diag <- point$diagnostics
   fit_c <- point$constrained
   theta <- fit_c$theta
@@ -193,17 +196,41 @@ pgmm_profile_accept_constrained <- function(point,
   h_eta_ok <- isTRUE(diag$H_etaeta_invertible)
   boundary_ok <- !isTRUE(diag$boundary_reduced_any)
   lr_ok <- isTRUE(wP_nonnegative)
-  gradient_ok <- is.finite(reduced_grad) &&
-    (reduced_grad <= gradient_tol ||
-      (is.finite(avg_reduced_grad) && avg_reduced_grad <= average_gradient_tol))
+  hpsi_ok <- isTRUE(diag$Hpsi_positive)
+  jpsi_ok <- isTRUE(diag$Jpsi_positive)
+  raw_gradient_ok <- is.finite(reduced_grad) && reduced_grad <= gradient_tol
+  average_gradient_ok <- is.finite(avg_reduced_grad) && avg_reduced_grad <= average_gradient_tol
+  gradient_ok <- raw_gradient_ok || average_gradient_ok
+
+  newton_step_scaled <- if (!is.null(diag$max_abs_newton_step_scaled)) {
+    diag$max_abs_newton_step_scaled
+  } else {
+    NA_real_
+  }
+  gradient_quadratic_lr_bound <- if (!is.null(diag$gradient_quadratic_lr_bound)) {
+    diag$gradient_quadratic_lr_bound
+  } else {
+    NA_real_
+  }
+  newton_step_scaled_ok <- isTRUE(use_information_scaled_convergence) &&
+    is.finite(newton_step_scaled) &&
+    newton_step_scaled <= newton_step_scaled_tol
+  gradient_quadratic_lr_bound_ok <- isTRUE(use_information_scaled_convergence) &&
+    is.finite(gradient_quadratic_lr_bound) &&
+    gradient_quadratic_lr_bound >= 0 &&
+    gradient_quadratic_lr_bound <= gradient_quadratic_lr_bound_tol
+  information_scaled_convergence_ok <- newton_step_scaled_ok || gradient_quadratic_lr_bound_ok
+  numerical_convergence_ok <- gradient_ok || information_scaled_convergence_ok
   optimizer_ok <- isTRUE(diag$converged) ||
-    (isTRUE(accept_nonzero_optimizer_code) && gradient_ok)
+    (isTRUE(accept_nonzero_optimizer_code) && numerical_convergence_ok)
 
   accepted <- finite_fit &&
     constraint_ok &&
     h_eta_ok &&
     boundary_ok &&
     lr_ok &&
+    hpsi_ok &&
+    jpsi_ok &&
     optimizer_ok
 
   failure_reason <- NA_character_
@@ -218,6 +245,10 @@ pgmm_profile_accept_constrained <- function(point,
       "singular_H_etaeta"
     } else if (!boundary_ok) {
       "boundary_constrained"
+    } else if (!hpsi_ok) {
+      "nonpositive_Hpsi"
+    } else if (!jpsi_ok) {
+      "nonpositive_Jpsi"
     } else if (!optimizer_ok) {
       "nonconverged_constrained"
     } else {
@@ -234,7 +265,18 @@ pgmm_profile_accept_constrained <- function(point,
     boundary_ok = boundary_ok,
     lr_ok = lr_ok,
     gradient_ok = gradient_ok,
+    raw_gradient_ok = raw_gradient_ok,
+    average_gradient_ok = average_gradient_ok,
+    hpsi_ok = hpsi_ok,
+    jpsi_ok = jpsi_ok,
+    newton_step_scaled_ok = newton_step_scaled_ok,
+    gradient_quadratic_lr_bound_ok = gradient_quadratic_lr_bound_ok,
+    information_scaled_convergence_ok = information_scaled_convergence_ok,
+    numerical_convergence_ok = numerical_convergence_ok,
     avg_reduced_gradient_max_abs = avg_reduced_grad,
+    use_information_scaled_convergence = isTRUE(use_information_scaled_convergence),
+    newton_step_scaled_tol = newton_step_scaled_tol,
+    gradient_quadratic_lr_bound_tol = gradient_quadratic_lr_bound_tol,
     failure_reason = failure_reason
   )
 }
@@ -274,7 +316,10 @@ pgmm_relative_profile_coef_grid <- function(ctx,
                                             retry_failed_profiles = TRUE,
                                             use_average_objective = FALSE,
                                             profile_gradient_tol = 1e-2,
-                                            profile_average_gradient_tol = 1e-4) {
+                                            profile_average_gradient_tol = 1e-4,
+                                            profile_use_information_scaled_convergence = FALSE,
+                                            profile_newton_step_scaled_tol = 1e-5,
+                                            profile_gradient_quadratic_lr_bound_tol = 1e-6) {
   unc <- pgmm_fit_unconstrained(
     gene_index = gene_index,
     posv = posv,
@@ -298,7 +343,10 @@ pgmm_relative_profile_coef_grid <- function(ctx,
     retry_failed_profiles = retry_failed_profiles,
     use_average_objective = use_average_objective,
     profile_gradient_tol = profile_gradient_tol,
-    profile_average_gradient_tol = profile_average_gradient_tol
+    profile_average_gradient_tol = profile_average_gradient_tol,
+    profile_use_information_scaled_convergence = profile_use_information_scaled_convergence,
+    profile_newton_step_scaled_tol = profile_newton_step_scaled_tol,
+    profile_gradient_quadratic_lr_bound_tol = profile_gradient_quadratic_lr_bound_tol
   )
 }
 
@@ -426,6 +474,12 @@ pgmm_profile_point <- function(ctx,
       full_gradient_l2 = constrained_diagnostics$full_gradient_l2,
       reduced_gradient_max_abs = constrained_diagnostics$reduced_gradient_max_abs,
       reduced_gradient_l2 = constrained_diagnostics$reduced_gradient_l2,
+      H_red_positive_definite = constrained_diagnostics$H_red_positive_definite,
+      H_red_rcond = constrained_diagnostics$H_red_rcond,
+      newton_step_red = constrained_diagnostics$newton_step_red,
+      newton_step_red_max_abs = constrained_diagnostics$newton_step_red_max_abs,
+      max_abs_newton_step_scaled = constrained_diagnostics$max_abs_newton_step_scaled,
+      gradient_quadratic_lr_bound = constrained_diagnostics$gradient_quadratic_lr_bound,
       active_reduced_all = constrained_diagnostics$active_reduced_all,
       boundary_reduced_any = constrained_diagnostics$boundary_reduced_any,
       retry_used = constrained_diagnostics$retry_used,
@@ -436,6 +490,12 @@ pgmm_profile_point <- function(ctx,
       at_upper_reduced = constrained_diagnostics$at_upper_reduced,
       constraint_residual = constraint_residual,
       constraint_satisfied = constraint_satisfied,
+      optimizer_attempts = constrained_diagnostics$optimizer_attempts,
+      optimizer_objective_min = constrained_diagnostics$optimizer_objective_min,
+      optimizer_objective_max = constrained_diagnostics$optimizer_objective_max,
+      optimizer_objective_spread = constrained_diagnostics$optimizer_objective_spread,
+      optimizer_first_objective = constrained_diagnostics$optimizer_first_objective,
+      optimizer_first_objective_minus_best = constrained_diagnostics$optimizer_first_objective_minus_best,
       H_etaeta_invertible = isTRUE(profile_state$diagnostics$H_etaeta_invertible),
       H_etaeta_ridge = profile_state$diagnostics$H_etaeta_ridge,
       Hpsi_positive = isTRUE(profile_state$diagnostics$Hpsi_positive),
@@ -460,7 +520,10 @@ pgmm_relative_profile_point <- function(ctx,
                                         use_average_objective = FALSE,
                                         warm_start = NULL,
                                         profile_gradient_tol = 1e-2,
-                                        profile_average_gradient_tol = 1e-4) {
+                                        profile_average_gradient_tol = 1e-4,
+                                        profile_use_information_scaled_convergence = FALSE,
+                                        profile_newton_step_scaled_tol = 1e-5,
+                                        profile_gradient_quadratic_lr_bound_tol = 1e-6) {
   point <- pgmm_profile_point(
     ctx = ctx,
     gene_index = gene_index,
@@ -490,7 +553,10 @@ pgmm_relative_profile_point <- function(ctx,
     wP_nonnegative = wP_nonnegative,
     accept_nonzero_optimizer_code = accept_nonzero_optimizer_code,
     gradient_tol = profile_gradient_tol,
-    average_gradient_tol = profile_average_gradient_tol
+    average_gradient_tol = profile_average_gradient_tol,
+    use_information_scaled_convergence = profile_use_information_scaled_convergence,
+    newton_step_scaled_tol = profile_newton_step_scaled_tol,
+    gradient_quadratic_lr_bound_tol = profile_gradient_quadratic_lr_bound_tol
   )
 
   UP <- NA_real_
@@ -591,6 +657,17 @@ pgmm_relative_profile_point <- function(ctx,
     profile_accepted = acceptance$accepted,
     optimizer_warning = acceptance$optimizer_warning,
     acceptance_failure_reason = acceptance$failure_reason,
+    raw_gradient_ok = acceptance$raw_gradient_ok,
+    average_gradient_ok = acceptance$average_gradient_ok,
+    newton_step_scaled_ok = acceptance$newton_step_scaled_ok,
+    gradient_quadratic_lr_bound_ok = acceptance$gradient_quadratic_lr_bound_ok,
+    information_scaled_convergence_ok = acceptance$information_scaled_convergence_ok,
+    numerical_convergence_ok = acceptance$numerical_convergence_ok,
+    hpsi_ok = acceptance$hpsi_ok,
+    jpsi_ok = acceptance$jpsi_ok,
+    use_information_scaled_convergence = acceptance$use_information_scaled_convergence,
+    newton_step_scaled_tol = acceptance$newton_step_scaled_tol,
+    gradient_quadratic_lr_bound_tol = acceptance$gradient_quadratic_lr_bound_tol,
     avg_reduced_gradient_max_abs = acceptance$avg_reduced_gradient_max_abs,
     failure_reason = failure_reason
   )
@@ -613,7 +690,10 @@ pgmm_relative_profile_grid <- function(ctx,
                                        use_average_objective = FALSE,
                                        warm_start = TRUE,
                                        profile_gradient_tol = 1e-2,
-                                       profile_average_gradient_tol = 1e-4) {
+                                       profile_average_gradient_tol = 1e-4,
+                                       profile_use_information_scaled_convergence = FALSE,
+                                       profile_newton_step_scaled_tol = 1e-5,
+                                       profile_gradient_quadratic_lr_bound_tol = 1e-6) {
   psi_values <- as.numeric(psi_values)
   if (length(psi_values) == 0L) {
     stop("psi_values must contain at least one profile point.")
@@ -653,7 +733,10 @@ pgmm_relative_profile_grid <- function(ctx,
       use_average_objective = use_average_objective,
       warm_start = current_warm_start,
       profile_gradient_tol = profile_gradient_tol,
-      profile_average_gradient_tol = profile_average_gradient_tol
+      profile_average_gradient_tol = profile_average_gradient_tol,
+      profile_use_information_scaled_convergence = profile_use_information_scaled_convergence,
+      profile_newton_step_scaled_tol = profile_newton_step_scaled_tol,
+      profile_gradient_quadratic_lr_bound_tol = profile_gradient_quadratic_lr_bound_tol
     )
     if (isTRUE(point$relative_profile$profile_accepted) && !is.null(point$constrained)) {
       current_warm_start <- point$constrained
@@ -691,9 +774,29 @@ pgmm_relative_profile_grid <- function(ctx,
       reduced_gradient_max_abs = point$diagnostics$reduced_gradient_max_abs,
       reduced_gradient_l2 = point$diagnostics$reduced_gradient_l2,
       avg_reduced_gradient_max_abs = rel$avg_reduced_gradient_max_abs,
+      H_red_positive_definite = point$diagnostics$H_red_positive_definite,
+      H_red_rcond = point$diagnostics$H_red_rcond,
+      newton_step_red_max_abs = point$diagnostics$newton_step_red_max_abs,
+      max_abs_newton_step_scaled = point$diagnostics$max_abs_newton_step_scaled,
+      gradient_quadratic_lr_bound = point$diagnostics$gradient_quadratic_lr_bound,
+      raw_gradient_ok = rel$raw_gradient_ok,
+      average_gradient_ok = rel$average_gradient_ok,
+      newton_step_scaled_ok = rel$newton_step_scaled_ok,
+      gradient_quadratic_lr_bound_ok = rel$gradient_quadratic_lr_bound_ok,
+      information_scaled_convergence_ok = rel$information_scaled_convergence_ok,
+      numerical_convergence_ok = rel$numerical_convergence_ok,
+      use_information_scaled_convergence = rel$use_information_scaled_convergence,
+      newton_step_scaled_tol = rel$newton_step_scaled_tol,
+      gradient_quadratic_lr_bound_tol = rel$gradient_quadratic_lr_bound_tol,
       active_reduced_all = point$diagnostics$active_reduced_all,
       boundary_reduced_any = point$diagnostics$boundary_reduced_any,
       retry_used = point$diagnostics$retry_used,
+      optimizer_attempts = point$diagnostics$optimizer_attempts,
+      optimizer_objective_min = point$diagnostics$optimizer_objective_min,
+      optimizer_objective_max = point$diagnostics$optimizer_objective_max,
+      optimizer_objective_spread = point$diagnostics$optimizer_objective_spread,
+      optimizer_first_objective = point$diagnostics$optimizer_first_objective,
+      optimizer_first_objective_minus_best = point$diagnostics$optimizer_first_objective_minus_best,
       use_average_objective = point$diagnostics$use_average_objective,
       constraint_residual = point$diagnostics$constraint_residual,
       constraint_satisfied = point$diagnostics$constraint_satisfied,

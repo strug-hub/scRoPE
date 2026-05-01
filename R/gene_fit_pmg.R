@@ -33,6 +33,66 @@ pmg_vector_norms <- function(x) {
   )
 }
 
+pmg_reduced_newton_diagnostics <- function(H_red, g_red, theta_red) {
+  H_red <- as.matrix(H_red)
+  g_red <- as.numeric(g_red)
+  theta_red <- as.numeric(theta_red)
+
+  empty <- list(
+    H_red_positive_definite = FALSE,
+    H_red_rcond = NA_real_,
+    newton_step_red = rep(NA_real_, length(g_red)),
+    newton_step_red_max_abs = NA_real_,
+    max_abs_newton_step_scaled = NA_real_,
+    gradient_quadratic_lr_bound = NA_real_
+  )
+
+  if (!length(g_red) ||
+    !all(dim(H_red) == c(length(g_red), length(g_red))) ||
+    length(theta_red) != length(g_red) ||
+    !all(is.finite(H_red)) ||
+    !all(is.finite(g_red)) ||
+    !all(is.finite(theta_red))) {
+    return(empty)
+  }
+
+  H_red <- 0.5 * (H_red + t(H_red))
+  empty$H_red_rcond <- tryCatch(
+    rcond(H_red),
+    error = function(e) NA_real_
+  )
+
+  chol_H <- tryCatch(
+    chol(H_red),
+    error = function(e) NULL
+  )
+  if (is.null(chol_H)) {
+    return(empty)
+  }
+
+  step <- tryCatch(
+    backsolve(chol_H, forwardsolve(t(chol_H), g_red)),
+    error = function(e) NULL
+  )
+  if (is.null(step) || !all(is.finite(step))) {
+    return(empty)
+  }
+
+  quad <- as.numeric(crossprod(g_red, step))
+  if (!is.finite(quad)) {
+    return(empty)
+  }
+
+  list(
+    H_red_positive_definite = TRUE,
+    H_red_rcond = empty$H_red_rcond,
+    newton_step_red = as.numeric(step),
+    newton_step_red_max_abs = max(abs(step)),
+    max_abs_newton_step_scaled = max(abs(step) / pmax(1, abs(theta_red))),
+    gradient_quadratic_lr_bound = quad
+  )
+}
+
 pmg_reduced_mapping <- function(nb, K) {
   free_dim <- ncol(K)
   map <- matrix(0, nrow = nb + 1L, ncol = free_dim + 1L)
@@ -578,6 +638,20 @@ fit_gene_pmg_constrained <- function(gene_index,
         k = k
       )
     }, numeric(1))
+    fit_objective_finite <- fit_objective[is.finite(fit_objective)]
+    fit_objective_min <- if (length(fit_objective_finite)) min(fit_objective_finite) else NA_real_
+    fit_objective_max <- if (length(fit_objective_finite)) max(fit_objective_finite) else NA_real_
+    fit_objective_spread <- if (length(fit_objective_finite)) {
+      fit_objective_max - fit_objective_min
+    } else {
+      NA_real_
+    }
+    first_fit_objective <- if (length(fit_objective)) fit_objective[[1L]] else NA_real_
+    first_fit_objective_minus_best <- if (is.finite(first_fit_objective) && is.finite(fit_objective_min)) {
+      first_fit_objective - fit_objective_min
+    } else {
+      NA_real_
+    }
     fit_convergence_rank <- vapply(fits, function(fit_try) {
       conv <- fit_try$raw$convergence
       if (is.null(conv) || isTRUE(conv == 0L)) 0L else 1L
@@ -601,8 +675,14 @@ fit_gene_pmg_constrained <- function(gene_index,
 
     map <- pmg_reduced_mapping(nb, K)
     H_red <- crossprod(map, eval_at_opt$observed_info %*% map)
+    H_red <- 0.5 * (H_red + t(H_red))
     U_red <- crossprod(map, eval_at_opt$per_subject_gradients)
     score_red <- as.numeric(crossprod(map, eval_at_opt$gradient))
+    reduced_newton <- pmg_reduced_newton_diagnostics(
+      H_red = H_red,
+      g_red = score_red,
+      theta_red = fit$par
+    )
 
     active_red <- is.finite(diag(H_red)) &
       (fit$par != lower_theta) &
@@ -706,12 +786,24 @@ fit_gene_pmg_constrained <- function(gene_index,
         full_gradient_l2 = full_gradient_norms$l2,
         reduced_gradient_max_abs = reduced_gradient_norms$max_abs,
         reduced_gradient_l2 = reduced_gradient_norms$l2,
+        H_red_positive_definite = reduced_newton$H_red_positive_definite,
+        H_red_rcond = reduced_newton$H_red_rcond,
+        newton_step_red = reduced_newton$newton_step_red,
+        newton_step_red_max_abs = reduced_newton$newton_step_red_max_abs,
+        max_abs_newton_step_scaled = reduced_newton$max_abs_newton_step_scaled,
+        gradient_quadratic_lr_bound = reduced_newton$gradient_quadratic_lr_bound,
         active_reduced = active_red,
         at_lower_reduced = fit$par <= lower_theta + sqrt(.Machine$double.eps),
         at_upper_reduced = fit$par >= upper_theta - sqrt(.Machine$double.eps),
         active_reduced_all = all(active_red),
         boundary_reduced_any = any(fit$par <= lower_theta + sqrt(.Machine$double.eps) | fit$par >= upper_theta - sqrt(.Machine$double.eps)),
         retry_used = retry_used_actual,
+        optimizer_attempts = length(fits),
+        optimizer_objective_min = fit_objective_min,
+        optimizer_objective_max = fit_objective_max,
+        optimizer_objective_spread = fit_objective_spread,
+        optimizer_first_objective = first_fit_objective,
+        optimizer_first_objective_minus_best = first_fit_objective_minus_best,
         use_average_objective = isTRUE(use_average_objective),
         lower_reduced = lower_theta,
         upper_reduced = upper_theta
@@ -729,6 +821,7 @@ fit_gene_pmg_constrained <- function(gene_index,
         theta = fit$par,
         gamma = if (free_dim == 0L) numeric(0) else fit$par[seq_len(free_dim)],
         score = score_red,
+        newton_step = reduced_newton$newton_step_red,
         observed_info = H_red,
         per_subject_gradients = U_red
       )
