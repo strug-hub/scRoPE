@@ -42,7 +42,9 @@ head(fit$summary)
 `scrope(model = "PGMM")` fits the exact Poisson-gamma mixed model inherited
 from legacy `nebula(model = "PMM")`. This path supports the exact PGMM
 likelihood together with robust Wald, adjusted Score, and gated adjusted LRT
-inference.
+inference. Internal exact PGMM profile-likelihood helpers also provide
+pointwise and grid-based ordinary and robust relative profile likelihoods for
+scalar fixed-effect targets.
 
 ```r
 library(scRoPE)
@@ -83,3 +85,6 @@ High-level changes in this repo include:
   adjusted tests.
 - Improved HL estimation and stability (analytic Hessians, cached scores, and
   negative LRT safeguards) for reliable inference.
+- Added an exact PGMM path and exact PGMM profile-likelihood diagnostics,
+  including conservative information-scaled convergence checks for constrained
+  profile fits.

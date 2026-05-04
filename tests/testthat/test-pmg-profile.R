@@ -307,9 +307,19 @@ test_that("PGMM profile acceptance supports information-scaled warning checks", 
     point,
     wP_nonnegative = TRUE,
     gradient_tol = 1e-6,
-    average_gradient_tol = 1e-6
+    average_gradient_tol = 1e-6,
+    use_information_scaled_convergence = FALSE
   )
   expect_false(legacy$accepted)
+
+  default_accepted <- accept_fn(
+    point,
+    wP_nonnegative = TRUE,
+    gradient_tol = 1e-6,
+    average_gradient_tol = 1e-6
+  )
+  expect_true(default_accepted$accepted)
+  expect_true(default_accepted$use_information_scaled_convergence)
 
   accepted <- accept_fn(
     point,

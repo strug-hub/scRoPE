@@ -1,3 +1,22 @@
+# scRoPE 0.2.2 (2026-05-04)
+
+- Strengthened exact PGMM profile-likelihood optimization with constrained and
+  unconstrained retry starts, optional average-objective scaling, warm-started
+  profile grids, and richer optimizer diagnostics.
+- Added reduced-Hessian information-scaled convergence diagnostics for exact
+  PGMM constrained profile fits, including scaled Newton-step and
+  gradient-quadratic LR-bound checks.
+- Enabled the information-scaled convergence check by default for exact PGMM
+  profile point/grid helpers while keeping hard validity checks for finite
+  fits, satisfied constraints, nonnegative raw LR, positive `Hpsi`, and positive
+  `Jpsi`.
+- Improved exact PGMM profile output diagnostics, including raw LR clipping
+  indicators, acceptance flags, optimizer-warning indicators, retry metadata,
+  gradient norms, boundary flags, and reduced-information diagnostics.
+- Added regression tests for tiny negative raw-LR clipping, warning-code
+  acceptance, information-scaled convergence acceptance, and rejection of
+  profiles with nonpositive robust profile information.
+
 # scRoPE 0.2.1 (2026-04-16)
 
 - Added an internal exact PGMM profile-likelihood layer for scalar fixed-effect

@@ -173,7 +173,7 @@ pgmm_profile_accept_constrained <- function(point,
                                             accept_nonzero_optimizer_code = TRUE,
                                             gradient_tol = 1e-2,
                                             average_gradient_tol = 1e-4,
-                                            use_information_scaled_convergence = FALSE,
+                                            use_information_scaled_convergence = TRUE,
                                             newton_step_scaled_tol = 1e-5,
                                             gradient_quadratic_lr_bound_tol = 1e-6) {
   diag <- point$diagnostics
@@ -317,7 +317,7 @@ pgmm_relative_profile_coef_grid <- function(ctx,
                                             use_average_objective = FALSE,
                                             profile_gradient_tol = 1e-2,
                                             profile_average_gradient_tol = 1e-4,
-                                            profile_use_information_scaled_convergence = FALSE,
+                                            profile_use_information_scaled_convergence = TRUE,
                                             profile_newton_step_scaled_tol = 1e-5,
                                             profile_gradient_quadratic_lr_bound_tol = 1e-6) {
   unc <- pgmm_fit_unconstrained(
@@ -521,7 +521,7 @@ pgmm_relative_profile_point <- function(ctx,
                                         warm_start = NULL,
                                         profile_gradient_tol = 1e-2,
                                         profile_average_gradient_tol = 1e-4,
-                                        profile_use_information_scaled_convergence = FALSE,
+                                        profile_use_information_scaled_convergence = TRUE,
                                         profile_newton_step_scaled_tol = 1e-5,
                                         profile_gradient_quadratic_lr_bound_tol = 1e-6) {
   point <- pgmm_profile_point(
@@ -691,7 +691,7 @@ pgmm_relative_profile_grid <- function(ctx,
                                        warm_start = TRUE,
                                        profile_gradient_tol = 1e-2,
                                        profile_average_gradient_tol = 1e-4,
-                                       profile_use_information_scaled_convergence = FALSE,
+                                       profile_use_information_scaled_convergence = TRUE,
                                        profile_newton_step_scaled_tol = 1e-5,
                                        profile_gradient_quadratic_lr_bound_tol = 1e-6) {
   psi_values <- as.numeric(psi_values)
