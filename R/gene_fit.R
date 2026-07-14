@@ -1087,6 +1087,7 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
   )
 
   loglik_ln_rescued <- loglik_ln_pre
+  reduced_curvature_min_eigen <- NA_real_
   if (free_dim > 0) {
     repml <- opt_pml_constrained(
       ctx$pred,
@@ -1104,7 +1105,32 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       ctx$eps,
       1
     )
-    conv_code <- check_conv(repml, conv_LN, ctx$nb, c(subVar, cellVar), ctx$min, ctx$max)
+    reduced_curvature <- crossprod(K, repml$var %*% K)
+    reduced_curvature <- 0.5 * (reduced_curvature + t(reduced_curvature))
+    reduced_eigenvalues <- tryCatch(
+      eigen(reduced_curvature, symmetric = TRUE, only.values = TRUE)$values,
+      error = function(e) NULL
+    )
+    if (!is.null(reduced_eigenvalues) && all(is.finite(reduced_eigenvalues))) {
+      reduced_curvature_min_eigen <- min(reduced_eigenvalues)
+    }
+
+    # `repml$var` is singular in the full beta space by construction because
+    # the constrained directions have zero curvature. Preserve the legacy
+    # optimizer/boundary checks, but assess curvature only in the free K-space.
+    repml_reduced <- repml
+    repml_reduced$var <- reduced_curvature
+    conv_code <- check_conv(
+      repml_reduced,
+      conv_LN,
+      free_dim,
+      c(subVar, cellVar),
+      ctx$min,
+      ctx$max
+    )
+    if (!is.finite(reduced_curvature_min_eigen) || reduced_curvature_min_eigen < 1e-8) {
+      conv_code <- -25L
+    }
     final_betas <- repml$beta
     loglik_val <- repml$loglik
     if (is.na(loglik_val)) {
@@ -1129,11 +1155,12 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
     repml_logw <- repml$logw
     fccov <- matrix(NA_real_, ctx$nb, ctx$nb)
     if (conv_code != -25) {
-      fccov <- tryCatch({
-        Rfast::spdinv(repml$var)
+      fccov_reduced <- tryCatch({
+        Rfast::spdinv(reduced_curvature)
       }, error = function(e) {
-        solve(repml$var)
+        solve(reduced_curvature)
       })
+      fccov <- K %*% fccov_reduced %*% t(K)
     }
   } else {
     final_betas <- beta_anchor
@@ -1254,6 +1281,7 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       conv_LN = conv_LN,
       conv_code = conv_code,
       free_dim = free_dim,
+      reduced_curvature_min_eigen = reduced_curvature_min_eigen,
       loglik_ln_pre = loglik_ln_pre,
       loglik_ln_rescued = loglik_ln_rescued
     )

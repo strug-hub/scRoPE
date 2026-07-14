@@ -349,7 +349,15 @@ compute_profile_lrt <- function(unconstrained,
   ridge_factor <- max(ridge_factor, 0)
   base_factor <- if (ridge_factor > 0) ridge_factor else 0
 
-  if (nrow(L) == 1L) {
+  # Exact PGMM fits expose the full derivatives needed by the scalar profile
+  # calculation at the top level. LN constrained fits retain their derivatives
+  # in the Godambe summary and must continue through the general LRT path below.
+  has_scalar_profile_state <-
+    !is.null(constrained$score) &&
+    !is.null(constrained$per_subject_gradients) &&
+    !is.null(constrained$observed_info)
+
+  if (nrow(L) == 1L && has_scalar_profile_state) {
     profile_scalar <- compute_scalar_profile_quantities(
       full_score = constrained$score,
       full_per_subject_scores = constrained$per_subject_gradients,

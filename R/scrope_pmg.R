@@ -107,12 +107,10 @@ scrope_pmg_internal <- function(
     predictor_names = predn
   )
   if (length(within_subject_predictors) > 0L && verbose) {
-    warning(sprintf(
-      paste(
-        "model='PGMM' permits cell-level fixed predictors, matching legacy",
-        "nebula(model='PMM'), but it only models subject-level overdispersion.",
-        "Inference for predictors varying within subject should be used with caution.",
-        "Detected within-subject variation in: %s."
+    message(sprintf(
+      paste0(
+        "model='PGMM': cell-level predictor(s) detected: %s. ",
+        "Use robust results when cell-level overdispersion may be present."
       ),
       paste(within_subject_predictors, collapse = ", ")
     ))

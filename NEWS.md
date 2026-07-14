@@ -1,3 +1,17 @@
+# scRoPE 0.2.3 (2026-07-14)
+
+- Restored adjusted LRT inference for the LN NBGMM route by limiting the exact
+  PGMM scalar-profile calculation to fits that expose its required derivative
+  state.
+- Corrected constrained LN convergence and covariance calculations to use the
+  free-parameter curvature, avoiding false nonconvergence from the expected
+  rank deficiency in the full constrained parameter space.
+- Reorganized the README around default robust Wald inference, with optional
+  adjusted Score/LRT tests and separate subject- and cell-level PGMM examples.
+- Replaced the PGMM cell-level predictor warning with a brief informational
+  message directing users to the robust results when cell-level overdispersion
+  may be present.
+
 # scRoPE 0.2.2 (2026-05-04)
 
 - Strengthened exact PGMM profile-likelihood optimization with constrained and

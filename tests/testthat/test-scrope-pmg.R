@@ -150,10 +150,10 @@ test_that("scrope PGMM allows cell-level predictors and returns results", {
   expect_equal(nrow(res$summary), 1)
 })
 
-test_that("scrope PGMM warns when predictors vary within subject", {
+test_that("scrope PGMM messages when predictors vary within subject", {
   fx <- pmg_interior_test_fixture()
 
-  expect_warning(
+  expect_message(
     scrope(
       count = fx$count,
       id = fx$id,
@@ -163,6 +163,6 @@ test_that("scrope PGMM warns when predictors vary within subject", {
       cpc = 0,
       mincp = 1
     ),
-    "permits cell-level fixed predictors"
+    "cell-level predictor\\(s\\) detected"
   )
 })

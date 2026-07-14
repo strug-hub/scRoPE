@@ -87,11 +87,10 @@ including `"lrt"` in `additional_tests`.}
 
 \item{model}{Fitting path. `"LN"` uses the existing LN pipeline with optional
 HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path. It
-matches legacy `nebula(model = "PMM")` in allowing cell-level fixed
-predictors, but it only models subject-level overdispersion, so inference
-for cell-level predictors should be interpreted with caution. For testing
-cell-level predictors when cell-level overdispersion matters, prefer the
-LN/HL NBGMM path.}
+supports subject- and cell-level fixed effects. Because PGMM omits separate
+cell-level overdispersion, prefer robust results for cell-level predictors.
+Use the LN/HL NBGMM path when that variance component should be modeled
+explicitly.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,
