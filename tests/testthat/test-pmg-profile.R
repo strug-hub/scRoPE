@@ -298,6 +298,7 @@ test_that("PGMM profile acceptance supports information-scaled warning checks", 
       Jpsi_positive = TRUE,
       boundary_reduced_any = FALSE,
       converged = FALSE,
+      H_red_positive_definite = TRUE,
       max_abs_newton_step_scaled = 5e-6,
       gradient_quadratic_lr_bound = 5e-7
     )
@@ -353,6 +354,7 @@ test_that("PGMM profile acceptance rejects nonpositive robust profile informatio
       Jpsi_positive = TRUE,
       boundary_reduced_any = FALSE,
       converged = FALSE,
+      H_red_positive_definite = TRUE,
       max_abs_newton_step_scaled = 5e-6,
       gradient_quadratic_lr_bound = 5e-7
     )
@@ -395,4 +397,80 @@ test_that("PGMM profile output includes reduced information convergence diagnost
   expect_true("gradient_quadratic_lr_bound" %in% names(point$diagnostics))
   expect_true(length(point$diagnostics$newton_step_red) == length(point$constrained$reduced$theta))
   expect_true(is.logical(point$relative_profile$information_scaled_convergence_ok))
+})
+
+test_that("PGMM constrained convergence assessment records its acceptance basis", {
+  assess_fn <- getFromNamespace("pmg_assess_constrained_convergence", "scRoPE")
+  base_diagnostics <- list(
+    reduced_gradient_max_abs = 1,
+    H_red_positive_definite = TRUE,
+    max_abs_newton_step_scaled = 5e-6,
+    gradient_quadratic_lr_bound = 5e-7
+  )
+
+  optimizer <- assess_fn(
+    diagnostics = base_diagnostics,
+    optimizer_converged = TRUE,
+    n_subjects = 100
+  )
+  expect_true(optimizer$accepted)
+  expect_equal(optimizer$convergence_basis, "optimizer")
+
+  raw_gradient <- assess_fn(
+    diagnostics = modifyList(base_diagnostics, list(
+      reduced_gradient_max_abs = 5e-3,
+      max_abs_newton_step_scaled = 1,
+      gradient_quadratic_lr_bound = 1
+    )),
+    optimizer_converged = FALSE,
+    n_subjects = 1
+  )
+  expect_true(raw_gradient$accepted)
+  expect_equal(raw_gradient$convergence_basis, "raw_gradient")
+
+  information_scaled <- assess_fn(
+    diagnostics = base_diagnostics,
+    optimizer_converged = FALSE,
+    n_subjects = 100,
+    gradient_tol = 1e-6,
+    average_gradient_tol = 1e-6
+  )
+  expect_true(information_scaled$accepted)
+  expect_equal(information_scaled$convergence_basis, "information_scaled")
+})
+
+test_that("PGMM information-scaled convergence uses the documented OR rule", {
+  assess_fn <- getFromNamespace("pmg_assess_constrained_convergence", "scRoPE")
+  base_diagnostics <- list(
+    reduced_gradient_max_abs = 1,
+    H_red_positive_definite = TRUE
+  )
+  assess <- function(newton, quadratic, enabled = TRUE, positive_definite = TRUE) {
+    assess_fn(
+      diagnostics = modifyList(base_diagnostics, list(
+        H_red_positive_definite = positive_definite,
+        max_abs_newton_step_scaled = newton,
+        gradient_quadratic_lr_bound = quadratic
+      )),
+      optimizer_converged = FALSE,
+      n_subjects = 1,
+      gradient_tol = 1e-6,
+      average_gradient_tol = 1e-6,
+      use_information_scaled_convergence = enabled
+    )
+  }
+
+  newton_only <- assess(5e-6, 1)
+  expect_true(newton_only$accepted)
+  expect_true(newton_only$newton_step_scaled_ok)
+  expect_false(newton_only$gradient_quadratic_lr_bound_ok)
+
+  quadratic_only <- assess(1, 5e-7)
+  expect_true(quadratic_only$accepted)
+  expect_false(quadratic_only$newton_step_scaled_ok)
+  expect_true(quadratic_only$gradient_quadratic_lr_bound_ok)
+
+  expect_false(assess(5e-6, 5e-7, enabled = FALSE)$accepted)
+  expect_false(assess(5e-6, 5e-7, positive_definite = FALSE)$accepted)
+  expect_false(assess(NA_real_, NA_real_)$accepted)
 })

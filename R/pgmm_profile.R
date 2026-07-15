@@ -180,14 +180,19 @@ pgmm_profile_accept_constrained <- function(point,
   fit_c <- point$constrained
   theta <- fit_c$theta
   full_par <- c(theta$beta, theta$subVar)
-  reduced_grad <- if (!is.null(diag$reduced_gradient_max_abs)) diag$reduced_gradient_max_abs else NA_real_
-  n_subjects <- if (!is.null(diag$n_subjects)) diag$n_subjects else NA_real_
   objective <- if (!is.null(diag$objective)) diag$objective else NA_real_
-  avg_reduced_grad <- if (is.finite(reduced_grad) && is.finite(n_subjects) && n_subjects > 0) {
-    reduced_grad / n_subjects
-  } else {
-    NA_real_
-  }
+
+  convergence <- pmg_assess_constrained_convergence(
+    diagnostics = diag,
+    optimizer_converged = isTRUE(diag$converged),
+    n_subjects = diag$n_subjects,
+    accept_nonzero_optimizer_code = accept_nonzero_optimizer_code,
+    gradient_tol = gradient_tol,
+    average_gradient_tol = average_gradient_tol,
+    use_information_scaled_convergence = use_information_scaled_convergence,
+    newton_step_scaled_tol = newton_step_scaled_tol,
+    gradient_quadratic_lr_bound_tol = gradient_quadratic_lr_bound_tol
+  )
 
   finite_fit <- is.finite(point$loglik_profile) &&
     all(is.finite(full_par)) &&
@@ -198,31 +203,7 @@ pgmm_profile_accept_constrained <- function(point,
   lr_ok <- isTRUE(wP_nonnegative)
   hpsi_ok <- isTRUE(diag$Hpsi_positive)
   jpsi_ok <- isTRUE(diag$Jpsi_positive)
-  raw_gradient_ok <- is.finite(reduced_grad) && reduced_grad <= gradient_tol
-  average_gradient_ok <- is.finite(avg_reduced_grad) && avg_reduced_grad <= average_gradient_tol
-  gradient_ok <- raw_gradient_ok || average_gradient_ok
-
-  newton_step_scaled <- if (!is.null(diag$max_abs_newton_step_scaled)) {
-    diag$max_abs_newton_step_scaled
-  } else {
-    NA_real_
-  }
-  gradient_quadratic_lr_bound <- if (!is.null(diag$gradient_quadratic_lr_bound)) {
-    diag$gradient_quadratic_lr_bound
-  } else {
-    NA_real_
-  }
-  newton_step_scaled_ok <- isTRUE(use_information_scaled_convergence) &&
-    is.finite(newton_step_scaled) &&
-    newton_step_scaled <= newton_step_scaled_tol
-  gradient_quadratic_lr_bound_ok <- isTRUE(use_information_scaled_convergence) &&
-    is.finite(gradient_quadratic_lr_bound) &&
-    gradient_quadratic_lr_bound >= 0 &&
-    gradient_quadratic_lr_bound <= gradient_quadratic_lr_bound_tol
-  information_scaled_convergence_ok <- newton_step_scaled_ok || gradient_quadratic_lr_bound_ok
-  numerical_convergence_ok <- gradient_ok || information_scaled_convergence_ok
-  optimizer_ok <- isTRUE(diag$converged) ||
-    (isTRUE(accept_nonzero_optimizer_code) && numerical_convergence_ok)
+  optimizer_ok <- isTRUE(convergence$accepted)
 
   accepted <- finite_fit &&
     constraint_ok &&
@@ -258,25 +239,27 @@ pgmm_profile_accept_constrained <- function(point,
 
   list(
     accepted = accepted,
-    optimizer_warning = accepted && !isTRUE(diag$converged),
+    optimizer_warning = accepted && isTRUE(convergence$optimizer_warning),
+    convergence_basis = if (accepted) convergence$convergence_basis else NA_character_,
     finite_fit = finite_fit,
     constraint_ok = constraint_ok,
     h_eta_ok = h_eta_ok,
     boundary_ok = boundary_ok,
     lr_ok = lr_ok,
-    gradient_ok = gradient_ok,
-    raw_gradient_ok = raw_gradient_ok,
-    average_gradient_ok = average_gradient_ok,
+    gradient_ok = convergence$gradient_ok,
+    raw_gradient_ok = convergence$raw_gradient_ok,
+    average_gradient_ok = convergence$average_gradient_ok,
     hpsi_ok = hpsi_ok,
     jpsi_ok = jpsi_ok,
-    newton_step_scaled_ok = newton_step_scaled_ok,
-    gradient_quadratic_lr_bound_ok = gradient_quadratic_lr_bound_ok,
-    information_scaled_convergence_ok = information_scaled_convergence_ok,
-    numerical_convergence_ok = numerical_convergence_ok,
-    avg_reduced_gradient_max_abs = avg_reduced_grad,
-    use_information_scaled_convergence = isTRUE(use_information_scaled_convergence),
-    newton_step_scaled_tol = newton_step_scaled_tol,
-    gradient_quadratic_lr_bound_tol = gradient_quadratic_lr_bound_tol,
+    H_red_positive_definite = convergence$H_red_positive_definite,
+    newton_step_scaled_ok = convergence$newton_step_scaled_ok,
+    gradient_quadratic_lr_bound_ok = convergence$gradient_quadratic_lr_bound_ok,
+    information_scaled_convergence_ok = convergence$information_scaled_convergence_ok,
+    numerical_convergence_ok = convergence$numerical_convergence_ok,
+    avg_reduced_gradient_max_abs = convergence$average_reduced_gradient_max_abs,
+    use_information_scaled_convergence = convergence$use_information_scaled_convergence,
+    newton_step_scaled_tol = convergence$newton_step_scaled_tol,
+    gradient_quadratic_lr_bound_tol = convergence$gradient_quadratic_lr_bound_tol,
     failure_reason = failure_reason
   )
 }
@@ -381,7 +364,7 @@ pgmm_profile_point <- function(ctx,
   )
   target <- unc$target
 
-  fit_c <- fit_gene_pmg_constrained(
+  fit_pair <- pmg_fit_constrained_pair(
     gene_index = gene_index,
     posv = posv,
     ctx = ctx,
@@ -390,37 +373,12 @@ pgmm_profile_point <- function(ctx,
     unconstrained_fit = unc$fit,
     warm_start = warm_start,
     retry = retry_failed_profiles,
-    use_average_objective = use_average_objective
+    use_average_objective = use_average_objective,
+    raw_lr_tol = max(tol, 1e-6)
   )
-
-  lr_tol <- max(tol, 1e-6)
-  raw_lr_initial <- 2 * (unc$loglik - fit_c$loglik)
-  if (isTRUE(retry_failed_profiles) &&
-    is.finite(raw_lr_initial) &&
-    raw_lr_initial < -lr_tol) {
-    retry_start <- c(fit_c$theta$beta, fit_c$theta$subVar)
-    fit_u_retry <- fit_gene_pmg_unconstrained(
-      gene_index = gene_index,
-      posv = posv,
-      ctx = ctx,
-      start = retry_start,
-      retry = TRUE,
-      use_average_objective = use_average_objective
-    )
-    if (is.finite(fit_u_retry$loglik) && fit_u_retry$loglik > unc$loglik + lr_tol / 2) {
-      unc <- pgmm_profile_wrap_unconstrained(fit_u_retry, target)
-      fit_c <- fit_gene_pmg_constrained(
-        gene_index = gene_index,
-        posv = posv,
-        ctx = ctx,
-        L = target$L,
-        b = psi_value,
-        unconstrained_fit = unc$fit,
-        warm_start = fit_c,
-        retry = TRUE,
-        use_average_objective = use_average_objective
-      )
-    }
+  fit_c <- fit_pair$constrained
+  if (!identical(fit_pair$unconstrained, unc$fit)) {
+    unc <- pgmm_profile_wrap_unconstrained(fit_pair$unconstrained, target)
   }
 
   profile_state <- compute_scalar_profile_quantities(
@@ -496,6 +454,10 @@ pgmm_profile_point <- function(ctx,
       optimizer_objective_spread = constrained_diagnostics$optimizer_objective_spread,
       optimizer_first_objective = constrained_diagnostics$optimizer_first_objective,
       optimizer_first_objective_minus_best = constrained_diagnostics$optimizer_first_objective_minus_best,
+      raw_lr_initial = fit_pair$diagnostics$raw_lr_initial,
+      raw_lr_final = fit_pair$diagnostics$raw_lr_final,
+      unconstrained_repair_attempted = fit_pair$diagnostics$unconstrained_repair_attempted,
+      unconstrained_repair_applied = fit_pair$diagnostics$unconstrained_repair_applied,
       H_etaeta_invertible = isTRUE(profile_state$diagnostics$H_etaeta_invertible),
       H_etaeta_ridge = profile_state$diagnostics$H_etaeta_ridge,
       Hpsi_positive = isTRUE(profile_state$diagnostics$Hpsi_positive),
@@ -656,6 +618,7 @@ pgmm_relative_profile_point <- function(ctx,
     robust_available = robust_available,
     profile_accepted = acceptance$accepted,
     optimizer_warning = acceptance$optimizer_warning,
+    convergence_basis = acceptance$convergence_basis,
     acceptance_failure_reason = acceptance$failure_reason,
     raw_gradient_ok = acceptance$raw_gradient_ok,
     average_gradient_ok = acceptance$average_gradient_ok,

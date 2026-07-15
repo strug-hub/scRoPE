@@ -98,24 +98,31 @@ is_posdef_matrix <- function(mat, tol = 1e-10) {
   !is.null(tryCatch(chol(mat), error = function(e) NULL))
 }
 
-extract_lrt_gate <- function(fit) {
+extract_lrt_gate <- function(fit, override = NULL) {
   gate <- fit$lrt_gate
-  if (!is.null(gate)) {
-    return(gate)
+  if (is.null(gate)) {
+    converged <- NA
+    if (!is.null(fit$convergence)) {
+      converged <- isTRUE(fit$convergence > 0)
+    } else if (!is.null(fit$debug$conv_code)) {
+      converged <- isTRUE(fit$debug$conv_code >= 0)
+    }
+
+    gate <- list(
+      converged = converged,
+      interior = NA,
+      nuisance_interior = NA
+    )
   }
 
-  converged <- NA
-  if (!is.null(fit$convergence)) {
-    converged <- isTRUE(fit$convergence > 0)
-  } else if (!is.null(fit$debug$conv_code)) {
-    converged <- isTRUE(fit$debug$conv_code >= 0)
+  if (!is.null(override)) {
+    if (!is.list(override)) {
+      stop("LRT gate override must be a list.")
+    }
+    gate[names(override)] <- override
   }
 
-  list(
-    converged = converged,
-    interior = NA,
-    nuisance_interior = NA
-  )
+  gate
 }
 
 scalar_profile_reparameterization <- function(L) {
@@ -313,7 +320,8 @@ compute_profile_lrt <- function(unconstrained,
                                 L,
                                 b,
                                 ridge_factor = 1e-8,
-                                cond_limit = 1e8) {
+                                cond_limit = 1e8,
+                                lrt_gate_override = NULL) {
   beta_hat <- unconstrained$theta$beta
   beta_con <- constrained$theta$beta
   if (is.null(beta_hat) || is.null(beta_con)) {
@@ -348,6 +356,8 @@ compute_profile_lrt <- function(unconstrained,
   }
   ridge_factor <- max(ridge_factor, 0)
   base_factor <- if (ridge_factor > 0) ridge_factor else 0
+  fit_gate <- extract_lrt_gate(constrained, override = lrt_gate_override)
+  has_model_specific_gate <- !is.null(lrt_gate_override)
 
   # Exact PGMM fits expose the full derivatives needed by the scalar profile
   # calculation at the top level. LN constrained fits retain their derivatives
@@ -418,7 +428,6 @@ compute_profile_lrt <- function(unconstrained,
       method <- "lrt_fail"
     }
 
-    fit_gate <- extract_lrt_gate(constrained)
     diagnostics <- list(
       converged = isTRUE(fit_gate$converged),
       nuisance_hessian_invertible = isTRUE(profile_scalar$diagnostics$H_etaeta_invertible),
@@ -427,13 +436,43 @@ compute_profile_lrt <- function(unconstrained,
       profiled_curvature_positive = isTRUE(profile_scalar$diagnostics$Hpsi_positive),
       scale_positive = is.finite(scale) && scale > 0
     )
-    adjusted_available <- all(unlist(diagnostics))
+    if (has_model_specific_gate) {
+      diagnostics$constraint_satisfied <- isTRUE(fit_gate$constraint_satisfied)
+      diagnostics$profiled_variability_positive <- isTRUE(profile_scalar$diagnostics$Jpsi_positive)
+      audit_fields <- setdiff(
+        names(fit_gate),
+        c("converged", "interior", "nuisance_interior", "constraint_satisfied")
+      )
+      diagnostics[audit_fields] <- fit_gate[audit_fields]
+    }
+    required_gate_fields <- c(
+      "converged",
+      "nuisance_hessian_invertible",
+      "interior",
+      "nuisance_interior",
+      "profiled_curvature_positive",
+      "scale_positive"
+    )
+    if (has_model_specific_gate) {
+      required_gate_fields <- c(
+        required_gate_fields,
+        "constraint_satisfied",
+        "profiled_variability_positive"
+      )
+    }
+    adjusted_available <- all(vapply(
+      diagnostics[required_gate_fields],
+      isTRUE,
+      logical(1)
+    ))
 
     if (!adjusted_available) {
       if (!is.finite(wP)) {
         adjusted_failure_reason <- normalise_failure("missing_profile_lr", "lrt")
       } else if (negative_raw_lr) {
         adjusted_failure_reason <- normalise_failure("negative_raw_lr", "lrt")
+      } else if (has_model_specific_gate && !diagnostics$constraint_satisfied) {
+        adjusted_failure_reason <- normalise_failure("constraint_not_satisfied", "lrt")
       } else if (!diagnostics$converged) {
         adjusted_failure_reason <- normalise_failure("nonconverged_constrained", "lrt")
       } else if (!diagnostics$nuisance_hessian_invertible) {
@@ -442,6 +481,8 @@ compute_profile_lrt <- function(unconstrained,
         adjusted_failure_reason <- normalise_failure("boundary_constrained", "lrt")
       } else if (!diagnostics$profiled_curvature_positive) {
         adjusted_failure_reason <- normalise_failure("nonpositive_curvature", "lrt")
+      } else if (has_model_specific_gate && !diagnostics$profiled_variability_positive) {
+        adjusted_failure_reason <- normalise_failure("undefined_adjustment", "lrt")
       } else if (!diagnostics$scale_positive) {
         adjusted_failure_reason <- normalise_failure("nonpositive_scale", "lrt")
       } else {
@@ -512,7 +553,7 @@ compute_profile_lrt <- function(unconstrained,
     }
 
     if (!success) {
-      if (is.na(failure_reason) && negative_raw_lr) {
+      if (negative_raw_lr) {
         set_failure("negative_raw_lr", overwrite = TRUE)
       } else if (is.na(failure_reason)) {
         set_failure("undefined_adjustment", overwrite = TRUE)
@@ -706,7 +747,6 @@ compute_profile_lrt <- function(unconstrained,
     }
   }
 
-  fit_gate <- extract_lrt_gate(constrained)
   diagnostics <- list(
     converged = isTRUE(fit_gate$converged),
     nuisance_hessian_invertible = isTRUE(H_lambda_inv_info$success),
@@ -715,13 +755,43 @@ compute_profile_lrt <- function(unconstrained,
     profiled_curvature_positive = is_posdef_matrix(Hpsi_info),
     scale_positive = is.finite(scale) && scale > 0
   )
-  adjusted_available <- all(unlist(diagnostics))
+  if (has_model_specific_gate) {
+    diagnostics$constraint_satisfied <- isTRUE(fit_gate$constraint_satisfied)
+    diagnostics$profiled_variability_positive <- is_posdef_matrix(Spsi_raw)
+    audit_fields <- setdiff(
+      names(fit_gate),
+      c("converged", "interior", "nuisance_interior", "constraint_satisfied")
+    )
+    diagnostics[audit_fields] <- fit_gate[audit_fields]
+  }
+  required_gate_fields <- c(
+    "converged",
+    "nuisance_hessian_invertible",
+    "interior",
+    "nuisance_interior",
+    "profiled_curvature_positive",
+    "scale_positive"
+  )
+  if (has_model_specific_gate) {
+    required_gate_fields <- c(
+      required_gate_fields,
+      "constraint_satisfied",
+      "profiled_variability_positive"
+    )
+  }
+  adjusted_available <- all(vapply(
+    diagnostics[required_gate_fields],
+    isTRUE,
+    logical(1)
+  ))
 
   if (!adjusted_available) {
     if (!is.finite(wP)) {
       adjusted_failure_reason <- normalise_failure("missing_profile_lr", "lrt")
     } else if (negative_raw_lr) {
       adjusted_failure_reason <- normalise_failure("negative_raw_lr", "lrt")
+    } else if (has_model_specific_gate && !diagnostics$constraint_satisfied) {
+      adjusted_failure_reason <- normalise_failure("constraint_not_satisfied", "lrt")
     } else if (!diagnostics$converged) {
       adjusted_failure_reason <- normalise_failure("nonconverged_constrained", "lrt")
     } else if (!diagnostics$nuisance_hessian_invertible) {
@@ -730,6 +800,8 @@ compute_profile_lrt <- function(unconstrained,
       adjusted_failure_reason <- normalise_failure("boundary_constrained", "lrt")
     } else if (!diagnostics$profiled_curvature_positive) {
       adjusted_failure_reason <- normalise_failure("nonpositive_curvature", "lrt")
+    } else if (has_model_specific_gate && !diagnostics$profiled_variability_positive) {
+      adjusted_failure_reason <- normalise_failure("undefined_adjustment", "lrt")
     } else if (!diagnostics$scale_positive) {
       adjusted_failure_reason <- normalise_failure("nonpositive_scale", "lrt")
     } else {
@@ -803,7 +875,7 @@ compute_profile_lrt <- function(unconstrained,
   }
 
   if (!success) {
-    if (is.na(failure_reason) && negative_raw_lr) {
+    if (negative_raw_lr && (has_model_specific_gate || is.na(failure_reason))) {
       set_failure("negative_raw_lr", overwrite = TRUE)
     } else if (is.na(failure_reason)) {
       set_failure("undefined_adjustment", overwrite = TRUE)

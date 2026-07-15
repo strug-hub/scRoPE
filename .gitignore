@@ -11,3 +11,4 @@ src/*.dll
 src/*.dylib
 install.log
 temp/
+/private-notes/

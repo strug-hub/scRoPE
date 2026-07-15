@@ -68,6 +68,21 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
   expect_equal(sm$lrt_adj_z_subject[1], adj$adj$lr$wP_adjusted, tolerance = 1e-8)
   expect_equal(sm$lrt_method_z_subject[1], adj$adj$lr$method)
   expect_true(nrow(res$lrt_details) >= 1)
+  expect_true(all(c(
+    "convergence_basis",
+    "gate_optimizer_converged",
+    "gate_information_scaled_convergence_ok",
+    "gate_H_red_positive_definite",
+    "max_abs_newton_step_scaled",
+    "gradient_quadratic_lr_bound",
+    "gate_constraint_satisfied",
+    "retry_triggered",
+    "retry_used",
+    "optimizer_attempts"
+  ) %in% names(res$lrt_details)))
+  expect_true(all(res$lrt_details$convergence_basis %in% c(
+    "optimizer", "raw_gradient", "information_scaled"
+  )))
 })
 
 test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predictors", {

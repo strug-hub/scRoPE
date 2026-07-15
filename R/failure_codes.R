@@ -16,6 +16,7 @@ failure_codes <- list(
     singular_Hpsi = "singular_Hpsi",
     singular_Hlambda = "singular_Hlambda",
     nonconverged_constrained = "nonconverged_constrained",
+    constraint_not_satisfied = "constraint_not_satisfied",
     boundary_constrained = "boundary_constrained",
     nonpositive_curvature = "nonpositive_curvature",
     nonpositive_scale = "nonpositive_scale",
