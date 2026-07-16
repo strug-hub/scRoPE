@@ -1063,6 +1063,34 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
   beta_hat <- compose_beta(gamma_hat)
   fit <- 1
 
+  # The raw LN profile likelihood used by compute_profile_lrt() is evaluated
+  # at theta_ln, before the PML/Godambe refresh below. Its full derivative
+  # coordinates are (beta, log(sigma^2), log(phi)); reduce only the constrained
+  # beta block through K and retain both log-dispersion coordinates.
+  ln_derivatives <- ptmg_ll_der_hes4(
+    c(beta_hat, log(subVar), log(cellVar)),
+    ctx$pred,
+    ctx$offset,
+    posv$Y,
+    posv$n_onetwo,
+    posv$ytwo,
+    ctx$fid,
+    ctx$cumsumy[gene_index, ],
+    ctx$posind[[gene_index]],
+    posv$posindy,
+    ctx$nb,
+    ctx$nind,
+    ctx$k
+  )
+  theta_red <- c(gamma_hat, log(subVar), log(cellVar))
+  ln_reduced <- ln_reduced_derivative_state(
+    full_gradient = ln_derivatives$gradient,
+    full_hessian = ln_derivatives$hessian,
+    K = K,
+    theta_red = theta_red,
+    per_subject_gradients = ln_derivatives$per_subject_gradients
+  )
+
   beta_anchor <- beta_star
   if (length(ctx$intcol) > 0) {
     beta_anchor[ctx$intcol] <- beta_anchor[ctx$intcol] - subVar / 2
@@ -1262,6 +1290,26 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       subVar = theta_pre[length(theta_pre) - 1],
       cellVar = theta_pre[length(theta_pre)]
     ),
+    constraint = list(
+      L = L,
+      b = b,
+      beta_star = beta_star,
+      null_basis = K,
+      free_dim = free_dim
+    ),
+    reduced = list(
+      parameterization = ln_reduced$parameterization,
+      map = ln_reduced$map,
+      theta = ln_reduced$theta_red,
+      theta_red = ln_reduced$theta_red,
+      gamma = gamma_hat,
+      score = ln_reduced$g_red,
+      g_red = ln_reduced$g_red,
+      observed_info = ln_reduced$H_red,
+      H_red = ln_reduced$H_red,
+      per_subject_gradients = ln_reduced$per_subject_gradients_red
+    ),
+    diagnostics = ln_reduced$diagnostics,
     score = out_at_op$gradient,
     lrt_gate = list(
       converged = conv_code >= 0,
@@ -1282,6 +1330,7 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       conv_code = conv_code,
       free_dim = free_dim,
       reduced_curvature_min_eigen = reduced_curvature_min_eigen,
+      reduced_parameterization = ln_reduced$parameterization,
       loglik_ln_pre = loglik_ln_pre,
       loglik_ln_rescued = loglik_ln_rescued
     )

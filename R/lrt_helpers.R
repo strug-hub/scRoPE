@@ -335,6 +335,17 @@ compute_profile_lrt <- function(unconstrained,
     fit$loglik
   }
 
+  profile_quadratic_audit <- function(wP, qP) {
+    finite_pair <- length(wP) == 1L &&
+      length(qP) == 1L &&
+      is.finite(wP) &&
+      is.finite(qP)
+    list(
+      wP_minus_qP = if (finite_pair) wP - qP else NA_real_,
+      wP_over_qP = if (finite_pair && qP > .Machine$double.eps) wP / qP else NA_real_
+    )
+  }
+
   loglik_uncon <- pick_loglik(unconstrained)
   loglik_con <- pick_loglik(constrained)
   wP <- 2 * (loglik_uncon - loglik_con)
@@ -504,8 +515,9 @@ compute_profile_lrt <- function(unconstrained,
       failure_reason <- NA_character_
     }
 
-    wU <- NA_real_
-    qP <- NA_real_
+    wU <- wU_val
+    qP <- qP_val
+    quadratic_audit <- profile_quadratic_audit(wP, qP_val)
     ridge_info <- list(
       Hpsi = if (isTRUE(profile_scalar$diagnostics$Hpsi_positive)) 0 else NA_real_,
       Gpsi = if (is.finite(profile_scalar$profile$godambe) && profile_scalar$profile$godambe > 0) 0 else NA_real_,
@@ -537,8 +549,6 @@ compute_profile_lrt <- function(unconstrained,
         cov_inv <- wald_inv_info$inverse
         wP_adj <- as.numeric(t(beta_diff) %*% cov_inv %*% beta_diff)
         scale <- NA_real_
-        wU <- NA_real_
-        qP <- NA_real_
         set_failure("undefined_adjustment")
       } else {
         method <- "lrt_raw"
@@ -546,8 +556,6 @@ compute_profile_lrt <- function(unconstrained,
         ridge_info$wald <- NA_real_
         wP_adj <- max(wP, 0)
         scale <- NA_real_
-        wU <- NA_real_
-        qP <- NA_real_
         set_failure("wald_fallback_failed", overwrite = TRUE)
       }
     }
@@ -564,6 +572,8 @@ compute_profile_lrt <- function(unconstrained,
       wP = wP,
       wU = wU,
       qP = qP,
+      wP_minus_qP = quadratic_audit$wP_minus_qP,
+      wP_over_qP = quadratic_audit$wP_over_qP,
       scale = scale,
       wP_adjusted = wP_adj,
       score = profile_score,
@@ -825,8 +835,9 @@ compute_profile_lrt <- function(unconstrained,
     failure_reason <- NA_character_
   }
 
-  wU <- if (d0 == 1) NA_real_ else wU_val
-  qP <- if (d0 == 1) NA_real_ else qP_val
+  wU <- wU_val
+  qP <- qP_val
+  quadratic_audit <- profile_quadratic_audit(wP, qP_val)
 
   ridge_info <- list(
     Hpsi = if (Hpsi_inv_info$success) Hpsi_inv_info$ridge else NA_real_,
@@ -859,8 +870,6 @@ compute_profile_lrt <- function(unconstrained,
       cov_inv <- wald_inv_info$inverse
       wP_adj <- as.numeric(t(beta_diff) %*% cov_inv %*% beta_diff)
       scale <- NA_real_
-      wU <- NA_real_
-      qP <- NA_real_
       set_failure("undefined_adjustment")
     } else {
       method <- "lrt_raw"
@@ -868,8 +877,6 @@ compute_profile_lrt <- function(unconstrained,
       ridge_info$wald <- NA_real_
       wP_adj <- max(wP, 0)
       scale <- NA_real_
-      wU <- NA_real_
-      qP <- NA_real_
       set_failure("wald_fallback_failed", overwrite = TRUE)
     }
   }
@@ -886,6 +893,8 @@ compute_profile_lrt <- function(unconstrained,
     wP = wP,
     wU = wU,
     qP = qP,
+    wP_minus_qP = quadratic_audit$wP_minus_qP,
+    wP_over_qP = quadratic_audit$wP_over_qP,
     scale = scale,
     wP_adjusted = wP_adj,
     score = profile_score,

@@ -77,6 +77,18 @@ test_that("PMG adjusted LRT is available off-null when the scale gate passes", {
   expect_equal(res$adj$lr$Jpsi, direct_lrt$Jpsi, tolerance = 1e-8)
   expect_equal(res$adj$lr$Vpsi_model, direct_lrt$Vpsi_model, tolerance = 1e-8)
   expect_equal(res$adj$lr$Vpsi_godambe, direct_lrt$Vpsi_godambe, tolerance = 1e-8)
+  expect_true(is.finite(direct_lrt$wU))
+  expect_true(is.finite(direct_lrt$qP))
+  expect_equal(
+    direct_lrt$wP_minus_qP,
+    direct_lrt$wP - direct_lrt$qP,
+    tolerance = 1e-12
+  )
+  expect_equal(
+    direct_lrt$wP_over_qP,
+    direct_lrt$wP / direct_lrt$qP,
+    tolerance = 1e-12
+  )
 })
 
 test_that("PMG adjusted LRT gates out nonpositive curvature and falls back to Wald", {

@@ -416,7 +416,14 @@ scrope <- function(
           constrained_fit <- fit_gene_constrained(i, posv, ctx, def$L, def$b)
           lrt_res <- NULL
           if (want_lrt) {
-            lrt_res <- compute_profile_lrt(current_unconstrained, constrained_fit, def$L, def$b)
+            ln_gate <- ln_lrt_gate_override(constrained_fit, def$L, def$b)
+            lrt_res <- compute_profile_lrt(
+              current_unconstrained,
+              constrained_fit,
+              def$L,
+              def$b,
+              lrt_gate_override = ln_gate
+            )
             if (!is.na(lrt_res$wP) && lrt_res$wP < -lrt_neg_tol) {
               neg_detected <- TRUE
             }
@@ -900,6 +907,10 @@ scrope <- function(
         if (is.null(res)) {
           return(NULL)
         }
+        gate_value <- function(name, default) {
+          value <- res$raw$gate[[name]]
+          if (is.null(value) || length(value) == 0L) default else value[[1L]]
+        }
         data.frame(
           gene = gene_labels[idx],
           contrast = lrt_defs[[nm]]$label,
@@ -913,8 +924,38 @@ scrope <- function(
           wP = res$wP,
           wU = res$wU,
           qP = res$qP,
+          wP_minus_qP = res$raw$wP_minus_qP,
+          wP_over_qP = res$raw$wP_over_qP,
           df = res$df,
           method = res$method,
+          success = res$success,
+          adjusted_available = res$raw$adjusted_available,
+          adjusted_failure_reason = res$raw$adjusted_failure_reason,
+          failure_reason = res$failure_reason,
+          gate_converged = res$raw$gate$converged,
+          convergence_basis = gate_value("convergence_basis", NA_character_),
+          legacy_converged = gate_value("legacy_converged", NA),
+          legacy_conv_code = gate_value("legacy_conv_code", NA_integer_),
+          information_scaled_eligible = gate_value("information_scaled_eligible", NA),
+          information_scaled_convergence_ok = gate_value("information_scaled_convergence_ok", NA),
+          information_scaled_accepted = gate_value("information_scaled_accepted", NA),
+          H_red_positive_definite = gate_value("H_red_positive_definite", NA),
+          reduced_diagnostics_finite = gate_value("diagnostics_finite", NA),
+          H_red_rcond = gate_value("H_red_rcond", NA_real_),
+          reduced_gradient_max_abs = gate_value("reduced_gradient_max_abs", NA_real_),
+          max_abs_newton_step_scaled = gate_value("max_abs_newton_step_scaled", NA_real_),
+          gradient_quadratic_lr_bound = gate_value("gradient_quadratic_lr_bound", NA_real_),
+          newton_step_scaled_ok = gate_value("newton_step_scaled_ok", NA),
+          gradient_quadratic_lr_bound_ok = gate_value("gradient_quadratic_lr_bound_ok", NA),
+          reduced_parameterization = gate_value("reduced_parameterization", NA_character_),
+          gate_constraint_satisfied = gate_value("constraint_satisfied", NA),
+          constraint_residual_max_abs = gate_value("constraint_residual_max_abs", NA_real_),
+          gate_nuisance_hessian_invertible = res$raw$gate$nuisance_hessian_invertible,
+          gate_interior = res$raw$gate$interior,
+          gate_nuisance_interior = res$raw$gate$nuisance_interior,
+          gate_profiled_curvature_positive = res$raw$gate$profiled_curvature_positive,
+          gate_profiled_variability_positive = gate_value("profiled_variability_positive", NA),
+          gate_scale_positive = res$raw$gate$scale_positive,
           ridge_H = res$ridge$Hpsi,
           ridge_G = res$ridge$Gpsi,
           ridge_wald = res$ridge$wald,
@@ -937,8 +978,38 @@ scrope <- function(
       wP = numeric(0),
       wU = numeric(0),
       qP = numeric(0),
+      wP_minus_qP = numeric(0),
+      wP_over_qP = numeric(0),
       df = numeric(0),
       method = character(0),
+      success = logical(0),
+      adjusted_available = logical(0),
+      adjusted_failure_reason = character(0),
+      failure_reason = character(0),
+      gate_converged = logical(0),
+      convergence_basis = character(0),
+      legacy_converged = logical(0),
+      legacy_conv_code = integer(0),
+      information_scaled_eligible = logical(0),
+      information_scaled_convergence_ok = logical(0),
+      information_scaled_accepted = logical(0),
+      H_red_positive_definite = logical(0),
+      reduced_diagnostics_finite = logical(0),
+      H_red_rcond = numeric(0),
+      reduced_gradient_max_abs = numeric(0),
+      max_abs_newton_step_scaled = numeric(0),
+      gradient_quadratic_lr_bound = numeric(0),
+      newton_step_scaled_ok = logical(0),
+      gradient_quadratic_lr_bound_ok = logical(0),
+      reduced_parameterization = character(0),
+      gate_constraint_satisfied = logical(0),
+      constraint_residual_max_abs = numeric(0),
+      gate_nuisance_hessian_invertible = logical(0),
+      gate_interior = logical(0),
+      gate_nuisance_interior = logical(0),
+      gate_profiled_curvature_positive = logical(0),
+      gate_profiled_variability_positive = logical(0),
+      gate_scale_positive = logical(0),
       ridge_H = numeric(0),
       ridge_G = numeric(0),
       ridge_wald = numeric(0),
