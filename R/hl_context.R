@@ -28,16 +28,48 @@ hl_prepare_data <- function(
   ngene <- nrow(count)
 
   if (is.null(pred)) {
-    pred <- matrix(1, nrow = nind, ncol = 1)
+    pred_original <- matrix(1, nrow = nind, ncol = 1)
+    pred <- pred_original
     sds <- 1
     intcol <- 1
     predn <- "(Intercept)"
+    design_means <- 1
+    c_int <- 1
   } else {
     predn <- colnames(pred)
     if ((!is.null(predn)) && length(unique(predn)) < ncol(pred)) {
       stop("All columns of the design matrix must have unique names.")
     }
-    predC <- center_m(as.matrix(pred))
+    pred_original <- as.matrix(pred)
+    if (nrow(pred_original) != nind) {
+      stop("Design matrix row != count matrix column.")
+    }
+    if (!is.numeric(pred_original) || any(!is.finite(pred_original))) {
+      stop("Design matrix entries must be finite numeric values.")
+    }
+
+    is_constant <- vapply(
+      seq_len(ncol(pred_original)),
+      function(j) all(pred_original[, j] == pred_original[1, j]),
+      logical(1)
+    )
+    nonzero_constant <- which(is_constant & pred_original[1, ] != 0)
+    zero_constant <- which(is_constant & pred_original[1, ] == 0)
+    if (length(nonzero_constant) == 0L) {
+      if (length(zero_constant) > 0L) {
+        stop("Some predictors have zero variation or are zero vectors.")
+      }
+      stop("Design matrix must have an intercept column.")
+    }
+    if (length(nonzero_constant) > 1L || length(zero_constant) > 0L) {
+      stop("Some predictors have zero variation or are zero vectors.")
+    }
+
+    intcol <- unname(as.integer(nonzero_constant))
+    c_int <- unname(pred_original[1, intcol])
+    design_means <- colMeans(pred_original)
+
+    predC <- center_m(pred_original)
     sds <- predC$sds
     if ((sum(sds == 0) > 1) || any(sds < 0)) {
       stop("Some predictors have zero variation or are zero vectors.")
@@ -45,16 +77,45 @@ hl_prepare_data <- function(
     if (sum(sds == 0) == 0) {
       stop("Design matrix must have an intercept column.")
     }
-    intcol <- which(sds == 0)
+    if (!identical(as.integer(which(sds == 0)), as.integer(intcol))) {
+      stop("Internal design centering did not preserve the identified intercept column.")
+    }
     pred <- as.matrix(predC$pred)
     if (Matrix::rankMatrix(pred) < ncol(pred)) {
       warning("Predictors are collinear or rank-deficient.")
     }
-    if (nrow(pred) != nind) {
-      stop("Design matrix row != count matrix column.")
-    }
   }
   nb <- ncol(pred)
+
+  M_X <- matrix(0, nrow = nb, ncol = nb)
+  M_X_inv <- matrix(0, nrow = nb, ncol = nb)
+  varying_cols <- setdiff(seq_len(nb), intcol)
+  if (length(varying_cols) > 0L) {
+    M_X[cbind(varying_cols, varying_cols)] <- 1 / sds[varying_cols]
+    M_X[intcol, varying_cols] <-
+      -design_means[varying_cols] / (c_int * sds[varying_cols])
+    M_X_inv[cbind(varying_cols, varying_cols)] <- sds[varying_cols]
+    M_X_inv[intcol, varying_cols] <- design_means[varying_cols]
+  }
+  M_X[intcol, intcol] <- 1 / c_int
+  M_X_inv[intcol, intcol] <- c_int
+
+  if (!is.null(predn)) {
+    names(design_means) <- predn
+    dimnames(M_X) <- list(predn, predn)
+    dimnames(M_X_inv) <- list(predn, predn)
+  }
+
+  design_transform <- list(
+    pred_original = pred_original,
+    pred_internal = pred,
+    means = design_means,
+    sds = sds,
+    intcol = intcol,
+    c_int = c_int,
+    M_X = M_X,
+    M_X_inv = M_X_inv
+  )
 
   if (is.null(offset)) {
     of_re <- cv_offset(0, 0, nind)
@@ -107,6 +168,12 @@ hl_prepare_data <- function(
 
   ctx <- list(
     pred = pred,
+    pred_original = pred_original,
+    design_means = design_means,
+    c_int = c_int,
+    M_X = M_X,
+    M_X_inv = M_X_inv,
+    design_transform = design_transform,
     offset = offset_vec,
     fid = fid,
     cumsumy = cumsumy,
@@ -136,6 +203,12 @@ hl_prepare_data <- function(
     gid = gid,
     gene_names = gname[gid],
     design_sds = sds,
+    pred_original = pred_original,
+    design_means = design_means,
+    c_int = c_int,
+    M_X = M_X,
+    M_X_inv = M_X_inv,
+    design_transform = design_transform,
     predictor_names = predn
   )
 }

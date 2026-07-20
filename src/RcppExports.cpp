@@ -11,6 +11,25 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// hl_fo_inner_eval_cpp
+Rcpp::List hl_fo_inner_eval_cpp(const Rcpp::NumericVector& y, const Rcpp::NumericMatrix& X, const Rcpp::NumericVector& log_offset, const Rcpp::IntegerVector& subject_zero, const Rcpp::NumericVector& beta, const double tau, const double xi, const Rcpp::NumericVector& eta_start, const bool use_warm);
+RcppExport SEXP _scRoPE_hl_fo_inner_eval_cpp(SEXP ySEXP, SEXP XSEXP, SEXP log_offsetSEXP, SEXP subject_zeroSEXP, SEXP betaSEXP, SEXP tauSEXP, SEXP xiSEXP, SEXP eta_startSEXP, SEXP use_warmSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type y(ySEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type X(XSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type log_offset(log_offsetSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::IntegerVector& >::type subject_zero(subject_zeroSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type beta(betaSEXP);
+    Rcpp::traits::input_parameter< const double >::type tau(tauSEXP);
+    Rcpp::traits::input_parameter< const double >::type xi(xiSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type eta_start(eta_startSEXP);
+    Rcpp::traits::input_parameter< const bool >::type use_warm(use_warmSEXP);
+    rcpp_result_gen = Rcpp::wrap(hl_fo_inner_eval_cpp(y, X, log_offset, subject_zero, beta, tau, xi, eta_start, use_warm));
+    return rcpp_result_gen;
+END_RCPP
+}
 // pmg_ll_eigen
 double pmg_ll_eigen(const Eigen::Map<Eigen::MatrixXd>& X_c, const Eigen::VectorXd& offset_c, const Eigen::VectorXd& Y_c, const Eigen::VectorXi& fid_c, const Eigen::VectorXd& cumsumy_c, const Eigen::VectorXi& posind_c, const Eigen::VectorXi& posindy_c, const int nind_c, const int k_c, const Eigen::VectorXd& beta_c, const double sigma_c);
 RcppExport SEXP _scRoPE_pmg_ll_eigen(SEXP X_cSEXP, SEXP offset_cSEXP, SEXP Y_cSEXP, SEXP fid_cSEXP, SEXP cumsumy_cSEXP, SEXP posind_cSEXP, SEXP posindy_cSEXP, SEXP nind_cSEXP, SEXP k_cSEXP, SEXP beta_cSEXP, SEXP sigma_cSEXP) {
@@ -392,6 +411,7 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_scRoPE_hl_fo_inner_eval_cpp", (DL_FUNC) &_scRoPE_hl_fo_inner_eval_cpp, 9},
     {"_scRoPE_pmg_ll_eigen", (DL_FUNC) &_scRoPE_pmg_ll_eigen, 11},
     {"_scRoPE_pmg_der_eigen", (DL_FUNC) &_scRoPE_pmg_der_eigen, 12},
     {"_scRoPE_pmg_hes_eigen", (DL_FUNC) &_scRoPE_pmg_hes_eigen, 12},
