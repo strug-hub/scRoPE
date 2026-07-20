@@ -364,6 +364,45 @@ test_that("solve-based sandwich equals direct A inverse multiplication without 1
   expect_gte(min(sandwich$eigenvalues), -1e-8 * max(1, max(sandwich$eigenvalues)))
 })
 
+test_that("trust-region secular solve remains bracketed near the hard case", {
+  trust_step <- .hl_fo_solver("hl_fo_trust_step_max")
+
+  # The positive-eigenvalue multiplier differs from lambda_max by 1e-14.
+  # Adding that delta to lambda_max rounds too coarsely for the former
+  # multiplier-scale uniroot bracket, even though the global boundary step is
+  # well defined.
+  g <- c(1e-12, 0)
+  H <- diag(c(1, -1))
+  radius <- 100
+  step <- trust_step(g, H, radius)
+  predicted <- sum(g * step) + 0.5 * sum(step * (H %*% step))
+
+  expect_true(all(is.finite(step)))
+  expect_equal(sqrt(sum(step^2)), radius, tolerance = 1e-12)
+  expect_equal(step, c(radius, 0), tolerance = 1e-10)
+  expect_gt(predicted, 0)
+
+  # Locked zero-heavy search state that originally exposed the same failure
+  # with a negative leading eigenvalue and a root between zero and the former
+  # absolute multiplier offset.
+  fixture_g <- c(-1.0249607376104438e-08, 2.3139250492635245e-08)
+  fixture_H <- matrix(c(
+    -1.0249586865134153e-08, 1.3174293803383386e-07,
+     1.3174293803383386e-07, -8.8116681014273741
+  ), nrow = 2L)
+  fixture_step <- trust_step(fixture_g, fixture_H, radius = 1)
+  fixture_predicted <- sum(fixture_g * fixture_step) +
+    0.5 * sum(fixture_step * (fixture_H %*% fixture_step))
+  expect_true(all(is.finite(fixture_step)))
+  expect_equal(sqrt(sum(fixture_step^2)), 1, tolerance = 1e-14)
+  expect_gt(fixture_predicted, 0)
+
+  # With no signal in a repeated leading eigenspace, retain the declared
+  # lexicographically smallest global solution.
+  hard_step <- trust_step(c(0, 0), diag(2), radius = 1)
+  expect_equal(hard_step, c(-1, 0), tolerance = 0)
+})
+
 test_that("q zero has no dummy outer coordinate and retains a certified beta fit", {
   case <- .hl_fo_solver_case()
   seed <- list(

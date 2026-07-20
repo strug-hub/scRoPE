@@ -1,0 +1,10 @@
+fixture,case,stage,seed,m,n_i,sigma2,phi,total_count,nonzero_cells,positive_subjects,repeated_subjects,count_per_cell,public_filter_pass,fit_status,point_success,covariance_success,selected,selection_note
+Z2,zero_heavy,seed_sequence,104773,300,5,0.8,2,145,123,88,32,0.0966666666666667,TRUE,outer_boundary,FALSE,FALSE,FALSE,retain locked boundary attempt
+Z2,zero_heavy,seed_sequence,104774,300,5,0.8,2,116,103,74,26,0.0773333333333333,TRUE,multiple_near_tied_maxima,TRUE,TRUE,TRUE,first certified sequential seed
+D2,low_v_high_phi,seed_sequence,104779,300,5,0.1,100,558,456,244,160,0.372,TRUE,ok,TRUE,TRUE,TRUE,first certified sequential seed
+D2,low_v_low_phi,n_i_5_seed_sequence,104780,300,5,0.1,0.3,561,305,206,125,0.374,TRUE,outer_boundary,FALSE,FALSE,FALSE,retain boundary attempt before information escalation
+D2,low_v_low_phi,n_i_5_seed_sequence,104781,300,5,0.1,0.3,550,324,210,124,0.366666666666667,TRUE,outer_boundary,FALSE,FALSE,FALSE,retain boundary attempt before information escalation
+D2,low_v_low_phi,n_i_5_seed_sequence,104782,300,5,0.1,0.3,563,313,207,139,0.375333333333333,TRUE,outer_boundary,FALSE,FALSE,FALSE,retain boundary attempt before information escalation
+D2,low_v_low_phi,n_i_5_seed_sequence,104783,300,5,0.1,0.3,537,316,207,135,0.358,TRUE,outer_boundary,FALSE,FALSE,FALSE,retain boundary attempt before information escalation
+D2,low_v_low_phi,n_i_5_seed_sequence,104784,300,5,0.1,0.3,559,314,201,125,0.372666666666667,TRUE,outer_boundary,FALSE,FALSE,FALSE,retain boundary attempt before information escalation
+D2,low_v_low_phi,n_i_10_information_escalation,104785,300,10,0.1,0.3,1063,596,261,211,0.354333333333333,TRUE,ok,TRUE,TRUE,TRUE,first certified seed after declared repeated-cell escalation

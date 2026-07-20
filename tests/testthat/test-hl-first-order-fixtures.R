@@ -20,6 +20,65 @@ test_that("first-order fixture registry matches the locked specification", {
   )
 })
 
+test_that("versioned supplemental fixtures do not rewrite the locked table", {
+  supplemental <- hl_fo_supplemental_fixture_definitions()
+
+  expect_identical(
+    hl_fo_fixture_contract_version(),
+    "implementation_v2_2026-07-20"
+  )
+  expect_identical(names(supplemental), hl_fo_supplemental_fixture_ids())
+  expect_identical(hl_fo_supplemental_fixture_ids(), c("Z2", "D2"))
+  expect_identical(
+    hl_fo_all_fixture_ids(),
+    c(hl_fo_fixture_ids(), hl_fo_supplemental_fixture_ids())
+  )
+  expect_identical(supplemental$Z2$seed, 104774L)
+  expect_identical(supplemental$Z2$selection$attempted_seeds, 104773:104774)
+  expect_identical(as.integer(supplemental$D2$seeds), c(104779L, 104785L))
+  expect_identical(
+    supplemental$D2$selection$low_v_low_phi$initial_attempted_status,
+    rep("outer_boundary", 5L)
+  )
+})
+
+test_that("locked expectation provenance is separate from adjudicated behavior", {
+  definitions <- hl_fo_fixture_definitions()
+
+  expect_identical(definitions$Z1$spec_expected, "zero_heavy_interior_success")
+  expect_identical(definitions$Z1$expected, "outer_boundary")
+  expect_identical(
+    definitions$Z1$boundary_contract,
+    list(
+      faces = c("1:lower", "2:upper"),
+      expansion_count = 16L,
+      round_count = 9L
+    )
+  )
+  expect_identical(
+    definitions$D1$spec_expected,
+    "four_regular_interior_dispersion_successes"
+  )
+  expect_identical(definitions$D1$expected, "mixed_boundary_and_interior")
+  expect_identical(
+    definitions$D1$expected_by_case,
+    c(
+      low_v_high_phi = "outer_boundary",
+      low_v_low_phi = "outer_boundary",
+      high_v_high_phi = "certified_interior_success",
+      high_v_low_phi = "certified_interior_success"
+    )
+  )
+  expect_identical(
+    definitions$D1$boundary_contract_by_case$low_v_high_phi,
+    list(faces = "1:lower", expansion_count = 8L, round_count = 9L)
+  )
+  expect_identical(
+    definitions$D1$boundary_contract_by_case$low_v_low_phi,
+    list(faces = "1:lower", expansion_count = 8L, round_count = 9L)
+  )
+})
+
 test_that("fixture generation is deterministic and preserves caller RNG state", {
   original_kind <- RNGkind()
   had_original_seed <- exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
@@ -158,6 +217,121 @@ test_that("D1 uses the four ordered seed and dispersion combinations", {
     vapply(d1$cases, function(fixture) sum(fixture$y), numeric(1)),
     c(low_v_high_phi = 520, low_v_low_phi = 517, high_v_high_phi = 1028, high_v_low_phi = 2454)
   )
+})
+
+test_that("Z1 and the low-variance D1 arrays pass the public expression filter", {
+  z1 <- hl_fo_fixture("Z1", fresh = TRUE)
+  d1 <- hl_fo_fixture("D1", fresh = TRUE)
+  cases <- c(
+    list(Z1 = z1),
+    d1$cases[c("low_v_high_phi", "low_v_low_phi")]
+  )
+  summaries <- lapply(cases, hl_fo_public_filter_summary)
+
+  expect_true(all(vapply(summaries, `[[`, logical(1), "passes")))
+  expect_equal(
+    vapply(summaries, `[[`, numeric(1), "count_per_cell"),
+    c(Z1 = 57 / 1500, low_v_high_phi = 520 / 1500,
+      low_v_low_phi = 517 / 1500),
+    tolerance = 0
+  )
+  expect_identical(
+    vapply(summaries, `[[`, integer(1), "nonzero_cells"),
+    c(Z1 = 56L, low_v_high_phi = 434L, low_v_low_phi = 295L)
+  )
+})
+
+test_that("Z2 and D2 lock deterministic certified-interior replacement arrays", {
+  z2 <- hl_fo_fixture("Z2", fresh = TRUE)
+  d2 <- hl_fo_fixture("D2", fresh = TRUE)
+
+  expect_identical(z2$seed, 104774L)
+  expect_equal(mean(z2$y == 0), 1397 / 1500, tolerance = 0)
+  expect_equal(sum(z2$y), 116)
+  expect_identical(sum(z2$y > 0), 103L)
+  expect_true(hl_fo_public_filter_summary(z2)$passes)
+
+  expect_identical(names(d2$cases), c("low_v_high_phi", "low_v_low_phi"))
+  expect_identical(
+    unname(vapply(d2$cases, `[[`, integer(1), "seed")),
+    c(104779L, 104785L)
+  )
+  expect_identical(
+    unname(vapply(d2$cases, `[[`, integer(1), "n_i")),
+    c(5L, 10L)
+  )
+  expect_equal(
+    vapply(d2$cases, function(x) x$truth$sigma2, numeric(1)),
+    c(low_v_high_phi = 0.1, low_v_low_phi = 0.1)
+  )
+  expect_equal(
+    vapply(d2$cases, function(x) x$truth$phi, numeric(1)),
+    c(low_v_high_phi = 100, low_v_low_phi = 0.3)
+  )
+  expect_equal(
+    vapply(d2$cases, function(x) sum(x$y), numeric(1)),
+    c(low_v_high_phi = 558, low_v_low_phi = 1063)
+  )
+  expect_identical(
+    vapply(d2$cases, function(x) sum(x$y > 0), integer(1)),
+    c(low_v_high_phi = 456L, low_v_low_phi = 596L)
+  )
+  expect_true(all(vapply(
+    d2$cases,
+    function(x) hl_fo_public_filter_summary(x)$passes,
+    logical(1)
+  )))
+})
+
+test_that("supplemental fixture selection retains every declared attempt", {
+  selection <- read.csv(
+    testthat::test_path(
+      "..", "validation", "hl_first_order_fixture_contract_v2_selection.csv"
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  expect_identical(selection$seed, c(104773:104774, 104779:104785))
+  expect_true(all(selection$public_filter_pass))
+  expect_identical(
+    selection$seed[selection$selected],
+    c(104774L, 104779L, 104785L)
+  )
+  expect_true(all(selection$point_success[selection$selected]))
+  expect_true(all(selection$covariance_success[selection$selected]))
+  expect_true(all(!selection$point_success[!selection$selected]))
+  expect_identical(
+    selection$fit_status[selection$case == "low_v_low_phi" &
+      selection$n_i == 5L],
+    rep("outer_boundary", 5L)
+  )
+
+  for (ii in seq_len(nrow(selection))) {
+    row <- selection[ii, ]
+    beta <- if (identical(row$fixture, "Z2")) {
+      c(`(Intercept)` = -3, z = 0.2, w = -0.2)
+    } else {
+      c(`(Intercept)` = -1.2, z = 0.2, w = -0.15)
+    }
+    generated <- hl_fo_generate_nb_case(
+      paste0("selection_", ii),
+      list(
+        seed = row$seed,
+        m = row$m,
+        n_i = row$n_i,
+        beta = beta,
+        sigma2 = row$sigma2,
+        phi = row$phi,
+        active_dispersion = c("tau", "xi"),
+        expected = "selection_attempt"
+      )
+    )
+    subject_totals <- rowsum(generated$y, generated$subject_index)
+    expect_equal(sum(generated$y), row$total_count, info = row$seed)
+    expect_identical(sum(generated$y > 0), row$nonzero_cells, info = row$seed)
+    expect_identical(sum(subject_totals > 0), row$positive_subjects, info = row$seed)
+    expect_identical(sum(subject_totals > 1), row$repeated_subjects, info = row$seed)
+  }
 })
 
 test_that("W1 records raw-display and package-analysis rank conventions explicitly", {

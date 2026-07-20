@@ -95,3 +95,32 @@ test_that("HL reporting-scale constraints map through C_report M_X", {
     tolerance = 1e-14
   )
 })
+
+test_that("public HL defaults retain locked boundary and replacement arrays", {
+  prepare <- getFromNamespace("hl_prepare_data", "scRoPE")
+  d1 <- hl_fo_fixture("D1", fresh = TRUE)
+  d2 <- hl_fo_fixture("D2", fresh = TRUE)
+  fixtures <- list(
+    Z1 = hl_fo_fixture("Z1", fresh = TRUE),
+    D1_low_v_high_phi = d1$cases$low_v_high_phi,
+    D1_low_v_low_phi = d1$cases$low_v_low_phi,
+    Z2 = hl_fo_fixture("Z2", fresh = TRUE),
+    D2_low_v_high_phi = d2$cases$low_v_high_phi,
+    D2_low_v_low_phi = d2$cases$low_v_low_phi
+  )
+
+  for (fixture_name in names(fixtures)) {
+    fixture <- fixtures[[fixture_name]]
+    prepared <- prepare(
+      count = fixture$count,
+      id = fixture$subject_id,
+      pred = fixture$X_raw,
+      offset = fixture$pi,
+      cpc = 0.005,
+      mincp = 5,
+      verbose = FALSE
+    )
+    expect_identical(prepared$gid, 1L, info = fixture_name)
+    expect_identical(prepared$gene_names, fixture$id, info = fixture_name)
+  }
+})

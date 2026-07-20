@@ -549,6 +549,17 @@ test_that("K0 covers k zero with active rho and k equals q equals zero", {
   expect_equal(dim(active_fit$augmented$A), c(2L, 2L))
   expect_equal(dim(active_fit$augmented$J), c(2L, 2L))
   expect_equal(dim(active_fit$covariance$V_gamma_rho), c(2L, 2L))
+  valid_runs <- Filter(function(run) isTRUE(run$success), active_fit$outer_runs)
+  expect_gt(length(valid_runs), 0L)
+  for (run in valid_runs) {
+    cold_entry <- tail(run$trust_trace, 1L)[[1L]]
+    expect_identical(cold_entry$reason, "stationary_candidate_cold_replay")
+    expect_true(cold_entry$accepted)
+    expect_lte(
+      max(unlist(cold_entry$discrepancy, use.names = FALSE)),
+      1e-8
+    )
+  }
   expect_lte(
     max(vapply(
       Filter(function(entry) isTRUE(entry$success), active_fit$outer_trace),

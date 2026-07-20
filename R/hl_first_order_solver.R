@@ -969,20 +969,41 @@ hl_fo_trust_step_max <- function(g, H, radius) {
     }
   }
 
-  norm_at <- function(multiplier) {
-    sqrt(sum((d / (multiplier - lam))^2))
+  # Solve the secular equation in the distance from the lower multiplier
+  # bound.  Adding a tiny root to a positive leading eigenvalue can round back
+  # to that eigenvalue; an ordinary uniroot bracket in the multiplier then has
+  # equal-sign endpoints even though the boundary solution exists.  Working
+  # in `delta` keeps the top-eigenspace denominator representable and gives a
+  # deterministic midpoint fallback all the way to the trust boundary.
+  gaps <- lower - lam
+  norm_at_delta <- function(delta) {
+    denominators <- gaps + delta
+    terms <- d / denominators
+    sqrt(sum(terms^2))
   }
-  lo <- lower + max(1e-14, tol)
-  hi <- max(1, lo * 2 + 1)
-  while (norm_at(hi) > radius && hi < 1e16) hi <- hi * 2
-  if (!is.finite(norm_at(hi)) || norm_at(hi) > radius) {
+  hi <- max(1, top_signal / radius)
+  while (norm_at_delta(hi) > radius && hi < 1e16) hi <- hi * 2
+  hi_norm <- norm_at_delta(hi)
+  if (!is.finite(hi_norm) || hi_norm > radius) {
     return(rep(NA_real_, q))
   }
-  multiplier <- stats::uniroot(
-    function(z) norm_at(z) - radius,
-    lower = lo, upper = hi, tol = 1e-13, maxiter = 200L
-  )$root
-  as.numeric(Q %*% (d / (multiplier - lam)))
+
+  lo <- 0
+  for (iteration in seq_len(200L)) {
+    mid <- lo + (hi - lo) / 2
+    if (mid <= lo || mid >= hi) break
+    mid_norm <- norm_at_delta(mid)
+    if (!is.finite(mid_norm) || mid_norm > radius) {
+      lo <- mid
+    } else {
+      hi <- mid
+    }
+  }
+  denominators <- gaps + hi
+  if (any(denominators <= 0) || any(!is.finite(denominators))) {
+    return(rep(NA_real_, q))
+  }
+  as.numeric(Q %*% (d / denominators))
 }
 
 hl_fo_outer_stationarity <- function(state, tolerance = 1e-7) {
@@ -1111,10 +1132,50 @@ hl_fo_optimize_outer_start <- function(start, lower, upper, evaluator) {
   repeat {
     station <- hl_fo_outer_stationarity(current)
     if (isTRUE(station$success)) {
-      return(list(success = TRUE, status = "ok", state = current,
-                  stationarity = station, start = start,
-                  evaluations = evaluator$count() - start_count,
-                  trust_trace = trust_trace))
+      # A warm inner cache may satisfy every root tolerance while leaving a
+      # delicate total derivative different at the required replay scale.
+      # Reprofile the stationary candidate from the declared cold starts
+      # before it is admitted to the candidate set.  Selection therefore uses
+      # the same fully cold-replayed derivative state that final certification
+      # must reproduce, without relaxing the 1e-8 replay discrepancy gate.
+      cold_candidate <- evaluator$evaluate(current$rho, cold = TRUE)
+      if (!isTRUE(cold_candidate$success)) {
+        return(list(
+          success = FALSE,
+          status = cold_candidate$status,
+          reason = "stationary_candidate_cold_replay_failure",
+          inner_failure = cold_candidate,
+          state = current,
+          start = start,
+          evaluations = evaluator$count() - start_count,
+          trust_trace = trust_trace
+        ))
+      }
+      cold_station <- hl_fo_outer_stationarity(cold_candidate)
+      trust_trace[[length(trust_trace) + 1L]] <- list(
+        radius = radius,
+        rho = current$rho,
+        step = rep(0, length(current$rho)),
+        pred = 0,
+        ared = cold_candidate$F - current$F,
+        accepted = isTRUE(cold_station$success),
+        reason = "stationary_candidate_cold_replay",
+        discrepancy = list(
+          beta = hl_fo_sdisc(cold_candidate$beta, current$beta),
+          eta = hl_fo_sdisc(cold_candidate$eta, current$eta),
+          F = hl_fo_sdisc(cold_candidate$F, current$F),
+          g = hl_fo_sdisc(cold_candidate$g, current$g),
+          H_F = hl_fo_sdisc(cold_candidate$H_F, current$H_F)
+        )
+      )
+      if (isTRUE(cold_station$success)) {
+        return(list(success = TRUE, status = "ok", state = cold_candidate,
+                    stationarity = cold_station, start = start,
+                    evaluations = evaluator$count() - start_count,
+                    trust_trace = trust_trace))
+      }
+      current <- cold_candidate
+      station <- cold_station
     }
     # Once the trust iterations have identified the local maximum basin, use
     # the specification's total-gradient polishing step.  Every proposal is a

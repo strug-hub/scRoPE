@@ -7,6 +7,18 @@ hl_fo_fixture_ids <- function() {
   c("R1", "C1", "C2", "K0", "Q0", "Q1", "Z1", "D1", "W1", "X0", "N0", "B1", "S1")
 }
 
+hl_fo_fixture_contract_version <- function() {
+  "implementation_v2_2026-07-20"
+}
+
+hl_fo_supplemental_fixture_ids <- function() {
+  c("Z2", "D2")
+}
+
+hl_fo_all_fixture_ids <- function() {
+  c(hl_fo_fixture_ids(), hl_fo_supplemental_fixture_ids())
+}
+
 hl_fo_fixture_definitions <- function() {
   beta_r1 <- c(`(Intercept)` = -1.2, z = 0.35, w = -0.25)
   beta_c2 <- c(`(Intercept)` = -1, z = 0.25, w = -0.2)
@@ -68,7 +80,20 @@ hl_fo_fixture_definitions <- function() {
       beta = c(`(Intercept)` = -4, z = 0.2, w = -0.2),
       sigma2 = 0.8, phi = 2,
       active_dispersion = c("tau", "xi"),
-      expected = "zero_heavy_interior_success"
+      spec_expected = "zero_heavy_interior_success",
+      expected = "outer_boundary",
+      boundary_contract = list(
+        faces = c("1:lower", "2:upper"),
+        expansion_count = 16L,
+        round_count = 9L
+      ),
+      adjudication = list(
+        type = "locked_boundary_regression",
+        reason = paste(
+          "The locked nonzero array passes the public expression filter but",
+          "its fully reprofiled first-order objective seeks a dispersion face."
+        )
+      )
     ),
     D1 = list(
       seeds = 104779:104782, m = 300L, n_i = 5L,
@@ -80,7 +105,29 @@ hl_fo_fixture_definitions <- function() {
         high_v_low_phi = c(sigma2 = 2, phi = 0.3)
       ),
       active_dispersion = c("tau", "xi"),
-      expected = "four_regular_interior_dispersion_successes"
+      spec_expected = "four_regular_interior_dispersion_successes",
+      expected = "mixed_boundary_and_interior",
+      expected_by_case = c(
+        low_v_high_phi = "outer_boundary",
+        low_v_low_phi = "outer_boundary",
+        high_v_high_phi = "certified_interior_success",
+        high_v_low_phi = "certified_interior_success"
+      ),
+      boundary_contract_by_case = list(
+        low_v_high_phi = list(
+          faces = "1:lower", expansion_count = 8L, round_count = 9L
+        ),
+        low_v_low_phi = list(
+          faces = "1:lower", expansion_count = 8L, round_count = 9L
+        )
+      ),
+      adjudication = list(
+        type = "locked_mixed_regression",
+        reason = paste(
+          "The two locked low-variance arrays seek sigma2=0; the two",
+          "high-variance arrays retain the original interior gate."
+        )
+      )
     ),
     W1 = list(
       seed = 104789L, m = 80L, n_i = 5L,
@@ -118,6 +165,65 @@ hl_fo_fixture_definitions <- function() {
       expected = "point_fit_with_explicit_small_subject_rank_limits"
     )
   )
+}
+
+hl_fo_supplemental_fixture_definitions <- function() {
+  beta_d2 <- c(`(Intercept)` = -1.2, z = 0.2, w = -0.15)
+  list(
+    Z2 = list(
+      seed = 104774L, m = 300L, n_i = 5L,
+      beta = c(`(Intercept)` = -3, z = 0.2, w = -0.2),
+      sigma2 = 0.8, phi = 2,
+      active_dispersion = c("tau", "xi"),
+      expected = "certified_interior_success",
+      selection = list(
+        rule = "first_certified_seed_in_sequential_integer_order",
+        attempted_seeds = 104773:104774,
+        attempted_status = c("outer_boundary", "multiple_near_tied_maxima"),
+        accepted_seed = 104774L,
+        zero_fraction_minimum = 0.9
+      )
+    ),
+    D2 = list(
+      seeds = c(104779L, 104785L),
+      beta = beta_d2,
+      cases = list(
+        low_v_high_phi = list(
+          m = 300L, n_i = 5L, sigma2 = 0.1, phi = 100
+        ),
+        low_v_low_phi = list(
+          m = 300L, n_i = 10L, sigma2 = 0.1, phi = 0.3
+        )
+      ),
+      active_dispersion = c("tau", "xi"),
+      expected = "two_low_variance_interior_successes",
+      expected_by_case = c(
+        low_v_high_phi = "certified_interior_success",
+        low_v_low_phi = "certified_interior_success"
+      ),
+      selection = list(
+        rule = paste(
+          "sequential seeds; after five n_i=5 low-phi boundary attempts,",
+          "increase repeated cells to n_i=10 before changing sigma2 or phi"
+        ),
+        low_v_high_phi = list(
+          attempted_seeds = 104779L,
+          attempted_status = "ok",
+          accepted_seed = 104779L
+        ),
+        low_v_low_phi = list(
+          initial_attempted_seeds = 104780:104784,
+          initial_attempted_status = rep("outer_boundary", 5L),
+          accepted_seed = 104785L,
+          accepted_n_i = 10L
+        )
+      )
+    )
+  )
+}
+
+hl_fo_all_fixture_definitions <- function() {
+  c(hl_fo_fixture_definitions(), hl_fo_supplemental_fixture_definitions())
 }
 
 hl_fo_with_rng <- function(seed, code) {
@@ -172,6 +278,23 @@ hl_fo_sdisc <- function(a, b) {
     return(Inf)
   }
   max(abs(a - b) / (1 + pmax(abs(a), abs(b))))
+}
+
+hl_fo_public_filter_summary <- function(fixture, cpc = 0.005, mincp = 5L) {
+  if (is.null(fixture$y) || is.null(fixture$n)) {
+    stop("A public-filter summary requires one generated fixture case.")
+  }
+  total_count <- sum(fixture$y)
+  nonzero_cells <- sum(fixture$y > 0)
+  count_per_cell <- total_count / fixture$n
+  list(
+    total_count = total_count,
+    nonzero_cells = as.integer(nonzero_cells),
+    count_per_cell = count_per_cell,
+    cpc = as.numeric(cpc),
+    mincp = as.integer(mincp),
+    passes = nonzero_cells >= mincp && count_per_cell > cpc
+  )
 }
 
 hl_fo_step_sequence <- function(z_r, eps = .Machine$double.eps) {
@@ -415,7 +538,14 @@ hl_fo_generate_nb_case <- function(id, definition, seed = definition$seed) {
     active_dispersion = definition$active_dispersion,
     fixed_dispersion = definition$fixed_dispersion,
     constraint = definition$constraint,
-    expected = definition$expected
+    contract_version = hl_fo_fixture_contract_version(),
+    spec_expected = if (is.null(definition$spec_expected))
+      definition$expected else definition$spec_expected,
+    expected = definition$expected,
+    expected_by_case = definition$expected_by_case,
+    boundary_contract = definition$boundary_contract,
+    adjudication = definition$adjudication,
+    selection = definition$selection
   )
 }
 
@@ -471,7 +601,14 @@ hl_fo_generate_n0 <- function(definition) {
     active_dispersion = definition$active_dispersion,
     fixed_dispersion = NULL,
     constraint = NULL,
-    expected = definition$expected
+    contract_version = hl_fo_fixture_contract_version(),
+    spec_expected = if (is.null(definition$spec_expected))
+      definition$expected else definition$spec_expected,
+    expected = definition$expected,
+    expected_by_case = definition$expected_by_case,
+    boundary_contract = definition$boundary_contract,
+    adjudication = definition$adjudication,
+    selection = definition$selection
   )
 }
 
@@ -479,27 +616,40 @@ hl_fo_generate_n0 <- function(definition) {
 
 hl_fo_fixture <- function(id, fresh = FALSE) {
   id <- as.character(id)
-  if (length(id) != 1L || !id %in% hl_fo_fixture_ids()) {
+  if (length(id) != 1L || !id %in% hl_fo_all_fixture_ids()) {
     stop("Unknown first-order HL fixture id: ", paste(id, collapse = ", "))
   }
   if (!fresh && exists(id, envir = .hl_fo_fixture_cache, inherits = FALSE)) {
     return(get(id, envir = .hl_fo_fixture_cache, inherits = FALSE))
   }
 
-  definitions <- hl_fo_fixture_definitions()
+  definitions <- hl_fo_all_fixture_definitions()
   definition <- definitions[[id]]
 
-  if (identical(id, "D1")) {
+  if (!is.null(definition$cases)) {
     case_names <- names(definition$cases)
     cases <- lapply(seq_along(case_names), function(ii) {
       case_definition <- definition
       case_definition$seed <- definition$seeds[[ii]]
-      case_definition$sigma2 <- unname(definition$cases[[ii]][["sigma2"]])
-      case_definition$phi <- unname(definition$cases[[ii]][["phi"]])
+      case_override <- as.list(definition$cases[[ii]])
+      for (field in names(case_override)) {
+        case_definition[[field]] <- case_override[[field]]
+      }
+      if (!is.null(definition$expected_by_case)) {
+        case_definition$expected <- unname(
+          definition$expected_by_case[[case_names[[ii]]]]
+        )
+      }
+      if (!is.null(definition$boundary_contract_by_case)) {
+        case_definition$boundary_contract <-
+          definition$boundary_contract_by_case[[case_names[[ii]]]]
+      }
       case_definition$cases <- NULL
       case_definition$seeds <- NULL
+      case_definition$expected_by_case <- NULL
+      case_definition$boundary_contract_by_case <- NULL
       generated <- hl_fo_generate_nb_case(
-        paste0("D1_", case_names[[ii]]),
+        paste0(id, "_", case_names[[ii]]),
         case_definition
       )
       generated$case <- case_names[[ii]]
@@ -507,10 +657,17 @@ hl_fo_fixture <- function(id, fresh = FALSE) {
     })
     names(cases) <- case_names
     fixture <- list(
-      id = "D1",
+      id = id,
       seeds = as.integer(definition$seeds),
       cases = cases,
-      expected = definition$expected
+      contract_version = hl_fo_fixture_contract_version(),
+      spec_expected = if (is.null(definition$spec_expected))
+        definition$expected else definition$spec_expected,
+      expected = definition$expected,
+      expected_by_case = definition$expected_by_case,
+      boundary_contract_by_case = definition$boundary_contract_by_case,
+      adjudication = definition$adjudication,
+      selection = definition$selection
     )
   } else if (identical(id, "N0")) {
     fixture <- hl_fo_generate_n0(definition)
@@ -523,7 +680,15 @@ hl_fo_fixture <- function(id, fresh = FALSE) {
     fixture$active_dispersion <- definition$active_dispersion
     fixture$fixed_dispersion <- definition$fixed_dispersion
     fixture$constraint <- definition$constraint
+    fixture$spec_expected <- if (is.null(definition$spec_expected))
+      definition$expected else definition$spec_expected
     fixture$expected <- definition$expected
+    fixture$expected_by_case <- definition$expected_by_case
+    fixture$boundary_contract <- definition$boundary_contract
+    fixture$boundary_contract_by_case <- definition$boundary_contract_by_case
+    fixture$adjudication <- definition$adjudication
+    fixture$selection <- definition$selection
+    fixture$contract_version <- hl_fo_fixture_contract_version()
   } else if (identical(id, "Z1")) {
     actual_seed <- definition$seed
     repeat {
