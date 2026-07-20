@@ -247,6 +247,8 @@ test_that("fully reprofiled total gradient and exact Hessian pass step halving",
   state <- .hl_fo_solver_profile(case)
   evaluate <- function(rho) .hl_fo_solver_profile(case, rho_active = rho)
 
+  expect_identical(state$inner$acceptance_tier_requested, "derivative")
+  expect_identical(state$inner$accepted_tier, "derivative")
   expect_lte(
     .hl_fo_solver("hl_fo_asymmetry")(state$H_F),
     1e-10
@@ -703,4 +705,47 @@ test_that("B1-scale fixed-dispersion inner root is certified without clipping", 
   expect_true(all(vapply(inner$mode_diagnostics, function(diag) {
     diag$residual_scaled <= 1e-10 && diag$step_scaled <= 1e-10
   }, logical(1))))
+})
+
+test_that("inner statistical acceptance is specification-gated at the cap", {
+  decide <- .hl_fo_solver("hl_fo_inner_acceptance_decision")
+
+  before_cap <- decide(
+    score_metric = 5e-10, step_metric = 2e-11,
+    iteration = 99L, max_iter = 100L,
+    acceptance_tier = "statistical"
+  )
+  expect_false(before_cap$accepted)
+  expect_true(before_cap$statistical_grade)
+
+  at_cap <- decide(
+    score_metric = 5e-10, step_metric = 2e-11,
+    iteration = 100L, max_iter = 100L,
+    acceptance_tier = "statistical"
+  )
+  expect_true(at_cap$accepted)
+  expect_identical(at_cap$accepted_tier, "statistical")
+  expect_false(at_cap$derivative_grade)
+
+  derivative <- decide(
+    score_metric = 5e-10, step_metric = 2e-11,
+    iteration = 100L, max_iter = 100L,
+    acceptance_tier = "derivative"
+  )
+  expect_false(derivative$accepted)
+
+  outside_specification <- decide(
+    score_metric = 2e-8, step_metric = 2e-11,
+    iteration = 100L, max_iter = 100L,
+    acceptance_tier = "statistical"
+  )
+  expect_false(outside_specification$accepted)
+
+  polished <- decide(
+    score_metric = 5e-11, step_metric = 2e-11,
+    iteration = 3L, max_iter = 100L,
+    acceptance_tier = "statistical"
+  )
+  expect_true(polished$accepted)
+  expect_identical(polished$accepted_tier, "derivative")
 })

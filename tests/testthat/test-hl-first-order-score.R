@@ -19,6 +19,52 @@
   list(fixture = fixture, data = data, seed = seed)
 }
 
+.hl_fo_score_locked_mc_case <- function(replicate = 75L, m = 250L) {
+  generated <- hl_fo_with_rng(8675309L, function() {
+    stream <- get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+    if (replicate > 1L) {
+      for (ii in 2:replicate) stream <- parallel::nextRNGStream(stream)
+    }
+    assign(".Random.seed", stream, envir = .GlobalEnv)
+
+    m_max <- 2000L
+    n_i <- 5L
+    n <- m_max * n_i
+    subject <- rep(seq_len(m_max), each = n_i)
+    z_subject <- rbinom(m_max, size = 1L, prob = 0.5)
+    z <- rep(z_subject, each = n_i)
+    w <- rnorm(n)
+    X <- cbind(`(Intercept)` = 1, z = z, w = w)
+    log_offset <- runif(n, min = -0.3, max = 0.3)
+    beta <- c(`(Intercept)` = -1.2, z = 0.35, w = -0.25)
+    sigma2 <- 0.4
+    phi <- 8
+    alpha <- 1 / expm1(sigma2)
+    lambda <- alpha * exp(-sigma2 / 2)
+    omega <- rgamma(m_max, shape = alpha, rate = lambda)
+    mu <- exp(log_offset + drop(X %*% beta)) * omega[subject]
+    y <- rnbinom(n, size = phi, mu = mu)
+    list(
+      y = y, X = X, log_offset = log_offset, subject = subject,
+      beta = beta, sigma2 = sigma2, phi = phi, n_i = n_i
+    )
+  })
+  cells <- seq_len(as.integer(m) * generated$n_i)
+  generated$data <- .hl_fo_score_ns("hl_fo_make_data")(
+    y = generated$y[cells],
+    X = generated$X[cells, , drop = FALSE],
+    log_offset = generated$log_offset[cells],
+    subject = generated$subject[cells],
+    intcol = 1L
+  )
+  generated$R <- matrix(
+    c(0, 1, 0), nrow = 1L,
+    dimnames = list("z_at_truth", names(generated$beta))
+  )
+  generated$rhs <- c(z_at_truth = generated$beta[["z"]])
+  generated
+}
+
 .hl_fo_score_trace_info <- function(label, trace) {
   paste(
     sprintf(
@@ -136,6 +182,71 @@ test_that("q zero has a separate certified full-chi Score null object", {
              score$root_certification$statistical_displacement_limit)
 })
 
+test_that("locked q-zero Score case uses specification-grade cap acceptance", {
+  case <- .hl_fo_score_locked_mc_case(replicate = 75L, m = 250L)
+  fixed <- c(sigma2 = case$sigma2, phi = case$phi)
+  fit <- .hl_fo_score_ns("hl_fo_fit")(
+    data = case$data,
+    active = character(0),
+    fixed_natural = fixed
+  )
+  expect_true(fit$point_success)
+  expect_identical(fit$fit_status, "ok")
+
+  affine <- .hl_fo_score_ns("hl_fo_affine_constraint")(
+    case$R, case$rhs, p = case$data$p
+  )
+  solve_inner <- .hl_fo_score_ns("hl_fo_solve_inner")
+  derivative <- solve_inner(
+    data = case$data,
+    rho_full = log(fixed),
+    beta_star = affine$beta_star,
+    K = affine$K,
+    beta_start = fit$beta,
+    cold = TRUE,
+    max_iter = 3L,
+    acceptance_tier = "derivative"
+  )
+  statistical <- solve_inner(
+    data = case$data,
+    rho_full = log(fixed),
+    beta_star = affine$beta_star,
+    K = affine$K,
+    beta_start = fit$beta,
+    cold = TRUE,
+    max_iter = 3L,
+    acceptance_tier = "statistical"
+  )
+  expect_false(derivative$success)
+  expect_identical(derivative$reason, "inner_iteration_exhausted")
+  expect_true(statistical$success)
+  expect_identical(statistical$accepted_tier, "statistical")
+  expect_equal(statistical$iterations, 3L)
+  expect_lte(statistical$score_metric, 1e-8)
+  expect_lte(statistical$step_metric, 1e-10)
+
+  score <- .hl_fo_score_ns("hl_fo_score_test")(
+    data = case$data,
+    R = case$R,
+    rhs = case$rhs,
+    unrestricted_fit = fit,
+    active = character(0),
+    fixed_natural = fixed
+  )
+  expect_true(score$success)
+  expect_identical(score$status, "ok")
+  expect_identical(score$constrained_fit$inner$accepted_tier, "statistical")
+  expect_identical(score$null_fit$inner$accepted_tier, "statistical")
+  expect_lte(score$null_fit$inner$score_metric, 1e-8)
+  expect_lte(score$null_fit$inner$step_metric, 1e-10)
+  expect_lte(score$root_certification$constraint$scaled,
+             100 * .Machine$double.eps)
+  expect_true(all(vapply(score$null_fit$inner$mode_diagnostics, function(diag) {
+    diag$residual_scaled <= 1e-10 && diag$step_scaled <= 1e-10
+  }, logical(1))))
+  expect_true(is.finite(score$stat) && score$stat >= 0)
+})
+
 test_that("root clustering retains the earlier root and rejects multiplicity", {
   select <- .hl_fo_score_ns("hl_fo_score_select_candidates")
   first <- list(start = 1L, state = list(rho = c(0, 0), beta = c(1, 2)))
@@ -179,6 +290,8 @@ test_that("C1 uses a separately fitted full-chi null root and robust adjusted me
   expect_identical(score$constrained_fit$object_type,
                    "reduced_constrained_maximizer")
   expect_identical(score$null_fit$object_type, "full_chi_score_null")
+  expect_identical(score$null_fit$inner$acceptance_tier_requested, "derivative")
+  expect_identical(score$null_fit$inner$accepted_tier, "derivative")
   expect_length(score$constrained_fit$augmented$chi, case$data$p - 1L)
   expect_length(score$null_fit$augmented$chi, case$data$p)
   expect_gt(

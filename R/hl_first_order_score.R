@@ -61,7 +61,8 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
                                      eta_start = NULL, cold = FALSE,
                                      include_laplace_constant = TRUE,
                                      constraint_R = NULL,
-                                     constraint_rhs = numeric(0)) {
+                                     constraint_rhs = numeric(0),
+                                     inner_acceptance_tier = "derivative") {
   active <- as.integer(active)
   rho_full <- as.numeric(rho_template)
   if (length(active)) rho_full[active] <- as.numeric(rho_active)
@@ -76,7 +77,8 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
     K = K,
     beta_start = beta_start,
     eta_start = eta_start,
-    cold = cold
+    cold = cold,
+    acceptance_tier = inner_acceptance_tier
   )
   if (!isTRUE(inner$success)) return(inner)
 
@@ -208,7 +210,8 @@ hl_fo_score_make_evaluator <- function(data, rho_template, active, beta_star, K,
       cold = cold,
       include_laplace_constant = include_laplace_constant,
       constraint_R = constraint_R,
-      constraint_rhs = constraint_rhs
+      constraint_rhs = constraint_rhs,
+      inner_acceptance_tier = if (length(active)) "derivative" else "statistical"
     )
     trace[[length(trace) + 1L]] <<- list(
       rho = as.numeric(rho),

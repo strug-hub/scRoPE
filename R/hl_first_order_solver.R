@@ -448,9 +448,44 @@ hl_fo_inner_recession <- function(data, K) {
   )
 }
 
+hl_fo_inner_acceptance_decision <- function(score_metric, step_metric,
+                                            iteration, max_iter,
+                                            acceptance_tier = c(
+                                              "derivative", "statistical"
+                                            )) {
+  acceptance_tier <- match.arg(acceptance_tier)
+  derivative_grade <- is.finite(score_metric) && is.finite(step_metric) &&
+    score_metric <= 1e-10 && step_metric <= 1e-10
+  statistical_grade <- is.finite(score_metric) && is.finite(step_metric) &&
+    score_metric <= 1e-8 && step_metric <= 1e-10
+  statistical_at_cap <- identical(acceptance_tier, "statistical") &&
+    iteration >= max_iter && statistical_grade
+  accepted <- derivative_grade || statistical_at_cap
+  list(
+    accepted = accepted,
+    requested_tier = acceptance_tier,
+    accepted_tier = if (derivative_grade) {
+      "derivative"
+    } else if (statistical_at_cap) {
+      "statistical"
+    } else {
+      NA_character_
+    },
+    derivative_grade = derivative_grade,
+    statistical_grade = statistical_grade,
+    at_iteration_cap = iteration >= max_iter,
+    score_metric = score_metric,
+    step_metric = step_metric,
+    score_tolerance = if (identical(acceptance_tier, "derivative")) 1e-10 else 1e-8,
+    step_tolerance = 1e-10
+  )
+}
+
 hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
                               eta_start = NULL, cold = FALSE,
-                              max_iter = 100L) {
+                              max_iter = 100L,
+                              acceptance_tier = c("derivative", "statistical")) {
+  acceptance_tier <- match.arg(acceptance_tier)
   beta_star <- as.numeric(beta_star)
   K <- as.matrix(K)
   k_free <- ncol(K)
@@ -493,6 +528,13 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
     current$score_metric <- 0
     current$step_metric <- 0
     current$iterations <- 0L
+    current$acceptance_tier_requested <- acceptance_tier
+    current$accepted_tier <- "derivative"
+    current$inner_acceptance <- hl_fo_inner_acceptance_decision(
+      score_metric = 0, step_metric = 0,
+      iteration = 0L, max_iter = max_iter,
+      acceptance_tier = acceptance_tier
+    )
     current$success <- TRUE
     return(current)
   }
@@ -523,11 +565,23 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
       iteration = iter, P = current$P, score_metric = score_metric,
       step_metric = step_metric, min_curvature = min(eig_neg_B)
     )
-    # The specification permits acceptance at 1e-8, but the total outer
-    # derivative can amplify an otherwise admissible beta-score residual.
-    # Solve two orders more tightly so warm and cold derivative transactions
-    # reproduce at the required 1e-8 scaled tolerance.
-    if (score_metric <= 1e-10 && step_metric <= 1e-10) {
+    # Prefer derivative-grade polishing because total outer derivatives can
+    # amplify an otherwise admissible beta-score residual.  The closed
+    # statistical tier retains that target through the 100-iteration budget,
+    # then accepts only the specification's 1e-8 score and 1e-10 step gate.
+    # It is used only by fixed-dispersion profiles and separately cold-
+    # certified full-chi Score states.
+    acceptance <- hl_fo_inner_acceptance_decision(
+      score_metric = score_metric,
+      step_metric = step_metric,
+      iteration = iter,
+      max_iter = max_iter,
+      acceptance_tier = acceptance_tier
+    )
+    trace[[iter]]$derivative_grade <- acceptance$derivative_grade
+    trace[[iter]]$statistical_grade <- acceptance$statistical_grade
+    trace[[iter]]$accepted_tier <- acceptance$accepted_tier
+    if (isTRUE(acceptance$accepted)) {
       current$gamma <- gamma
       current$S <- S
       current$B <- B
@@ -535,6 +589,9 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
       current$step_metric <- step_metric
       current$iterations <- iter
       current$trace <- Filter(Negate(is.null), trace)
+      current$acceptance_tier_requested <- acceptance_tier
+      current$accepted_tier <- acceptance$accepted_tier
+      current$inner_acceptance <- acceptance
       current$success <- TRUE
       return(current)
     }
@@ -616,6 +673,7 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
     gamma = gamma,
     beta = current$beta,
     eta = current$eta,
+    acceptance_tier_requested = acceptance_tier,
     trace = Filter(Negate(is.null), trace)
   )
 }
@@ -825,7 +883,8 @@ hl_fo_augmented_state <- function(subjects, k_free, q) {
 hl_fo_profile_evaluate <- function(data, rho_active, rho_template, active,
                                    beta_star, K, beta_start, eta_start = NULL,
                                    cold = FALSE,
-                                   include_laplace_constant = TRUE) {
+                                   include_laplace_constant = TRUE,
+                                   inner_acceptance_tier = "derivative") {
   rho_full <- as.numeric(rho_template)
   active <- as.integer(active)
   if (length(active)) {
@@ -838,7 +897,8 @@ hl_fo_profile_evaluate <- function(data, rho_active, rho_template, active,
     K = K,
     beta_start = beta_start,
     eta_start = eta_start,
-    cold = cold
+    cold = cold,
+    acceptance_tier = inner_acceptance_tier
   )
   if (!isTRUE(inner$success)) {
     return(inner)
@@ -1046,7 +1106,8 @@ hl_fo_outer_stationarity <- function(state, tolerance = 1e-7) {
 hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
                                        seed_beta, include_laplace_constant = TRUE,
                                        constraint_C = NULL,
-                                       constraint_rhs = numeric(0)) {
+                                       constraint_rhs = numeric(0),
+                                       inner_acceptance_tier = "derivative") {
   cache <- list()
   trace <- list()
   evaluate <- function(rho, cold = FALSE) {
@@ -1067,7 +1128,8 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
       beta_start = beta_start,
       eta_start = eta_start,
       cold = cold,
-      include_laplace_constant = include_laplace_constant
+      include_laplace_constant = include_laplace_constant,
+      inner_acceptance_tier = inner_acceptance_tier
     )
     reconstruction <- if (isTRUE(ans$success))
       as.numeric(ans$beta - beta_star - K %*% ans$gamma) else NULL
@@ -1690,7 +1752,8 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
   if (!length(active)) {
     evaluator <- hl_fo_make_outer_evaluator(
       data, rho_template, active, beta_star, K, seed$beta,
-      include_laplace_constant, constraint_C, constraint_rhs
+      include_laplace_constant, constraint_C, constraint_rhs,
+      inner_acceptance_tier = "statistical"
     )
     state <- evaluator$evaluate(numeric(0), cold = TRUE)
     if (!isTRUE(state$success)) {
