@@ -915,7 +915,31 @@ compute_profile_lrt <- function(unconstrained,
   )
 }
 
-compute_adj_score <- function(constrained, L, ridge_factor = 1e-8, check_scalar_identity = FALSE, tol = 1e-6) {
+compute_adj_score <- function(constrained, L, ridge_factor = 1e-8,
+                              check_scalar_identity = FALSE, tol = 1e-6,
+                              score_gate = NULL) {
+  if (!is.null(score_gate) && !isTRUE(score_gate$available)) {
+    L <- as.matrix(L)
+    d0 <- nrow(L)
+    reason <- score_gate$failure_reason
+    if (is.null(reason) || !length(reason) || is.na(reason[[1L]])) {
+      reason <- "undefined_stat"
+    }
+    return(list(
+      method = "unavailable",
+      df = d0,
+      stat = NA_real_,
+      pval = NA_real_,
+      ridge = NA_real_,
+      success = FALSE,
+      score = matrix(NA_real_, d0, 1L),
+      Spsi = matrix(NA_real_, d0, d0),
+      Gpsi = matrix(NA_real_, d0, d0),
+      Hpsi = matrix(NA_real_, d0, d0),
+      scalar_check = NA_real_,
+      failure_reason = normalise_failure(reason[[1L]], "score")
+    ))
+  }
   godambe <- constrained$godambe
   if (is.null(godambe)) {
     stop("Constrained fit lacks Godambe summary; cannot compute adjusted score.")

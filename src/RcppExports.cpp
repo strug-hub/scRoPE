@@ -387,9 +387,31 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// opt_pml_fixed_beta_modes
+Rcpp::List opt_pml_fixed_beta_modes(const Eigen::Map<Eigen::MatrixXd>& X_c, const Eigen::Map<Eigen::VectorXd>& offset_c, const Eigen::VectorXd& Y_c, const Eigen::VectorXi& fid_c, const Eigen::VectorXd& cumsumy_c, const Eigen::VectorXi& posindy_c, const int nind_c, const int k_c, const Eigen::VectorXd& beta_c, const Eigen::VectorXd& sigma_c, const double tol, const int maxit);
+RcppExport SEXP _scRoPE_opt_pml_fixed_beta_modes(SEXP X_cSEXP, SEXP offset_cSEXP, SEXP Y_cSEXP, SEXP fid_cSEXP, SEXP cumsumy_cSEXP, SEXP posindy_cSEXP, SEXP nind_cSEXP, SEXP k_cSEXP, SEXP beta_cSEXP, SEXP sigma_cSEXP, SEXP tolSEXP, SEXP maxitSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::MatrixXd>& >::type X_c(X_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::Map<Eigen::VectorXd>& >::type offset_c(offset_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type Y_c(Y_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::VectorXi& >::type fid_c(fid_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type cumsumy_c(cumsumy_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::VectorXi& >::type posindy_c(posindy_cSEXP);
+    Rcpp::traits::input_parameter< const int >::type nind_c(nind_cSEXP);
+    Rcpp::traits::input_parameter< const int >::type k_c(k_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type beta_c(beta_cSEXP);
+    Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type sigma_c(sigma_cSEXP);
+    Rcpp::traits::input_parameter< const double >::type tol(tolSEXP);
+    Rcpp::traits::input_parameter< const int >::type maxit(maxitSEXP);
+    rcpp_result_gen = Rcpp::wrap(opt_pml_fixed_beta_modes(X_c, offset_c, Y_c, fid_c, cumsumy_c, posindy_c, nind_c, k_c, beta_c, sigma_c, tol, maxit));
+    return rcpp_result_gen;
+END_RCPP
+}
 // ptmg_ll_der_hes_eigen_per_subject
-Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd>& X_c, const Eigen::Map<Eigen::VectorXd>& offset_c, const Eigen::VectorXd& Y_c, const Eigen::VectorXi& fid_c, const Eigen::VectorXd& cumsumy_c, const Eigen::VectorXi& posind_c, const Eigen::VectorXi& posindy_c, const int nb_c, const int nind_c, const int k_c, const Eigen::VectorXd& beta_c, const Eigen::VectorXd& sigma_c);
-RcppExport SEXP _scRoPE_ptmg_ll_der_hes_eigen_per_subject(SEXP X_cSEXP, SEXP offset_cSEXP, SEXP Y_cSEXP, SEXP fid_cSEXP, SEXP cumsumy_cSEXP, SEXP posind_cSEXP, SEXP posindy_cSEXP, SEXP nb_cSEXP, SEXP nind_cSEXP, SEXP k_cSEXP, SEXP beta_cSEXP, SEXP sigma_cSEXP) {
+Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd>& X_c, const Eigen::Map<Eigen::VectorXd>& offset_c, const Eigen::VectorXd& Y_c, const Eigen::VectorXi& fid_c, const Eigen::VectorXd& cumsumy_c, const Eigen::VectorXi& posind_c, const Eigen::VectorXi& posindy_c, const int nb_c, const int nind_c, const int k_c, const Eigen::VectorXd& beta_c, const Eigen::VectorXd& sigma_c, const bool stable_cellwise);
+RcppExport SEXP _scRoPE_ptmg_ll_der_hes_eigen_per_subject(SEXP X_cSEXP, SEXP offset_cSEXP, SEXP Y_cSEXP, SEXP fid_cSEXP, SEXP cumsumy_cSEXP, SEXP posind_cSEXP, SEXP posindy_cSEXP, SEXP nb_cSEXP, SEXP nind_cSEXP, SEXP k_cSEXP, SEXP beta_cSEXP, SEXP sigma_cSEXP, SEXP stable_cellwiseSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -405,7 +427,8 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const int >::type k_c(k_cSEXP);
     Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type beta_c(beta_cSEXP);
     Rcpp::traits::input_parameter< const Eigen::VectorXd& >::type sigma_c(sigma_cSEXP);
-    rcpp_result_gen = Rcpp::wrap(ptmg_ll_der_hes_eigen_per_subject(X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, sigma_c));
+    Rcpp::traits::input_parameter< const bool >::type stable_cellwise(stable_cellwiseSEXP);
+    rcpp_result_gen = Rcpp::wrap(ptmg_ll_der_hes_eigen_per_subject(X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, sigma_c, stable_cellwise));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -430,7 +453,8 @@ static const R_CallMethodDef CallEntries[] = {
     {"_scRoPE_opt_pml_constrained", (DL_FUNC) &_scRoPE_opt_pml_constrained, 14},
     {"_scRoPE_opt_pml_nbm", (DL_FUNC) &_scRoPE_opt_pml_nbm, 15},
     {"_scRoPE_pml_ll_der_eigen", (DL_FUNC) &_scRoPE_pml_ll_der_eigen, 13},
-    {"_scRoPE_ptmg_ll_der_hes_eigen_per_subject", (DL_FUNC) &_scRoPE_ptmg_ll_der_hes_eigen_per_subject, 12},
+    {"_scRoPE_opt_pml_fixed_beta_modes", (DL_FUNC) &_scRoPE_opt_pml_fixed_beta_modes, 12},
+    {"_scRoPE_ptmg_ll_der_hes_eigen_per_subject", (DL_FUNC) &_scRoPE_ptmg_ll_der_hes_eigen_per_subject, 13},
     {NULL, NULL, 0}
 };
 

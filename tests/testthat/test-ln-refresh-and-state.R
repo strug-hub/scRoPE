@@ -1,4 +1,4 @@
-test_that("fit_gene_constrained evaluates derivatives at rescued constrained beta", {
+test_that("legacy post-PML constrained route retains its compatibility state", {
   fit_fn <- getFromNamespace("fit_gene_constrained", "scRoPE")
   captured <- new.env(parent = emptyenv())
   captured$para <- NULL
@@ -76,7 +76,8 @@ test_that("fit_gene_constrained evaluates derivatives at rescued constrained bet
     posind = list(integer()),
     nind = 1L,
     k = 1L,
-    output_re = FALSE
+    output_re = FALSE,
+    ln_estimator = "legacy_post_pml"
   )
   posv <- list(
     mct = 1,
@@ -101,7 +102,7 @@ test_that("fit_gene_constrained evaluates derivatives at rescued constrained bet
   expect_equal(out$theta_unrescued$beta, out$theta_ln$beta)
 })
 
-test_that("fit_gene_unconstrained uses beta_ln when use_betas='final_betas'", {
+test_that("legacy post-PML route uses beta_ln when use_betas='final_betas'", {
   fit_fn <- getFromNamespace("fit_gene_unconstrained", "scRoPE")
 
   run_with_mode <- function(mode) {
@@ -179,7 +180,8 @@ test_that("fit_gene_unconstrained uses beta_ln when use_betas='final_betas'", {
       opt = "lbfgs",
       cell_init = 1,
       output_re = FALSE,
-      id = 1L
+      id = 1L,
+      ln_estimator = "legacy_post_pml"
     )
     posv <- list(
       mct = 2,

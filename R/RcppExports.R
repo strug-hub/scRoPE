@@ -77,7 +77,11 @@ pml_ll_der_eigen <- function(X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, pos
     .Call(`_scRoPE_pml_ll_der_eigen`, X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, logw_c, sigma_c)
 }
 
-ptmg_ll_der_hes_eigen_per_subject <- function(X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, sigma_c) {
-    .Call(`_scRoPE_ptmg_ll_der_hes_eigen_per_subject`, X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, sigma_c)
+opt_pml_fixed_beta_modes <- function(X_c, offset_c, Y_c, fid_c, cumsumy_c, posindy_c, nind_c, k_c, beta_c, sigma_c, tol, maxit) {
+    .Call(`_scRoPE_opt_pml_fixed_beta_modes`, X_c, offset_c, Y_c, fid_c, cumsumy_c, posindy_c, nind_c, k_c, beta_c, sigma_c, tol, maxit)
+}
+
+ptmg_ll_der_hes_eigen_per_subject <- function(X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, sigma_c, stable_cellwise) {
+    .Call(`_scRoPE_ptmg_ll_der_hes_eigen_per_subject`, X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nb_c, nind_c, k_c, beta_c, sigma_c, stable_cellwise)
 }
 

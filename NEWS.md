@@ -1,3 +1,27 @@
+# scRoPE (development version)
+
+- Added the opt-in `ln_estimator = "joint_ln"` route. For `R0` genes it
+  reports a stationary local maximizer of the NEBULA-LN approximate marginal
+  criterion and evaluates model and donor-sandwich covariance at that same
+  root. The public default remains `legacy_post_pml`.
+- Added structured estimator and per-gene provenance, including numerical
+  route, start provenance, inference availability, normalized failure reason,
+  and optional-mode status. `R2` genes receive unavailable covariance and Wald
+  results rather than a fallback statistic.
+- Added auxiliary fixed-beta conditional donor modes for joint-LN fits. These
+  modes do not alter coefficient inference.
+- Kept adjusted Score and scaled adjusted likelihood-ratio tests unavailable
+  for `joint_ln`, with status `joint_ln_calibration_pending`, pending separate
+  calibration work.
+- Corrected LN donor-score allocation for zero-based positive-observation
+  indices and stabilized donor/aggregate score summation. This intentionally
+  changes affected legacy robust covariance and dependent tests while retaining
+  the legacy coefficient-estimator architecture.
+- Documented that sc-RoPE 0.2.3 operationally reported `repml$beta` after the
+  raw-LN fit, whereas `joint_ln` targets the NEBULA-LN approximate marginal
+  criterion. Coefficients, standard errors, p-values, convergence statuses,
+  FDR calls, and downstream results may therefore change.
+
 # scRoPE 0.2.3 (2026-07-14)
 
 - Restored adjusted LRT inference for the LN NBGMM route by limiting the exact

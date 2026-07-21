@@ -1,8 +1,8 @@
 #' sc-RoPE main entry point
 #'
-#' Fits the sc-RoPE negative binomial mixed model for multi-subject
-#' single-cell data and, optionally, computes invariantly adjusted profile
-#' likelihood ratio tests for fixed-effect contrasts.
+#' Fits sc-RoPE working-likelihood models for multi-subject single-cell data
+#' and, where supported by the selected route, computes optional adjusted
+#' tests for fixed-effect contrasts.
 #'
 #' @param count Gene-by-cell count matrix (dense matrix or `dgCMatrix`).
 #' @param id Vector of subject identifiers aligned with the columns of `count`.
@@ -19,7 +19,8 @@
 #' @param cutoff_cell Threshold (cells per subject × phi) below which HL refinement is triggered.
 #' @param kappa Kappa threshold for adaptive HL refinement.
 #' @param allow_per_gene_switch Logical; allow per-gene LN/HL switching. Defaults to
-#'   `FALSE` so the LN pipeline (required for adjusted LRTs) is used for every gene.
+#'   `FALSE` so one LN route is used for every gene. Adjusted LRT availability
+#'   depends on `ln_estimator`.
 #' @param use_betas Which fixed-effect anchor to use in LN variance-refinement
 #'   starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
 #'   `"final_betas"` uses the LN optimizer coefficients.
@@ -40,11 +41,48 @@
 #'   cell-level overdispersion, prefer robust results for cell-level predictors.
 #'   Use the LN/HL NBGMM path when that variance component should be modeled
 #'   explicitly.
+#' @param ln_estimator LN coefficient-estimator route. The current default,
+#'   `"legacy_post_pml"`, retains the version 0.2.3 post-PML architecture for
+#'   legacy output reproduction; this label is not a claim of
+#'   estimator-aligned joint-LN inference. `"joint_ln"` is an opt-in route
+#'   that reports the joint maximizer of the NEBULA-LN approximate marginal
+#'   criterion for genes classified `R0` and evaluates model and donor-sandwich
+#'   covariance at that root. Genes classified `R2` have analytic covariance
+#'   and Wald results set to unavailable. This argument applies only when
+#'   `model = "LN"`.
+#'
+#' @details
+#' The public default remains `ln_estimator = "legacy_post_pml"`. Version 0.2.3
+#' operationally reported the post-PML `repml$beta` after the raw-LN fit. The
+#' NEBULA paper describes the LN approximate-marginal-likelihood M-estimator and
+#' a separate h-likelihood step for standard-error computation, but does not
+#' clearly state that software-level coefficient replacement. The opt-in
+#' `"joint_ln"` route instead reports a stationary local maximizer of the
+#' NEBULA-LN approximate marginal criterion; it is not claimed to reproduce
+#' legacy NEBULA coefficients or to establish global uniqueness.
+#'
+#' Joint-LN numerical provenance uses `R0` for a regular joint root with model
+#' and robust Wald inference available, `R1` for legacy post-PML output
+#' reproduction without an estimator-alignment claim, and `R2` for unsupported
+#' analytic joint-LN inference. `R2` covariance, standard errors, Wald
+#' statistics, and p-values are returned as unavailable rather than replaced by
+#' a fallback statistic. Adjusted Score and scaled adjusted likelihood-ratio
+#' tests remain unavailable for `"joint_ln"` with status
+#' `joint_ln_calibration_pending`; same-objective constrained endpoints are
+#' retained only as diagnostics pending separate calibration work.
+#'
+#' With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
+#' conditional PML predictions evaluated at the plug-in joint-LN parameters.
+#' They do not alter coefficients, dispersions, covariance, tests, convergence,
+#' or route classification.
 #'
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
-#'   `algorithm`, optional `random_effect`, `diagnostics`, and optional
-#'   `lrt_details`, mirroring the original `nebula_sand` output with the new
-#'   adjusted LRT fields.
+#'   `algorithm`, optional `random_effect`, `diagnostics`, optional
+#'   `lrt_details`, and structured `provenance`. For LN fits, provenance records
+#'   the estimator definition and parameter maps; its `per_gene` table records
+#'   route, start provenance, inference availability, normalized failure reason,
+#'   and mode status, while `mode_diagnostics` retains per-gene auxiliary-mode
+#'   checks.
 #'
 #' @useDynLib scRoPE, .registration = TRUE
 #' @importFrom Rcpp evalCpp
@@ -73,9 +111,15 @@ scrope <- function(
     lrt_include_scale = FALSE,
     lrt_details = FALSE,
     keep_diagnostics = TRUE,
-    model = c("LN", "PGMM")) {
+    model = c("LN", "PGMM"),
+    ln_estimator = c("legacy_post_pml", "joint_ln")) {
+  ln_estimator_missing <- missing(ln_estimator)
+  ln_estimator <- match.arg(ln_estimator)
   model <- match.arg(model)
   if (identical(model, "PGMM")) {
+    if (!ln_estimator_missing && !identical(ln_estimator, "legacy_post_pml")) {
+      stop("ln_estimator applies only to model='LN'; do not request joint_ln for PGMM.")
+    }
     return(scrope_pmg_internal(
       count = count,
       id = id,
@@ -101,6 +145,13 @@ scrope <- function(
       lrt_details = lrt_details,
       keep_diagnostics = keep_diagnostics
     ))
+  }
+
+  if (identical(ln_estimator, "joint_ln") && isTRUE(allow_per_gene_switch)) {
+    stop("ln_estimator='joint_ln' does not support allow_per_gene_switch=TRUE.")
+  }
+  if (!opt %in% c("lbfgs", "trust")) {
+    stop("opt must be 'lbfgs' or 'trust'.")
   }
 
   # fail-safe for use_betas
@@ -156,6 +207,9 @@ scrope <- function(
     }
   }
   nb <- ncol(pred)
+  public_scale <- as.numeric(sds)
+  public_scale[intcol] <- 1
+  coef_internal_to_public <- diag(1 / public_scale, nrow = nb, ncol = nb)
 
   extra_tests <- additional_tests
   if (!is.null(extra_tests)) {
@@ -187,7 +241,8 @@ scrope <- function(
     need_constrained <- TRUE
   }
 
-  if (need_constrained && opt != "lbfgs") {
+  if (need_constrained && opt != "lbfgs" &&
+      !identical(ln_estimator, "joint_ln")) {
     if (verbose) {
       warning("Adjusted LRT/score require opt='lbfgs'; skipping those tests.")
     }
@@ -369,7 +424,9 @@ scrope <- function(
     opt = opt,
     cell_init = cell_init,
     output_re = output_re,
-    id = id
+    id = id,
+    ln_estimator = ln_estimator,
+    coef_internal_to_public = coef_internal_to_public
   )
 
   gene_results <- foreach(i = gid) %dorng% {
@@ -383,6 +440,7 @@ scrope <- function(
         cache <- vector("list", length(lrt_names))
         names(cache) <- lrt_names
         neg_detected <- FALSE
+        joint_ln_pending <- identical(ctx$ln_estimator, "joint_ln")
         empty_score_result <- function(L, msg = NULL, reason = NULL) {
           d0 <- nrow(L)
           if (!is.null(msg)) {
@@ -409,43 +467,158 @@ scrope <- function(
           )
         }
         empty_ridge <- list(Hpsi = NA_real_, Gpsi = NA_real_, wald = NA_real_)
+        joint_pending_lrt <- function(unconstrained_fit, constrained_fit) {
+          diagnostics <- constrained_fit$diagnostics
+          if (is.null(diagnostics)) diagnostics <- list()
+          gate <- constrained_fit$lrt_gate
+          if (is.null(gate)) gate <- list()
+          raw_wP <- if (is.finite(unconstrained_fit$loglik_ln) &&
+              is.finite(constrained_fit$loglik_ln)) {
+            2 * (unconstrained_fit$loglik_ln - constrained_fit$loglik_ln)
+          } else {
+            NA_real_
+          }
+          reduced_gradient <- if (!is.null(diagnostics$reduced_gradient_max_abs)) {
+            as.numeric(diagnostics$reduced_gradient_max_abs[[1L]])
+          } else {
+            NA_real_
+          }
+          newton_step <- if (!is.null(diagnostics$max_abs_newton_step_scaled)) {
+            as.numeric(diagnostics$max_abs_newton_step_scaled[[1L]])
+          } else {
+            NA_real_
+          }
+          hessian_rcond <- if (!is.null(diagnostics$H_red_rcond)) {
+            as.numeric(diagnostics$H_red_rcond[[1L]])
+          } else {
+            NA_real_
+          }
+          constraint_residual <- if (!is.null(diagnostics$constraint_residual_scaled)) {
+            as.numeric(diagnostics$constraint_residual_scaled[[1L]])
+          } else {
+            NA_real_
+          }
+          hessian_ok <- isTRUE(diagnostics$H_red_positive_definite)
+          diagnostics_finite <- all(is.finite(c(
+            reduced_gradient,
+            newton_step,
+            hessian_rcond,
+            constraint_residual
+          )))
+          list(
+            wP = raw_wP,
+            wU = NA_real_,
+            qP = NA_real_,
+            wP_minus_qP = NA_real_,
+            wP_over_qP = NA_real_,
+            scale = NA_real_,
+            wP_adjusted = NA_real_,
+            score = NA_real_,
+            Hpsi = NA_real_,
+            Gpsi = NA_real_,
+            Gbeta = NA_real_,
+            Jpsi = NA_real_,
+            Vpsi_model = NA_real_,
+            Vpsi_godambe = NA_real_,
+            method = "unavailable_joint_ln",
+            ridge = empty_ridge,
+            fallback = FALSE,
+            success = FALSE,
+            adjusted_available = FALSE,
+            adjusted_failure_reason = "joint_ln_calibration_pending",
+            gate = list(
+              converged = isTRUE(unconstrained_fit$inference_available) &&
+                isTRUE(constrained_fit$inference_available),
+              convergence_basis = "joint_ln_endpoint_pair",
+              unrestricted_route = unconstrained_fit$route,
+              unrestricted_failure_reason = unconstrained_fit$failure_reason,
+              constrained_route = constrained_fit$route,
+              constrained_failure_reason = constrained_fit$failure_reason,
+              legacy_converged = FALSE,
+              legacy_conv_code = NA_integer_,
+              information_scaled_eligible = FALSE,
+              information_scaled_convergence_ok = FALSE,
+              information_scaled_accepted = FALSE,
+              H_red_positive_definite = hessian_ok,
+              diagnostics_finite = diagnostics_finite,
+              H_red_rcond = hessian_rcond,
+              reduced_gradient_max_abs = reduced_gradient,
+              max_abs_newton_step_scaled = newton_step,
+              gradient_quadratic_lr_bound = NA_real_,
+              newton_step_scaled_ok = is.finite(newton_step) &&
+                newton_step <= ln_joint_thresholds()$newton,
+              gradient_quadratic_lr_bound_ok = FALSE,
+              reduced_parameterization = "zeta, log(sigma2), log(gamma_nb_size)",
+              constraint_satisfied = isTRUE(gate$constraint_satisfied),
+              constraint_residual_max_abs = constraint_residual,
+              nuisance_hessian_invertible = hessian_ok,
+              interior = isTRUE(gate$interior),
+              nuisance_interior = isTRUE(gate$nuisance_interior),
+              profiled_curvature_positive = hessian_ok,
+              profiled_variability_positive = NA,
+              scale_positive = FALSE
+            ),
+            failure_reason = normalise_failure(
+              "joint_ln_calibration_pending",
+              "lrt"
+            )
+          )
+        }
 
         for (idx_nm in seq_along(lrt_names)) {
           nm <- lrt_names[idx_nm]
           def <- lrt_defs[[nm]]
-          constrained_fit <- fit_gene_constrained(i, posv, ctx, def$L, def$b)
+          L_fit <- if (joint_ln_pending) {
+            def$L %*% ctx$coef_internal_to_public
+          } else {
+            def$L
+          }
+          constrained_fit <- fit_gene_constrained(i, posv, ctx, L_fit, def$b)
           lrt_res <- NULL
           if (want_lrt) {
-            ln_gate <- ln_lrt_gate_override(constrained_fit, def$L, def$b)
-            lrt_res <- compute_profile_lrt(
-              current_unconstrained,
-              constrained_fit,
-              def$L,
-              def$b,
-              lrt_gate_override = ln_gate
-            )
-            if (!is.na(lrt_res$wP) && lrt_res$wP < -lrt_neg_tol) {
-              neg_detected <- TRUE
+            if (joint_ln_pending) {
+              lrt_res <- joint_pending_lrt(current_unconstrained, constrained_fit)
+            } else {
+              ln_gate <- ln_lrt_gate_override(constrained_fit, def$L, def$b)
+              lrt_res <- compute_profile_lrt(
+                current_unconstrained,
+                constrained_fit,
+                def$L,
+                def$b,
+                lrt_gate_override = ln_gate
+              )
+              if (!is.na(lrt_res$wP) && lrt_res$wP < -lrt_neg_tol) {
+                neg_detected <- TRUE
+              }
             }
           }
           gene_label <- if (!is.null(gname) && length(gname) >= i) gname[i] else paste0("gene_", i)
           score_res <- empty_score_result(def$L)
           if (want_score) {
-            score_res <- tryCatch(
-              compute_adj_score(constrained_fit, def$L),
-              error = function(e) {
-                empty_score_result(
-                  def$L,
-                  msg = sprintf(
-                    "Adjusted score test failed for gene %s (contrast %s): %s",
-                    gene_label,
-                    def$label,
-                    conditionMessage(e)
-                  ),
-                  reason = "undefined_stat"
-                )
-              }
-            )
+            if (joint_ln_pending) {
+              score_res$method <- "unavailable_joint_ln"
+              score_res$success <- FALSE
+              score_res$failure_reason <- normalise_failure(
+                "joint_ln_calibration_pending",
+                "score"
+              )
+            } else {
+              score_res <- tryCatch(
+                compute_adj_score(constrained_fit, def$L),
+                error = function(e) {
+                  empty_score_result(
+                    def$L,
+                    msg = sprintf(
+                      "Adjusted score test failed for gene %s (contrast %s): %s",
+                      gene_label,
+                      def$label,
+                      conditionMessage(e)
+                    ),
+                    reason = "undefined_stat"
+                  )
+                }
+              )
+            }
           }
           stat_adj <- if (!is.null(lrt_res)) lrt_res$wP_adjusted else NA_real_
           df <- def$df
@@ -483,7 +656,7 @@ scrope <- function(
       lrt_build <- build_lrt_cache(unconstrained)
       lrt_cache <- lrt_build$cache
 
-      if (want_lrt && lrt_build$neg) {
+      if (want_lrt && !identical(ctx$ln_estimator, "joint_ln") && lrt_build$neg) {
         extra_starts <- lapply(lrt_cache, function(entry) {
           theta_ln <- entry$constrained$theta_ln
           if (is.null(theta_ln) || is.null(theta_ln$beta)) {
@@ -603,6 +776,24 @@ scrope <- function(
   re_all$gene_id <- gid
   re_all$gene <- gname[gid]
 
+  joint_inference_available <- if (identical(ln_estimator, "joint_ln")) {
+    vapply(gene_results, function(gr) isTRUE(gr$inference_available), logical(1))
+  } else {
+    rep(TRUE, length(gene_results))
+  }
+  joint_wald_failure <- if (identical(ln_estimator, "joint_ln")) {
+    vapply(gene_results, function(gr) {
+      reason <- gr$failure_reason
+      if (is.null(reason) || !length(reason) || is.na(reason[[1L]])) {
+        "no_certified_candidate"
+      } else {
+        as.character(reason[[1L]])
+      }
+    }, character(1))
+  } else {
+    rep(NA_character_, length(gene_results))
+  }
+
   for (j in seq_len(nb)) {
     coef_label <- if (is.null(predn)) paste0("X", j) else predn[j]
 
@@ -614,7 +805,8 @@ scrope <- function(
     ## robust Wald
     var_robust <- re_all[[robust_var_names[j]]]
     stat_robust <- (re_all[[beta_names[j]]]^2) / var_robust
-    valid_var <- is.finite(var_robust) & var_robust > 0
+    valid_var <- is.finite(var_robust) & var_robust > 0 &
+      joint_inference_available
     stat_robust[!valid_var] <- NA_real_
     p_robust_j <- pchisq(stat_robust, 1, lower.tail = FALSE)
 
@@ -624,6 +816,11 @@ scrope <- function(
 
     failure_vec <- rep(NA_character_, length(stat_robust))
     failure_vec[!valid_var] <- normalise_failure("singular_cov", "wald")
+    joint_unavailable <- !joint_inference_available
+    failure_vec[joint_unavailable] <- normalise_failure(
+      joint_wald_failure[joint_unavailable],
+      "wald"
+    )
     failure_vec[valid_var & !is.finite(stat_robust)] <- normalise_failure("undefined_stat", "wald")
 
     re_all[[paste0("p_robust_", coef_label)]] <- p_robust_j
@@ -883,6 +1080,106 @@ scrope <- function(
     result_list$random_effect <- NULL
   }
 
+  if (identical(ln_estimator, "joint_ln")) {
+    per_gene_provenance <- data.frame(
+      gene_id = gid,
+      gene = gname[gid],
+      route = vapply(gene_results, function(gr) gr$route, character(1)),
+      start_provenance = vapply(gene_results, function(gr) {
+        value <- gr$start_provenance
+        if (is.null(value) || !length(value)) NA_character_ else as.character(value[[1L]])
+      }, character(1)),
+      inference_available = vapply(gene_results, function(gr) {
+        isTRUE(gr$inference_available)
+      }, logical(1)),
+      failure_reason = vapply(gene_results, function(gr) {
+        value <- gr$failure_reason
+        if (is.null(value) || !length(value)) NA_character_ else as.character(value[[1L]])
+      }, character(1)),
+      mode_method = vapply(gene_results, function(gr) gr$mode_method, character(1)),
+      mode_status = vapply(gene_results, function(gr) gr$mode_status, character(1)),
+      mode_max_score_residual = vapply(gene_results, function(gr) {
+        value <- gr$mode$max_score_residual
+        if (is.null(value) || !length(value)) NA_real_ else as.numeric(value[[1L]])
+      }, numeric(1)),
+      mode_max_newton_displacement = vapply(gene_results, function(gr) {
+        value <- gr$mode$max_newton_displacement
+        if (is.null(value) || !length(value)) NA_real_ else as.numeric(value[[1L]])
+      }, numeric(1)),
+      stringsAsFactors = FALSE
+    )
+    mode_diagnostics <- lapply(gene_results, function(gr) gr$mode)
+    names(mode_diagnostics) <- gname[gid]
+    result_list$provenance <- list(
+      schema_version = 2L,
+      estimator = "ln_joint_root",
+      model_covariance = "ln_joint_curvature_inverse",
+      robust_covariance = "ln_joint_donor_sandwich",
+      random_effect = if (output_re) {
+        "pml_mode_given_ln_joint_root"
+      } else {
+        "none"
+      },
+      parameterization = list(
+        beta_internal = "standardized_design",
+        beta_public = "centered_public_design",
+        subject = "sigma2_natural",
+        cell_internal = "gamma_nb_size",
+        cell_public = "Cell_equals_1_over_gamma",
+        donor_mode = "w_equals_log_Gamma_effect"
+      ),
+      coefficient_map_internal_to_public = coef_internal_to_public,
+      per_gene = per_gene_provenance,
+      mode_diagnostics = mode_diagnostics
+    )
+  } else {
+    legacy_start <- vapply(gene_results, function(gr) {
+      rescue <- gr$debug$rescue
+      if (!is.null(rescue) && length(rescue) && !is.na(rescue[[1L]]) &&
+          !identical(as.character(rescue[[1L]]), "none")) {
+        "pql_start"
+      } else {
+        "direct"
+      }
+    }, character(1))
+    legacy_mode_status <- if (output_re) {
+      vapply(gene_results, function(gr) {
+        values <- tail(gr$vec, ctx$k)
+        if (length(values) == ctx$k && all(is.finite(values))) "ok" else "unavailable"
+      }, character(1))
+    } else {
+      rep("not_requested", length(gene_results))
+    }
+    result_list$provenance <- list(
+      schema_version = 2L,
+      estimator = "legacy_post_pml_output_reproduction",
+      model_covariance = "legacy_post_pml_curvature",
+      robust_covariance = "legacy_ln_donor_sandwich_corrected_posindy",
+      random_effect = if (output_re) "legacy_pml_mode" else "none",
+      parameterization = list(
+        beta_internal = "standardized_design_post_pml",
+        beta_public = "centered_public_design",
+        subject = "sigma2_natural",
+        cell_internal = "gamma_nb_size",
+        cell_public = "Cell_equals_1_over_gamma",
+        donor_mode = "legacy_pml_logw"
+      ),
+      coefficient_map_internal_to_public = coef_internal_to_public,
+      per_gene = data.frame(
+        gene_id = gid,
+        gene = gname[gid],
+        route = rep("R1", length(gene_results)),
+        start_provenance = legacy_start,
+        inference_available = rep(FALSE, length(gene_results)),
+        failure_reason = rep(NA_character_, length(gene_results)),
+        mode_method = if (output_re) rep("legacy_pml_mode", length(gene_results)) else
+          rep("none", length(gene_results)),
+        mode_status = legacy_mode_status,
+        stringsAsFactors = FALSE
+      )
+    )
+  }
+
   if (keep_diagnostics) {
     result_list$diagnostics <- list(
       loglik = loglik_vec,
@@ -934,6 +1231,16 @@ scrope <- function(
           failure_reason = res$failure_reason,
           gate_converged = res$raw$gate$converged,
           convergence_basis = gate_value("convergence_basis", NA_character_),
+          unrestricted_route = gate_value("unrestricted_route", NA_character_),
+          unrestricted_failure_reason = gate_value(
+            "unrestricted_failure_reason",
+            NA_character_
+          ),
+          constrained_route = gate_value("constrained_route", NA_character_),
+          constrained_failure_reason = gate_value(
+            "constrained_failure_reason",
+            NA_character_
+          ),
           legacy_converged = gate_value("legacy_converged", NA),
           legacy_conv_code = gate_value("legacy_conv_code", NA_integer_),
           information_scaled_eligible = gate_value("information_scaled_eligible", NA),
@@ -988,6 +1295,10 @@ scrope <- function(
       failure_reason = character(0),
       gate_converged = logical(0),
       convergence_basis = character(0),
+      unrestricted_route = character(0),
+      unrestricted_failure_reason = character(0),
+      constrained_route = character(0),
+      constrained_failure_reason = character(0),
       legacy_converged = logical(0),
       legacy_conv_code = integer(0),
       information_scaled_eligible = logical(0),

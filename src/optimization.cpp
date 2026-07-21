@@ -2314,12 +2314,176 @@ Rcpp::List pml_ll_der_eigen(const Eigen::Map<Eigen::MatrixXd> & X_c, const Eigen
 }
 
 
+// Solve auxiliary donor modes with beta and both dispersions fixed at a
+// certified joint-LN root.  This is deliberately separate from opt_pml(): it
+// cannot update beta or feed back into coefficient inference.
+// [[Rcpp::export]]
+Rcpp::List opt_pml_fixed_beta_modes(
+    const Eigen::Map<Eigen::MatrixXd> &X_c,
+    const Eigen::Map<Eigen::VectorXd> &offset_c,
+    const Eigen::VectorXd &Y_c,
+    const Eigen::VectorXi &fid_c,
+    const Eigen::VectorXd &cumsumy_c,
+    const Eigen::VectorXi &posindy_c,
+    const int nind_c,
+    const int k_c,
+    const Eigen::VectorXd &beta_c,
+    const Eigen::VectorXd &sigma_c,
+    const double tol,
+    const int maxit)
+{
+  if (sigma_c.size() != 2 || !R_finite(sigma_c(0)) ||
+      !R_finite(sigma_c(1)) || sigma_c(0) <= 0 || sigma_c(1) <= 0) {
+    Rcpp::stop("Fixed-beta mode solver requires positive sigma2 and gamma.");
+  }
+  if (nind_c <= 0 || k_c <= 0 || X_c.cols() <= 0 ||
+      fid_c.size() != k_c + 1 || X_c.rows() != nind_c ||
+      offset_c.size() != nind_c || beta_c.size() != X_c.cols() ||
+      Y_c.size() != posindy_c.size() || cumsumy_c.size() != k_c ||
+      fid_c(0) != 0 || fid_c(k_c) != nind_c) {
+    Rcpp::stop("Fixed-beta mode solver received inconsistent dimensions.");
+  }
+
+  const double sigma2 = sigma_c(0);
+  const double gamma = sigma_c(1);
+  const double exps = std::exp(sigma2);
+  const double alpha = 1.0 / (exps - 1.0);
+  const double lambda = alpha * std::exp(-0.5 * sigma2);
+  const double safe_tol = (R_finite(tol) && tol > 0) ? tol : 1e-12;
+  const int safe_maxit = maxit > 0 ? maxit : 200;
+
+  Eigen::VectorXd y = Eigen::VectorXd::Zero(nind_c);
+  for (int ii = 0; ii < posindy_c.size(); ++ii) {
+    const int pos = posindy_c(ii);
+    if (pos < 0 || pos >= nind_c) {
+      Rcpp::stop("Fixed-beta mode solver received an invalid positive-cell index.");
+    }
+    y(pos) = Y_c(ii);
+  }
+  Eigen::VectorXd eta = offset_c + X_c * beta_c;
+  Eigen::VectorXd logw = Eigen::VectorXd::Constant(k_c, NA_REAL);
+  Eigen::VectorXd score_residual = Eigen::VectorXd::Constant(k_c, R_PosInf);
+  Eigen::VectorXd newton_displacement = Eigen::VectorXd::Constant(k_c, R_PosInf);
+  Rcpp::CharacterVector status(k_c);
+
+  for (int subject = 0; subject < k_c; ++subject) {
+    const int start = fid_c(subject);
+    const int end = fid_c(subject + 1);
+    if (start < 0 || end < start || end > nind_c) {
+      status[subject] = "invalid_subject_bounds";
+      continue;
+    }
+
+    auto evaluate = [&](const double w) {
+      const long double w_ld = static_cast<long double>(w);
+      const long double expw = std::exp(std::min(700.0L, w_ld));
+      long double value = static_cast<long double>(alpha) -
+        static_cast<long double>(lambda) * expw;
+      long double derivative = -static_cast<long double>(lambda) * expw;
+      for (int cell = start; cell < end; ++cell) {
+        const long double log_ratio = static_cast<long double>(eta(cell)) +
+          w_ld - std::log(static_cast<long double>(gamma));
+        const long double ratio = (log_ratio >= 0.0L) ?
+          1.0L / (1.0L + std::exp(-std::min(700.0L, log_ratio))) :
+          std::exp(std::max(-700.0L, log_ratio)) /
+            (1.0L + std::exp(std::max(-700.0L, log_ratio)));
+        value += static_cast<long double>(y(cell)) -
+          (static_cast<long double>(gamma) + y(cell)) * ratio;
+        derivative -= (static_cast<long double>(gamma) + y(cell)) *
+          ratio * (1.0L - ratio);
+      }
+      return std::make_pair(
+        static_cast<double>(value),
+        static_cast<double>(derivative)
+      );
+    };
+
+    double lo = -40.0;
+    double hi = 40.0;
+    std::pair<double, double> eval_lo = evaluate(lo);
+    std::pair<double, double> eval_hi = evaluate(hi);
+    int expand = 0;
+    while (R_finite(eval_lo.first) && eval_lo.first <= 0.0 && expand < 20) {
+      lo -= 20.0;
+      eval_lo = evaluate(lo);
+      ++expand;
+    }
+    expand = 0;
+    while (R_finite(eval_hi.first) && eval_hi.first >= 0.0 && expand < 20) {
+      hi += 20.0;
+      eval_hi = evaluate(hi);
+      ++expand;
+    }
+    if (!R_finite(eval_lo.first) || !R_finite(eval_hi.first) ||
+        eval_lo.first <= 0.0 || eval_hi.first >= 0.0) {
+      status[subject] = "bracket_failed";
+      continue;
+    }
+
+    double w = std::min(std::max(0.0, lo), hi);
+    bool converged = false;
+    for (int iter = 0; iter < safe_maxit; ++iter) {
+      const std::pair<double, double> current = evaluate(w);
+      if (!R_finite(current.first) || !R_finite(current.second) ||
+          current.second >= 0.0) {
+        break;
+      }
+      if (current.first > 0.0) {
+        lo = w;
+      } else {
+        hi = w;
+      }
+      double next = w - current.first / current.second;
+      if (!R_finite(next) || next <= lo || next >= hi) {
+        next = 0.5 * (lo + hi);
+      }
+      const std::pair<double, double> next_eval = evaluate(next);
+      if (R_finite(next_eval.first) &&
+          std::abs(next_eval.first) <= safe_tol &&
+          std::abs(next - w) <= safe_tol) {
+        w = next;
+        converged = true;
+        break;
+      }
+      w = next;
+    }
+
+    const std::pair<double, double> final_eval = evaluate(w);
+    const double final_newton = (R_finite(final_eval.first) &&
+      R_finite(final_eval.second) && final_eval.second < 0.0) ?
+      std::abs(final_eval.first / final_eval.second) : R_PosInf;
+    if (!converged && R_finite(final_eval.first) &&
+        std::abs(final_eval.first) <= safe_tol && final_newton <= safe_tol) {
+      converged = true;
+    }
+    logw(subject) = w;
+    score_residual(subject) = std::abs(final_eval.first);
+    newton_displacement(subject) = final_newton;
+    status[subject] = converged ? "ok" : "nonconverged";
+  }
+
+  return Rcpp::List::create(
+    Rcpp::Named("logw") = logw,
+    Rcpp::Named("score_residual") = score_residual,
+    Rcpp::Named("newton_displacement") = newton_displacement,
+    Rcpp::Named("max_score_residual") = score_residual.maxCoeff(),
+    Rcpp::Named("max_newton_displacement") = newton_displacement.maxCoeff(),
+    Rcpp::Named("status") = status,
+    Rcpp::Named("alpha") = alpha,
+    Rcpp::Named("lambda") = lambda,
+    Rcpp::Named("parameterization") =
+      "beta_fixed_joint_ln; sigma2_natural; gamma_nb_size; w_log_gamma_effect"
+  );
+}
+
+
 // [[Rcpp::export]]
 Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd> &X_c, const Eigen::Map<Eigen::VectorXd> &offset_c,
                                              const Eigen::VectorXd &Y_c, const Eigen::VectorXi &fid_c,
                                              const Eigen::VectorXd &cumsumy_c, const Eigen::VectorXi &posind_c,
                                              const Eigen::VectorXi &posindy_c, const int nb_c, const int nind_c, const int k_c,
-                                             const Eigen::VectorXd &beta_c, const Eigen::VectorXd &sigma_c)
+                                             const Eigen::VectorXd &beta_c, const Eigen::VectorXd &sigma_c,
+                                             const bool stable_cellwise)
 {
   double exps = exp(sigma_c(0));
   double exps_m = exps - 1;
@@ -2489,6 +2653,17 @@ Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd> &
   hes_sigma -= dbim * alpha_dpr - 2 * alpha_pr * lambda_pr * hes_b_l.dot(imustar.matrix()) - lambda_dpr * ymumustar_dbeta_csxtb.sum() + 2 * lambda_pr * lambda_pr * (ymumustar_dbeta_csxtb * imustar).sum();
 
   double dtau2 = log_gamma * nind_c + nind_c - slpey - gstar_phiymustar.sum();
+  if (stable_cellwise)
+  {
+    long double dtau2_stable = 0.0L;
+    for (int cell = 0; cell < nind_c; ++cell)
+    {
+      dtau2_stable += static_cast<long double>(log_gamma) + 1.0L -
+        static_cast<long double>(sum_elgcp(cell)) -
+        static_cast<long double>(gstar_phiymustar(cell));
+    }
+    dtau2 = static_cast<double>(dtau2_stable);
+  }
 
   // // Initialize per-subject dtau vector
   // Eigen::VectorXd dtau_sub = Eigen::VectorXd::Zero(k_c); // Size (k_c)
@@ -2513,6 +2688,7 @@ Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd> &
 
   // Compute per-subject dtau2_sub as Eigen::VectorXd
   Eigen::VectorXd dtau2_sub = Eigen::VectorXd::Zero(k_c);
+  double dtau2_roundoff_correction = 0.0;
 
   for (int i = 0; i < k_c; ++i)
   {
@@ -2521,10 +2697,38 @@ Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd> &
 
     double n_i = static_cast<double>(lent);
 
-    double slpey_sub_i = sum_elgcp.segment(start, lent).sum();
-    double gstar_phiymustar_sub_i = gstar_phiymustar.segment(start, lent).sum();
-
-    dtau2_sub[i] = (log_gamma * n_i) + n_i - slpey_sub_i - gstar_phiymustar_sub_i;
+    if (stable_cellwise)
+    {
+      long double dtau2_sub_stable = 0.0L;
+      for (int cell = start; cell < start + lent; ++cell)
+      {
+        dtau2_sub_stable += static_cast<long double>(log_gamma) + 1.0L -
+          static_cast<long double>(sum_elgcp(cell)) -
+          static_cast<long double>(gstar_phiymustar(cell));
+      }
+      dtau2_sub[i] = static_cast<double>(dtau2_sub_stable);
+    }
+    else
+    {
+      double slpey_sub_i = sum_elgcp.segment(start, lent).sum();
+      double gstar_phiymustar_sub_i = gstar_phiymustar.segment(start, lent).sum();
+      dtau2_sub[i] = (log_gamma * n_i) + n_i - slpey_sub_i -
+        gstar_phiymustar_sub_i;
+    }
+  }
+  if (stable_cellwise && k_c > 0)
+  {
+    long double donor_total = 0.0L;
+    for (int subject = 0; subject < k_c; ++subject)
+    {
+      donor_total += static_cast<long double>(dtau2_sub(subject));
+    }
+    dtau2_roundoff_correction = static_cast<double>(
+      static_cast<long double>(dtau2) - donor_total
+    );
+    Eigen::Index correction_subject = 0;
+    dtau2_sub.cwiseAbs().maxCoeff(&correction_subject);
+    dtau2_sub(correction_subject) += dtau2_roundoff_correction;
   }
 
   // Compute aggregate dtau2
@@ -2649,6 +2853,38 @@ Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd> &
     per_subject_gradients(nb_c + 1, k) = dtau2_sub(k);
   }
 
+  Eigen::VectorXd gradient_roundoff_correction =
+    Eigen::VectorXd::Zero(nb_c + 2);
+  if (stable_cellwise && k_c > 0)
+  {
+    // Donor grouping and aggregate evaluation have different floating-point
+    // summation orders. Reconcile only their rounding residual, while the R
+    // audit independently checks every donor score against objective finite
+    // differences and records the correction magnitude.
+    for (int coordinate = 0; coordinate < nb_c + 2; ++coordinate)
+    {
+      for (int pass = 0; pass < 2; ++pass)
+      {
+        long double donor_total = 0.0L;
+        for (int subject = 0; subject < k_c; ++subject)
+        {
+          donor_total += static_cast<long double>(
+            per_subject_gradients(coordinate, subject)
+          );
+        }
+        const double correction = static_cast<double>(
+          static_cast<long double>(der(coordinate)) - donor_total
+        );
+        Eigen::Index correction_subject = 0;
+        per_subject_gradients.row(coordinate).cwiseAbs().maxCoeff(
+          &correction_subject
+        );
+        per_subject_gradients(coordinate, correction_subject) += correction;
+        gradient_roundoff_correction(coordinate) += correction;
+      }
+    }
+  }
+
   // Compute cumsumy_alpha
   Eigen::VectorXd cumsumy_alpha = cumsumy_c.array() + alpha;
 
@@ -2662,5 +2898,9 @@ Rcpp::List ptmg_ll_der_hes_eigen_per_subject(const Eigen::Map<Eigen::MatrixXd> &
       Rcpp::Named("hes") = (-1) * hessian,
       Rcpp::Named("per_subject_gradients") = (-1) * per_subject_gradients,
       Rcpp::Named("cumsumy_alpha") = cumsumy_alpha,
-      Rcpp::Named("Y_plus_gamma") = Y_plus_gamma);
+      Rcpp::Named("Y_plus_gamma") = Y_plus_gamma,
+      Rcpp::Named("dtau2_roundoff_correction") =
+        dtau2_roundoff_correction,
+      Rcpp::Named("gradient_roundoff_correction") =
+        gradient_roundoff_correction);
 }

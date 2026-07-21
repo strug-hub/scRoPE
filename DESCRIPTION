@@ -10,10 +10,9 @@ Description: Provides robust inference for negative binomial mixed models in
     multi-donor single-cell RNA-seq studies. scRoPE builds on the NEBULA
     framework (He et al., 2021, <doi:10.1038/s42003-021-02146-6>) by combining
     large-sample (LN) and hierarchical-likelihood (HL) fits with Godambe
-    (sandwich) information to deliver robustly adjusted Wald, Score, and scaled
-    likelihood-ratio tests for linear contrasts. These adjustments enable
-    reliable differential and co-expression analysis under variance
-    misspecification.
+    (sandwich) information to provide robust Wald inference and model-specific
+    adjusted tests for linear contrasts. Inferential availability depends on
+    the fitted model and validated inference route.
 License: GPL-2
 Encoding: UTF-8
 Depends: R (>= 4.1)

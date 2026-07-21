@@ -141,7 +141,8 @@ ptmg_ll_der_hes3 <- function(para, X, offset, Y, n_one, ytwo, fid, cumsumy, posi
   return(list("value" = objective, "gradient" = gr, "hessian" = hes))
 }
 
-ptmg_ll_der_hes4 <- function(para, X, offset, Y, n_one, ytwo, fid, cumsumy, posind, posindy, nb, nind, k) {
+ptmg_ll_der_hes4 <- function(para, X, offset, Y, n_one, ytwo, fid, cumsumy, posind, posindy, nb, nind, k,
+                             correct_posindy = FALSE) {
   beta <- para[1:nb]
   sigma <- exp(para[(nb + 1):(nb + 2)])
 
@@ -152,18 +153,60 @@ ptmg_ll_der_hes4 <- function(para, X, offset, Y, n_one, ytwo, fid, cumsumy, posi
   alpha_pr <- -exps / ((exps - 1)^2)
   alpha_dpr <- 2 * exps * exps / (exps_m * (exps - 1)) - exps / exps_m
 
-  temp <- ptmg_ll_der_hes_eigen_per_subject(X, offset, Y, fid - 1, as.double(cumsumy), posind - 1, posindy, nb, nind, k, beta, sigma)
+  temp <- ptmg_ll_der_hes_eigen_per_subject(
+    X, offset, Y, fid - 1, as.double(cumsumy), posind - 1, posindy,
+    nb, nind, k, beta, sigma, isTRUE(correct_posindy)
+  )
   temp$fn <- temp$fn - (sum(Lgamma(cumsumy[posind] + alpha)) - length(posind) * Lgamma(alpha))
   temp$fn <- temp$fn - (sum(Lgamma(ytwo + gamma)) - (length(posindy) - sum(n_one)) * Lgamma(gamma) + sum(n_one) * log(gamma) + n_one[2] * log(gamma + 1))
   gr <- temp$gr
   grdig <- sum(Digamma(cumsumy[posind] + alpha)) - length(posind) * Digamma(alpha)
   gr[nb + 1] <- gr[nb + 1] - alpha_pr * grdig
-  gr[nb + 2] <- gr[nb + 2] - (sum(Digamma(ytwo + gamma)) - (length(posindy) - sum(n_one)) * Digamma(gamma) + sum(n_one) / gamma + n_one[2] / (gamma + 1))
+  gamma_cell_score <- NULL
+  if (isTRUE(correct_posindy)) {
+    # Evaluate each positive-cell digamma difference before summation. This is
+    # algebraically identical to the y=1/y=2 shortcut below, but avoids the
+    # cancellation in sum(digamma(y + gamma)) - n * digamma(gamma) when gamma
+    # is large. The aggregate remains independent of donor allocation.
+    gamma_cell_score <- vapply(seq_along(Y), function(i) {
+      if (Y[i] == 1) {
+        1 / gamma
+      } else if (Y[i] == 2) {
+        1 / gamma + 1 / (gamma + 1)
+      } else {
+        Digamma(Y[i] + gamma) - Digamma(gamma)
+      }
+    }, numeric(1))
+    grdig_gamma <- sum(gamma_cell_score)
+  } else {
+    grdig_gamma <- sum(Digamma(ytwo + gamma)) -
+      (length(posindy) - sum(n_one)) * Digamma(gamma) +
+      sum(n_one) / gamma + n_one[2] / (gamma + 1)
+  }
+  gr[nb + 2] <- gr[nb + 2] - grdig_gamma
+  gr_natural <- gr
   gr[nb + 1] <- gr[nb + 1] * sigma[1]
   gr[nb + 2] <- gr[nb + 2] * sigma[2]
   hes <- temp$hes
-  hes[nb + 2, nb + 2] <- hes[nb + 2, nb + 2] - (sum(Trigamma(ytwo + gamma)) - (length(posindy) - sum(n_one)) * Trigamma(gamma) - sum(n_one) / gamma / gamma - n_one[2] / (gamma + 1) / (gamma + 1))
+  if (isTRUE(correct_posindy)) {
+    gamma_cell_curvature <- vapply(seq_along(Y), function(i) {
+      if (Y[i] == 1) {
+        -1 / gamma^2
+      } else if (Y[i] == 2) {
+        -1 / gamma^2 - 1 / (gamma + 1)^2
+      } else {
+        Trigamma(Y[i] + gamma) - Trigamma(gamma)
+      }
+    }, numeric(1))
+    hes_gamma_correction <- sum(gamma_cell_curvature)
+  } else {
+    hes_gamma_correction <- sum(Trigamma(ytwo + gamma)) -
+      (length(posindy) - sum(n_one)) * Trigamma(gamma) -
+      sum(n_one) / gamma / gamma - n_one[2] / (gamma + 1) / (gamma + 1)
+  }
+  hes[nb + 2, nb + 2] <- hes[nb + 2, nb + 2] - hes_gamma_correction
   hes[nb + 1, nb + 1] <- hes[nb + 1, nb + 1] - alpha_dpr * grdig - alpha_pr * alpha_pr * (sum(Trigamma(cumsumy[posind] + alpha)) - length(posind) * Trigamma(alpha))
+  hes_natural <- hes
 
   hes[nb + 2, nb + 2] <- hes[nb + 2, nb + 2] * sigma[2] * sigma[2] + gr[nb + 2]
   hes[nb + 1, nb + 1] <- hes[nb + 1, nb + 1] * sigma[1] * sigma[1] + gr[nb + 1]
@@ -192,30 +235,88 @@ ptmg_ll_der_hes4 <- function(para, X, offset, Y, n_one, ytwo, fid, cumsumy, posi
   obs_to_subject <- rep(1:k, times = diff(fid))
 
   # Map positive observations to subjects
-  positive_obs_indices <- posindy # Indices of positive observations
+  positive_obs_indices <- if (isTRUE(correct_posindy)) posindy + 1L else posindy
   subject_indices <- obs_to_subject[positive_obs_indices]
+  gamma_special_roundoff_correction <- 0
 
-  # Compute n_i (number of positive observations per subject)
-  n_i <- tabulate(subject_indices, nbins = k) # Length k
-
-  # Compute sum of digamma_Y_plus_gamma per subject
-  sum_digamma_Y_plus_gamma_full <- numeric(k)
-
-
-  for (i in seq_along(digamma_Y_plus_gamma)) {
-    subj <- subject_indices[i]
-    sum_digamma_Y_plus_gamma_full[subj] <- sum_digamma_Y_plus_gamma_full[subj] + digamma_Y_plus_gamma[i]
+  if (isTRUE(correct_posindy)) {
+    # Allocate the stable cellwise contributions above to donors. Their sum is
+    # checked against the independently summed aggregate score.
+    grdig_gamma_full <- vapply(
+      split(
+        gamma_cell_score,
+        factor(subject_indices, levels = seq_len(k))
+      ),
+      sum,
+      numeric(1)
+    )
+    gamma_special_roundoff_correction <-
+      grdig_gamma - sum(grdig_gamma_full)
+    correction_subject <- which.max(abs(grdig_gamma_full))
+    grdig_gamma_full[correction_subject] <-
+      grdig_gamma_full[correction_subject] +
+      gamma_special_roundoff_correction
+  } else {
+    # Preserve the released allocation and summation path for current HL
+    # callers until that route receives its separate derivative audit.
+    n_i <- tabulate(subject_indices, nbins = k)
+    sum_digamma_Y_plus_gamma_full <- numeric(k)
+    for (i in seq_along(digamma_Y_plus_gamma)) {
+      subj <- subject_indices[i]
+      sum_digamma_Y_plus_gamma_full[subj] <-
+        sum_digamma_Y_plus_gamma_full[subj] + digamma_Y_plus_gamma[i]
+    }
+    grdig_gamma_full <- sum_digamma_Y_plus_gamma_full - n_i * digamma_gamma
   }
-
-  # Compute grdig_gamma_full
-  grdig_gamma_full <- sum_digamma_Y_plus_gamma_full - n_i * digamma_gamma
 
   # Adjust per-subject gradients for gamma
   per_subject_gradients[nb + 2, ] <- per_subject_gradients[nb + 2, ] - grdig_gamma_full
   per_subject_gradients[nb + 2, ] <- per_subject_gradients[nb + 2, ] * gamma # Adjust for log-transformation
 
+  # The approximate marginal criterion is donor-additive, so use the donor
+  # decomposition as the canonical aggregate score.  Retain the independently
+  # assembled formula to make floating-point accumulation drift auditable.
+  gr_aggregate_formula_raw <- gr
+  gr_aggregate_formula <- gr_aggregate_formula_raw
+  aggregate_formula_roundoff_correction <- numeric(length(gr))
+  if (isTRUE(correct_posindy)) {
+    # The aggregate formula and donor decomposition use different summation
+    # groupings. Reconcile only the resulting floating-point residual, retain
+    # both the raw formula and its full correction below, and validate every
+    # canonical donor term against independent donor-objective differences.
+    gr <- rowSums(per_subject_gradients)
+    aggregate_formula_roundoff_correction <-
+      gr - gr_aggregate_formula_raw
+    gr_aggregate_formula <- gr_aggregate_formula_raw +
+      aggregate_formula_roundoff_correction
+  }
+
   # Return the objective function value, gradients, and Hessian
-  return(list("value" = objective, "gradient" = gr, "hessian" = hes, "per_subject_gradients" = per_subject_gradients))
+  return(list(
+    "value" = objective,
+    "gradient" = gr,
+    "hessian" = hes,
+    "gradient_natural" = gr_natural,
+    "hessian_natural" = hes_natural,
+    "gradient_aggregate_formula" = gr_aggregate_formula,
+    "gradient_aggregate_formula_raw" = gr_aggregate_formula_raw,
+    "per_subject_gradients" = per_subject_gradients,
+    "base_gradient_additivity_log" =
+      (temp$gr - rowSums(temp$per_subject_gradients)) *
+      c(rep(1, nb), sigma),
+    "gamma_special_additivity_log" =
+      (grdig_gamma - sum(grdig_gamma_full)) * gamma,
+    "gamma_special_roundoff_reconciliation_log" =
+      gamma_special_roundoff_correction * gamma,
+    "base_gradient_roundoff_reconciliation_log" =
+      temp$gradient_roundoff_correction * c(rep(1, nb), sigma),
+    "aggregate_formula_roundoff_reconciliation_log" =
+      aggregate_formula_roundoff_correction,
+    "donor_roundoff_reconciliation_natural_gamma" =
+      temp$dtau2_roundoff_correction,
+    "donor_roundoff_reconciliation_log_gamma" =
+      temp$dtau2_roundoff_correction * gamma
+  ))
 }
 
 compute_sandwich_variance <- function(out_at_op, nb, return_type = c("full", "beta", "beta_se"), invert_function = NULL) {
@@ -273,7 +374,10 @@ compute_sandwich_variance2 <- function(out_at_op, nb, compute_full = FALSE, inve
   # Compute the covariance matrix of per-subject gradients
   S <- U %*% t(U)  # (nb + 2) x (nb + 2)
 
-  # Compute the Godambe information matrix G = H %*% S^{-1} %*% H
+  # Compute the Godambe information matrix G = H^T %*% S^{-1} %*% H.
+  # The transpose is immaterial for an exactly symmetric scalar-objective
+  # Hessian, but keeping it explicit makes this helper valid for any supplied
+  # sensitivity matrix and matches A^T B^{-1} A.
   if (is.null(invert_function)) {
     # Invert S to get S_inv
     S_inv <- tryCatch({
@@ -286,7 +390,7 @@ compute_sandwich_variance2 <- function(out_at_op, nb, compute_full = FALSE, inve
     S_inv <- invert_function(S)
   }
 
-  G <- H %*% S_inv %*% H
+  G <- t(H) %*% S_inv %*% H
 
   q <- nrow(G) - nb
   if (q < 0) {
@@ -344,7 +448,7 @@ compute_sandwich_variance2 <- function(out_at_op, nb, compute_full = FALSE, inve
     } else {
       H_inv <- invert_function(H)
     }
-    Var_full <- H_inv %*% S %*% H_inv
+    Var_full <- H_inv %*% S %*% t(H_inv)
     result$Var_full <- Var_full
   }
 

@@ -1,4 +1,16 @@
 fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
+  if (identical(ctx$ln_estimator, "joint_ln")) {
+    joint_fitter <- utils::getFromNamespace(
+      "fit_gene_joint_ln_unconstrained",
+      "scRoPE"
+    )
+    return(joint_fitter(
+      gene_index = gene_index,
+      posv = posv,
+      ctx = ctx,
+      extra_starts = extra_starts
+    ))
+  }
   # Nebula reference flow (LN branch):
   # 1. Primary optimisation via lbfgs/trust on (beta, log sigma^2, log phi).
   # 2. Compute gni = (ncell / k) * cellVar and cv2p via get_cv().
@@ -555,7 +567,8 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
         posv$posindy,
         nb,
         nind,
-        k
+        k,
+        correct_posindy = TRUE
       )
       godambe_summary <- extract_godambe_components(out_at_op, nb)
       robust_try <- tryCatch(
@@ -818,7 +831,8 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
         posv$posindy,
         nb,
         nind,
-        k
+        k,
+        correct_posindy = TRUE
       )
       godambe_summary <- extract_godambe_components(out_at_op, nb)
       robust_try <- tryCatch(
@@ -909,6 +923,19 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
 }
 
 fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
+  if (identical(ctx$ln_estimator, "joint_ln")) {
+    joint_fitter <- utils::getFromNamespace(
+      "fit_gene_joint_ln_constrained",
+      "scRoPE"
+    )
+    return(joint_fitter(
+      gene_index = gene_index,
+      posv = posv,
+      ctx = ctx,
+      L = L,
+      b = b
+    ))
+  }
   if (ctx$allow_per_gene_switch) {
     stop("Constrained fits do not yet support per-gene LN/HL switching.")
   }
@@ -1080,7 +1107,8 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
     posv$posindy,
     ctx$nb,
     ctx$nind,
-    ctx$k
+    ctx$k,
+    correct_posindy = TRUE
   )
   theta_red <- c(gamma_hat, log(subVar), log(cellVar))
   ln_reduced <- ln_reduced_derivative_state(
@@ -1212,7 +1240,8 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
     posv$posindy,
     ctx$nb,
     ctx$nind,
-    ctx$k
+    ctx$k,
+    correct_posindy = TRUE
   )
   chain_rule <- apply_chain_rule_transform(
     U = out_at_op$gradient,

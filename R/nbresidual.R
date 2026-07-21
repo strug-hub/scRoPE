@@ -23,6 +23,24 @@
 
 nbresidual = function(nebulaSand, count, id, pred = NULL, offset = NULL, conditional = FALSE)
 {
+  estimator_metadata <- nebulaSand$provenance
+  is_joint_ln <- is.list(estimator_metadata) &&
+    identical(estimator_metadata$estimator, "ln_joint_root")
+  if (is_joint_ln) {
+    parameterization <- estimator_metadata$parameterization
+    if (!is.list(parameterization) ||
+        !identical(parameterization$beta_public, "centered_public_design") ||
+        !identical(parameterization$subject, "sigma2_natural") ||
+        !identical(parameterization$cell_public, "Cell_equals_1_over_gamma")) {
+      stop("Joint-LN residual metadata does not declare the supported prediction coordinates.")
+    }
+    if (isTRUE(conditional) &&
+        !identical(estimator_metadata$random_effect,
+                   "pml_mode_given_ln_joint_root")) {
+      stop("Conditional joint-LN residuals require validated fixed-beta donor modes.")
+    }
+  }
+
   if((conditional==TRUE) & (nebulaSand$algorithm[1]=='PGMM'))
   {
     warning("The option conditional=TRUE does not support PGMM yet. Marginal Pearson residuals will be returned. Or try using NBLMM or NBGMM.")

@@ -28,7 +28,8 @@ scrope(
   lrt_include_scale = FALSE,
   lrt_details = FALSE,
   keep_diagnostics = TRUE,
-  model = c("LN", "PGMM")
+  model = c("LN", "PGMM"),
+  ln_estimator = c("legacy_post_pml", "joint_ln")
 )
 }
 \arguments{
@@ -61,7 +62,8 @@ scrope(
 \item{kappa}{Kappa threshold for adaptive HL refinement.}
 
 \item{allow_per_gene_switch}{Logical; allow per-gene LN/HL switching. Defaults to
-`FALSE` so the LN pipeline (required for adjusted LRTs) is used for every gene.}
+`FALSE` so one LN route is used for every gene. Adjusted LRT availability
+depends on `ln_estimator`.}
 
 \item{use_betas}{Which fixed-effect anchor to use in LN variance-refinement
 starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
@@ -91,15 +93,53 @@ supports subject- and cell-level fixed effects. Because PGMM omits separate
 cell-level overdispersion, prefer robust results for cell-level predictors.
 Use the LN/HL NBGMM path when that variance component should be modeled
 explicitly.}
+
+\item{ln_estimator}{LN coefficient-estimator route. The current default,
+`"legacy_post_pml"`, retains the version 0.2.3 post-PML architecture for
+legacy output reproduction; this label is not a claim of
+estimator-aligned joint-LN inference. `"joint_ln"` is an opt-in route
+that reports the joint maximizer of the NEBULA-LN approximate marginal
+criterion for genes classified `R0` and evaluates model and donor-sandwich
+covariance at that root. Genes classified `R2` have analytic covariance
+and Wald results set to unavailable. This argument applies only when
+`model = "LN"`.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,
-  `algorithm`, optional `random_effect`, `diagnostics`, and optional
-  `lrt_details`, mirroring the original `nebula_sand` output with the new
-  adjusted LRT fields.
+  `algorithm`, optional `random_effect`, `diagnostics`, optional
+  `lrt_details`, and structured `provenance`. For LN fits, provenance records
+  the estimator definition and parameter maps; its `per_gene` table records
+  route, start provenance, inference availability, normalized failure reason,
+  and mode status, while `mode_diagnostics` retains per-gene auxiliary-mode
+  checks.
 }
 \description{
-Fits the sc-RoPE negative binomial mixed model for multi-subject
-single-cell data and, optionally, computes invariantly adjusted profile
-likelihood ratio tests for fixed-effect contrasts.
+Fits sc-RoPE working-likelihood models for multi-subject single-cell data
+and, where supported by the selected route, computes optional adjusted
+tests for fixed-effect contrasts.
+}
+\details{
+The public default remains `ln_estimator = "legacy_post_pml"`. Version 0.2.3
+operationally reported the post-PML `repml$beta` after the raw-LN fit. The
+NEBULA paper describes the LN approximate-marginal-likelihood M-estimator and
+a separate h-likelihood step for standard-error computation, but does not
+clearly state that software-level coefficient replacement. The opt-in
+`"joint_ln"` route instead reports a stationary local maximizer of the
+NEBULA-LN approximate marginal criterion; it is not claimed to reproduce
+legacy NEBULA coefficients or to establish global uniqueness.
+
+Joint-LN numerical provenance uses `R0` for a regular joint root with model
+and robust Wald inference available, `R1` for legacy post-PML output
+reproduction without an estimator-alignment claim, and `R2` for unsupported
+analytic joint-LN inference. `R2` covariance, standard errors, Wald
+statistics, and p-values are returned as unavailable rather than replaced by
+a fallback statistic. Adjusted Score and scaled adjusted likelihood-ratio
+tests remain unavailable for `"joint_ln"` with status
+`joint_ln_calibration_pending`; same-objective constrained endpoints are
+retained only as diagnostics pending separate calibration work.
+
+With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
+conditional PML predictions evaluated at the plug-in joint-LN parameters.
+They do not alter coefficients, dispersions, covariance, tests, convergence,
+or route classification.
 }
