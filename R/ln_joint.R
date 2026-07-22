@@ -38,6 +38,136 @@ ln_joint_thresholds <- function() {
   )
 }
 
+ln_joint_objective_provenance <- function() {
+  list(
+    id = "joint_ln_ptmg_working_objective_v1",
+    estimator = "joint_ln",
+    criterion = "ptmg_ll",
+    derivative_criterion = "ptmg_ll_der_hes4",
+    objective_convention = "minimized_q_equals_negative_working_log_objective",
+    score_convention = "maximizing_U_equals_negative_gradient_of_q",
+    objective_coordinates = "beta, sigma2, gamma_nb_size",
+    derivative_coordinates = "beta, log(sigma2), log(gamma_nb_size)",
+    donor_unit = "independent_subject",
+    subject_additive = TRUE,
+    corrected_zero_based_positive_cell_index = TRUE
+  )
+}
+
+ln_joint_objective_instance_registry <- local({
+  registry <- new.env(parent = emptyenv())
+  counter <- 0
+  max_entries <- 16L
+
+  matching_key <- function(gene_index, posv, ctx) {
+    if (length(gene_index) != 1L || !is.numeric(gene_index) ||
+        !is.finite(gene_index) || !is.list(posv) || !is.list(ctx)) {
+      return(NULL)
+    }
+    keys <- ls(registry, all.names = TRUE)
+    if (!length(keys)) {
+      return(NULL)
+    }
+    matches <- vapply(keys, function(key) {
+      entry <- get(key, envir = registry, inherits = FALSE)
+      identical(entry$token$gene_index, as.integer(gene_index)) &&
+        identical(entry$objective_context$posv, posv) &&
+        identical(entry$objective_context$ctx, ctx)
+    }, logical(1))
+    keys <- keys[matches]
+    if (!length(keys)) {
+      return(NULL)
+    }
+    sequences <- vapply(keys, function(key) {
+      get(key, envir = registry, inherits = FALSE)$sequence
+    }, numeric(1))
+    keys[[which.max(sequences)]]
+  }
+
+  function(action = c(
+    "register",
+    "lookup",
+    "store_unrestricted",
+    "get_unrestricted",
+    "resolve"
+  ), gene_index = NULL, posv = NULL, ctx = NULL, fit = NULL,
+  instance = NULL) {
+    action <- match.arg(action)
+    if (identical(action, "resolve")) {
+      if (!is.list(instance) || is.null(instance$id)) {
+        return(NULL)
+      }
+      keys <- ls(registry, all.names = TRUE)
+      for (key in keys) {
+        entry <- get(key, envir = registry, inherits = FALSE)
+        if (identical(entry$token, instance)) {
+          return(entry$objective_context)
+        }
+      }
+      return(NULL)
+    }
+    if (length(gene_index) != 1L || !is.numeric(gene_index) ||
+        !is.finite(gene_index) || !is.list(posv) || !is.list(ctx)) {
+      return(NULL)
+    }
+    if (identical(action, "register")) {
+      counter <<- counter + 1
+      key <- paste0("objective_instance_", Sys.getpid(), "_", counter)
+      token <- list(
+        scheme = "process_local_exact_joint_ln_objective_context_v1",
+        id = paste(
+          Sys.getpid(),
+          format(counter, scientific = FALSE),
+          sep = "|"
+        ),
+        gene_index = as.integer(gene_index)
+      )
+      assign(
+        key,
+        list(
+          token = token,
+          sequence = counter,
+          unrestricted_fit = NULL,
+          objective_context = list(
+            gene_index = as.integer(gene_index),
+            posv = posv,
+            ctx = ctx
+          )
+        ),
+        envir = registry
+      )
+      existing <- ls(registry, all.names = TRUE)
+      if (length(existing) > max_entries) {
+        sequences <- vapply(existing, function(existing_key) {
+          get(existing_key, envir = registry, inherits = FALSE)$sequence
+        }, numeric(1))
+        remove_keys <- existing[order(sequences)][seq_len(
+          length(existing) - max_entries
+        )]
+        rm(list = remove_keys, envir = registry)
+      }
+      return(token)
+    }
+    key <- matching_key(gene_index, posv, ctx)
+    if (is.null(key)) {
+      return(NULL)
+    }
+    entry <- get(key, envir = registry, inherits = FALSE)
+    if (identical(action, "lookup")) {
+      return(entry$token)
+    }
+    if (identical(action, "store_unrestricted")) {
+      if (!is.list(fit)) {
+        return(NULL)
+      }
+      entry$unrestricted_fit <- fit
+      assign(key, entry, envir = registry)
+      return(entry$token)
+    }
+    entry$unrestricted_fit
+  }
+})
+
 ln_joint_scaled_max <- function(a, b) {
   a <- as.numeric(a)
   b <- as.numeric(b)
@@ -179,6 +309,7 @@ ln_joint_derivative_state <- function(theta_reduced_log, gene_index, posv, ctx, 
   list(
     full_log = full_log,
     theta_reduced_log = theta_reduced_log,
+    objective_provenance = ln_joint_objective_provenance(),
     beta = beta,
     sigma2 = exp(full_log[ctx$nb + 1L]),
     gamma = exp(full_log[ctx$nb + 2L]),
@@ -813,6 +944,731 @@ ln_joint_robust_score_diagnostic <- function(constrained_fit,
   result
 }
 
+ln_joint_ratio_endpoint_audit <- function(fit,
+                                          endpoint = c(
+                                            "unrestricted",
+                                            "constrained"
+                                          ),
+                                          objective_context = NULL) {
+  endpoint <- match.arg(endpoint)
+  thresholds <- ln_joint_thresholds()
+  fit_is_list <- is.list(fit)
+  fit_route <- if (fit_is_list) fit$route else NULL
+  fit_debug <- if (fit_is_list && is.list(fit$debug)) fit$debug else list()
+  fit_gene_index <- tryCatch(
+    suppressWarnings(as.integer(fit_debug$gene_index)),
+    error = function(e) NA_integer_
+  )
+  if (length(fit_gene_index) != 1L || is.na(fit_gene_index)) {
+    fit_gene_index <- NA_integer_
+  }
+  result <- list(
+    success = FALSE,
+    failure_reason = NA_character_,
+    endpoint = endpoint,
+    route = fit_route,
+    inference_available = fit_is_list && isTRUE(fit$inference_available),
+    gene_index = fit_gene_index,
+    n_beta = NA_integer_,
+    n_donors = NA_integer_,
+    full_log = NULL,
+    state_objective = NA_real_,
+    stored_state_objective = NA_real_,
+    reevaluated_objective = NA_real_,
+    candidate_objective = NA_real_,
+    loglik = NA_real_,
+    loglik_ln = NA_real_,
+    certified_candidate_index = NA_integer_,
+    objective_provenance = NULL,
+    objective_instance = NULL,
+    diagnostics = list(
+      candidate_objective_state_scaled = NA_real_,
+      loglik_objective_scaled = NA_real_,
+      loglik_ln_objective_scaled = NA_real_,
+      score_sign_scaled = NA_real_,
+      donor_additivity_scaled = NA_real_,
+      objective_recheck_scaled = NA_real_,
+      full_log_recheck_scaled = NA_real_,
+      U_full_recheck_scaled = NA_real_,
+      U_subject_full_recheck_scaled = NA_real_,
+      A_full_recheck_scaled = NA_real_,
+      U_reduced_recheck_scaled = NA_real_,
+      U_subject_reduced_recheck_scaled = NA_real_,
+      A_reduced_recheck_scaled = NA_real_,
+      root_residual = NA_real_,
+      newton_displacement = NA_real_,
+      curvature = NULL
+    )
+  )
+  fail <- function(reason) {
+    result$failure_reason <- paste0(endpoint, "_", reason)
+    result
+  }
+
+  if (!fit_is_list) {
+    return(fail("fit_invalid"))
+  }
+  if (!identical(fit$route, "R0") || !isTRUE(fit$inference_available)) {
+    return(fail("route_not_R0"))
+  }
+  expected_method <- if (identical(endpoint, "unrestricted")) {
+    "joint_ln"
+  } else {
+    "joint_ln_constrained"
+  }
+  if (!identical(fit_debug$method, expected_method)) {
+    return(fail("estimator_mismatch"))
+  }
+  if (!is.list(fit$ln_joint)) {
+    return(fail("joint_state_invalid"))
+  }
+  state <- fit$ln_joint$state
+  if (!is.list(state) || !is.list(state$raw) || is.null(state$beta) ||
+      is.null(state$raw$value)) {
+    return(fail("state_missing"))
+  }
+  nb <- length(state$beta)
+  full_dim <- nb + 2L
+  U_full <- as.numeric(state$U_full)
+  U_subject_full <- as.matrix(state$U_subject_full)
+  A_full <- as.matrix(state$A_full)
+  result$n_beta <- as.integer(nb)
+  result$n_donors <- as.integer(ncol(U_subject_full))
+  state_dimensions_ok <- length(U_full) == full_dim &&
+    nrow(U_subject_full) == full_dim && ncol(U_subject_full) > 0L &&
+    all(dim(A_full) == c(full_dim, full_dim))
+  if (!state_dimensions_ok || any(!is.finite(c(
+    state$beta,
+    U_full,
+    U_subject_full,
+    A_full,
+    state$raw$value
+  )))) {
+    return(fail("state_invalid"))
+  }
+  U_reduced <- as.numeric(state$U_reduced)
+  U_subject_reduced <- as.matrix(state$U_subject_reduced)
+  A_reduced <- as.matrix(state$A_reduced)
+  theta_reduced_log <- as.numeric(state$theta_reduced_log)
+  reduced_dim <- length(U_reduced)
+  reduced_dimensions_ok <- reduced_dim > 0L &&
+    nrow(U_subject_reduced) == reduced_dim &&
+    ncol(U_subject_reduced) == ncol(U_subject_full) &&
+    all(dim(A_reduced) == c(reduced_dim, reduced_dim)) &&
+    length(theta_reduced_log) == reduced_dim
+  if (!reduced_dimensions_ok || any(!is.finite(c(
+    U_reduced,
+    U_subject_reduced,
+    A_reduced,
+    theta_reduced_log
+  )))) {
+    return(fail("reduced_state_invalid"))
+  }
+  result$diagnostics$root_residual <- ln_joint_root_metric(
+    U_subject_reduced,
+    U_reduced
+  )
+  result$diagnostics$curvature <- ln_joint_curvature_diagnostics(A_reduced)
+  newton_step <- tryCatch(
+    solve(A_reduced, U_reduced),
+    error = function(e) NULL
+  )
+  result$diagnostics$newton_displacement <- if (!is.null(newton_step) &&
+      all(is.finite(newton_step))) {
+    max(abs(newton_step) / (1 + abs(theta_reduced_log)))
+  } else {
+    NA_real_
+  }
+  if (!is.finite(result$diagnostics$root_residual) ||
+      result$diagnostics$root_residual > thresholds$root) {
+    return(fail("selected_root_not_certified"))
+  }
+  if (!is.finite(result$diagnostics$newton_displacement) ||
+      result$diagnostics$newton_displacement > thresholds$newton) {
+    return(fail("selected_newton_displacement_not_certified"))
+  }
+  curvature <- result$diagnostics$curvature
+  if (!isTRUE(curvature$positive_definite) ||
+      !is.finite(curvature$scaled_min_eigenvalue) ||
+      curvature$scaled_min_eigenvalue < thresholds$curvature_min_eigen) {
+    return(fail("selected_curvature_not_certified"))
+  }
+  if (!is.finite(curvature$scaled_condition_number) ||
+      curvature$scaled_condition_number > thresholds$condition_number) {
+    return(fail("selected_curvature_condition_not_certified"))
+  }
+
+  expected_provenance <- ln_joint_objective_provenance()
+  fit_provenance <- fit$ln_joint$objective_provenance
+  state_provenance <- state$objective_provenance
+  if (!identical(fit_provenance, expected_provenance) ||
+      !identical(state_provenance, expected_provenance)) {
+    return(fail("objective_provenance_mismatch"))
+  }
+  fit_instance <- fit$ln_joint$objective_instance
+  state_instance <- state$objective_instance
+  if (is.null(fit_instance) || is.null(state_instance)) {
+    return(fail("objective_instance_missing"))
+  }
+  if (!identical(fit_instance, state_instance)) {
+    return(fail("objective_instance_mismatch"))
+  }
+  if (!identical(
+    fit$ln_joint$parameterization,
+    expected_provenance$derivative_coordinates
+  ) || !identical(fit$ln_joint$score_sign, "maximizing")) {
+    return(fail("coordinate_or_score_convention_mismatch"))
+  }
+  result$objective_provenance <- expected_provenance
+  result$objective_instance <- fit_instance
+
+  state_full_log <- as.numeric(state$full_log)
+  state_coordinates_match <- length(state_full_log) == full_dim &&
+    identical(
+      state_full_log[seq_len(nb)],
+      as.numeric(state$beta)
+    ) &&
+    length(state$sigma2) == 1L && length(state$gamma) == 1L &&
+    identical(as.numeric(state$sigma2), exp(state_full_log[nb + 1L])) &&
+    identical(as.numeric(state$gamma), exp(state_full_log[nb + 2L]))
+  if (!isTRUE(state_coordinates_match)) {
+    return(fail("state_coordinate_mismatch"))
+  }
+  result$full_log <- state_full_log
+  returned_theta <- fit$theta
+  returned_state_matches <- is.list(returned_theta) &&
+    identical(as.numeric(returned_theta$beta), as.numeric(state$beta)) &&
+    identical(as.numeric(returned_theta$subVar), as.numeric(state$sigma2)) &&
+    identical(as.numeric(returned_theta$cellVar), as.numeric(state$gamma))
+  if (identical(endpoint, "constrained")) {
+    returned_state_matches <- returned_state_matches &&
+      identical(as.numeric(fit$beta_constrained), as.numeric(state$beta))
+  }
+  if (!isTRUE(returned_state_matches)) {
+    return(fail("return_state_mismatch"))
+  }
+
+  if (!is.list(objective_context) ||
+      !is.list(objective_context$ctx) ||
+      !is.list(objective_context$posv) ||
+      length(objective_context$gene_index) != 1L ||
+      !is.finite(objective_context$gene_index) ||
+      !identical(
+        as.integer(objective_context$gene_index),
+        result$gene_index
+      )) {
+    return(fail("objective_context_missing_or_mismatched"))
+  }
+  ctx <- objective_context$ctx
+  posv <- objective_context$posv
+  if (length(ctx$nb) != 1L || !is.finite(ctx$nb) ||
+      as.integer(ctx$nb) != nb) {
+    return(fail("objective_context_dimension_mismatch"))
+  }
+  endpoint_map <- tryCatch(
+    if (identical(endpoint, "unrestricted")) {
+      ln_joint_map(nb)
+    } else {
+      if (!is.list(fit$constraint) || is.null(fit$constraint$L) ||
+          is.null(fit$constraint$b)) {
+        stop("constraint map missing")
+      }
+      ln_joint_map(nb, fit$constraint$L, fit$constraint$b)
+    },
+    error = function(e) NULL
+  )
+  if (is.null(endpoint_map) ||
+      length(theta_reduced_log) != endpoint_map$free_dim + 2L) {
+    return(fail("objective_map_invalid"))
+  }
+  reevaluated_state <- tryCatch(
+    ln_joint_derivative_state(
+      theta_reduced_log,
+      result$gene_index,
+      posv,
+      ctx,
+      endpoint_map
+    ),
+    error = function(e) NULL
+  )
+  if (!is.list(reevaluated_state) || !is.list(reevaluated_state$raw) ||
+      !is.finite(reevaluated_state$raw$value) ||
+      !identical(
+        reevaluated_state$objective_provenance,
+        expected_provenance
+      )) {
+    return(fail("objective_reevaluation_failed"))
+  }
+  result$reevaluated_objective <- as.numeric(reevaluated_state$raw$value)
+  result$stored_state_objective <- as.numeric(state$raw$value)
+  result$diagnostics$objective_recheck_scaled <- ln_joint_scaled_max(
+    result$stored_state_objective,
+    result$reevaluated_objective
+  )
+  result$diagnostics$full_log_recheck_scaled <- ln_joint_scaled_max(
+    state_full_log,
+    reevaluated_state$full_log
+  )
+  result$diagnostics$U_full_recheck_scaled <- ln_joint_scaled_max(
+    U_full,
+    reevaluated_state$U_full
+  )
+  result$diagnostics$U_subject_full_recheck_scaled <- ln_joint_scaled_max(
+    U_subject_full,
+    reevaluated_state$U_subject_full
+  )
+  result$diagnostics$A_full_recheck_scaled <- ln_joint_scaled_max(
+    A_full,
+    reevaluated_state$A_full
+  )
+  result$diagnostics$U_reduced_recheck_scaled <- ln_joint_scaled_max(
+    U_reduced,
+    reevaluated_state$U_reduced
+  )
+  result$diagnostics$U_subject_reduced_recheck_scaled <-
+    ln_joint_scaled_max(
+      U_subject_reduced,
+      reevaluated_state$U_subject_reduced
+    )
+  result$diagnostics$A_reduced_recheck_scaled <- ln_joint_scaled_max(
+    A_reduced,
+    reevaluated_state$A_reduced
+  )
+  recheck_diagnostics <- unlist(
+    result$diagnostics[c(
+      "full_log_recheck_scaled",
+      "U_full_recheck_scaled",
+      "U_subject_full_recheck_scaled",
+      "A_full_recheck_scaled",
+      "U_reduced_recheck_scaled",
+      "U_subject_reduced_recheck_scaled",
+      "A_reduced_recheck_scaled"
+    )],
+    use.names = FALSE
+  )
+  if (!is.finite(result$diagnostics$objective_recheck_scaled) ||
+      result$diagnostics$objective_recheck_scaled >
+        thresholds$objective_agreement) {
+    return(fail("objective_reevaluation_mismatch"))
+  }
+  if (length(recheck_diagnostics) != 7L ||
+      any(!is.finite(recheck_diagnostics)) ||
+      result$diagnostics$full_log_recheck_scaled >
+        thresholds$natural_log_coordinate ||
+      any(recheck_diagnostics[-1L] > thresholds$covariance_identity)) {
+    return(fail("derivative_state_reevaluation_mismatch"))
+  }
+
+  candidate_records <- fit$ln_joint$candidate_records
+  if (!is.list(candidate_records) || !length(candidate_records) ||
+      any(!vapply(candidate_records, is.list, logical(1)))) {
+    return(fail("candidate_records_invalid"))
+  }
+  state_matches <- which(vapply(
+    candidate_records,
+    function(candidate) {
+      isTRUE(candidate$certified) &&
+        isTRUE(candidate$interior) &&
+        !is.null(candidate$theta_full_log) &&
+        identical(as.numeric(candidate$theta_full_log), state_full_log)
+    },
+    logical(1)
+  ))
+  if (!length(state_matches)) {
+    return(fail("endpoint_certification_missing"))
+  }
+  provenance_matches <- state_matches[vapply(
+    candidate_records[state_matches],
+    function(candidate) {
+      identical(candidate$objective_provenance, expected_provenance)
+    },
+    logical(1)
+  )]
+  if (!length(provenance_matches)) {
+    return(fail("candidate_objective_provenance_mismatch"))
+  }
+
+  state_objective <- result$reevaluated_objective
+  candidate_errors <- vapply(
+    candidate_records[provenance_matches],
+    function(candidate) {
+      ln_joint_scaled_max(candidate$objective, state_objective)
+    },
+    numeric(1)
+  )
+  objective_matches <- provenance_matches[
+    is.finite(candidate_errors) &
+      candidate_errors <= thresholds$objective_agreement
+  ]
+  if (!length(objective_matches)) {
+    result$diagnostics$candidate_objective_state_scaled <-
+      if (any(is.finite(candidate_errors))) {
+        min(candidate_errors[is.finite(candidate_errors)])
+      } else {
+        NA_real_
+      }
+    return(fail("objective_state_mismatch"))
+  }
+  candidate_index <- objective_matches[[1L]]
+  candidate_objective <- as.numeric(
+    candidate_records[[candidate_index]]$objective
+  )
+  result$state_objective <- state_objective
+  result$candidate_objective <- candidate_objective
+  result$certified_candidate_index <- as.integer(candidate_index)
+  result$diagnostics$candidate_objective_state_scaled <-
+    ln_joint_scaled_max(candidate_objective, state_objective)
+
+  loglik <- as.numeric(fit$loglik)
+  loglik_ln <- as.numeric(fit$loglik_ln)
+  result$loglik <- loglik
+  result$loglik_ln <- loglik_ln
+  result$diagnostics$loglik_objective_scaled <-
+    ln_joint_scaled_max(loglik, -state_objective)
+  result$diagnostics$loglik_ln_objective_scaled <-
+    ln_joint_scaled_max(loglik_ln, -state_objective)
+  if (length(loglik) != 1L || length(loglik_ln) != 1L ||
+      any(!is.finite(c(loglik, loglik_ln))) ||
+      !is.finite(result$diagnostics$loglik_objective_scaled) ||
+      !is.finite(result$diagnostics$loglik_ln_objective_scaled) ||
+      result$diagnostics$loglik_objective_scaled >
+        thresholds$objective_agreement ||
+      result$diagnostics$loglik_ln_objective_scaled >
+        thresholds$objective_agreement) {
+    return(fail("loglik_objective_mismatch"))
+  }
+
+  result$diagnostics$score_sign_scaled <- ln_joint_scaled_max(
+    U_full,
+    -state$q_gradient_full
+  )
+  result$diagnostics$donor_additivity_scaled <- ln_joint_scaled_max(
+    rowSums(U_subject_full),
+    U_full
+  )
+  if (!all(is.finite(c(
+    result$diagnostics$score_sign_scaled,
+    result$diagnostics$donor_additivity_scaled
+  ))) || result$diagnostics$score_sign_scaled >
+      thresholds$donor_additivity) {
+    return(fail("maximizing_score_sign_mismatch"))
+  }
+  if (result$diagnostics$donor_additivity_scaled >
+      thresholds$donor_additivity) {
+    return(fail("donor_additivity_failed"))
+  }
+
+  result$success <- TRUE
+  result$failure_reason <- NA_character_
+  result
+}
+
+ln_joint_pace_ratio_diagnostic <- function(unrestricted_fit,
+                                           constrained_fit,
+                                           null_basis = NULL,
+                                           interest_basis = NULL) {
+  empty_matrix_diagnostics <- ln_joint_score_matrix_diagnostics(NULL)
+  result <- list(
+    diagnostic_available = FALSE,
+    failure_reason = NA_character_,
+    public_available = FALSE,
+    public_status = "joint_ln_calibration_pending",
+    statistic = NA_real_,
+    adjusted_ratio = NA_real_,
+    df = NA_integer_,
+    theoretical_df = NA_integer_,
+    theoretical_reference = paste(
+      "chi-square first-order reference only under smooth interior",
+      "independent-donor fixed-dimension regularity"
+    ),
+    method = "pace_invariant_joint_ln_working_objective_ratio_audit",
+    no_numerical_repair = TRUE,
+    wP = NA_real_,
+    wU = NA_real_,
+    qP = NA_real_,
+    multiplier = NA_real_,
+    scale = NA_real_,
+    U_eff = NULL,
+    U_eff_subject = NULL,
+    H_eff = NULL,
+    J_eff = NULL,
+    coordinate_map = NULL,
+    projection = NULL,
+    objective_provenance = NULL,
+    objective_instance = NULL,
+    endpoints = list(unrestricted = NULL, constrained = NULL),
+    score_diagnostic = NULL,
+    diagnostics = list(
+      same_criterion = FALSE,
+      same_objective_instance = FALSE,
+      same_objective = FALSE,
+      same_gene = FALSE,
+      same_dimension = FALSE,
+      same_donor_count = FALSE,
+      wP_loglik_identity_scaled = NA_real_,
+      H_eff_projection_identity_scaled = NA_real_,
+      wU_score_identity_scaled = NA_real_,
+      wP_minus_qP = NA_real_,
+      wP_over_qP = NA_real_,
+      adjusted_minus_wU = NA_real_,
+      pace_decomposition_identity_scaled = NA_real_,
+      H_eff = empty_matrix_diagnostics,
+      J_eff = empty_matrix_diagnostics
+    )
+  )
+  fail <- function(reason) {
+    result$failure_reason <- reason
+    result
+  }
+
+  if (!is.list(unrestricted_fit)) {
+    return(fail("unrestricted_fit_invalid"))
+  }
+  if (!length(unrestricted_fit)) {
+    return(fail("unrestricted_pair_not_registered"))
+  }
+  if (!is.list(constrained_fit) || !length(constrained_fit)) {
+    return(fail("constrained_fit_invalid"))
+  }
+  fit_instance <- function(fit) {
+    if (!is.list(fit) || !is.list(fit$ln_joint)) {
+      return(NULL)
+    }
+    fit$ln_joint$objective_instance
+  }
+  unrestricted_instance <- fit_instance(unrestricted_fit)
+  constrained_instance <- fit_instance(constrained_fit)
+  if (!is.null(unrestricted_instance) && !is.null(constrained_instance) &&
+      !identical(unrestricted_instance, constrained_instance)) {
+    return(fail("endpoint_objective_instance_mismatch"))
+  }
+  objective_context <- if (!is.null(unrestricted_instance) &&
+      identical(unrestricted_instance, constrained_instance)) {
+    ln_joint_objective_instance_registry(
+      "resolve",
+      instance = unrestricted_instance
+    )
+  } else {
+    NULL
+  }
+
+  unrestricted_endpoint <- ln_joint_ratio_endpoint_audit(
+    unrestricted_fit,
+    "unrestricted",
+    objective_context = objective_context
+  )
+  constrained_endpoint <- ln_joint_ratio_endpoint_audit(
+    constrained_fit,
+    "constrained",
+    objective_context = objective_context
+  )
+  result$endpoints$unrestricted <- unrestricted_endpoint
+  result$endpoints$constrained <- constrained_endpoint
+  if (!isTRUE(unrestricted_endpoint$success)) {
+    return(fail(unrestricted_endpoint$failure_reason))
+  }
+  if (!isTRUE(constrained_endpoint$success)) {
+    return(fail(constrained_endpoint$failure_reason))
+  }
+
+  result$diagnostics$same_criterion <- identical(
+    unrestricted_endpoint$objective_provenance,
+    constrained_endpoint$objective_provenance
+  )
+  result$diagnostics$same_objective_instance <- identical(
+    unrestricted_endpoint$objective_instance,
+    constrained_endpoint$objective_instance
+  )
+  result$diagnostics$same_objective <-
+    isTRUE(result$diagnostics$same_criterion) &&
+    isTRUE(result$diagnostics$same_objective_instance)
+  result$diagnostics$same_gene <- identical(
+    unrestricted_endpoint$gene_index,
+    constrained_endpoint$gene_index
+  ) && !is.na(unrestricted_endpoint$gene_index)
+  result$diagnostics$same_dimension <- identical(
+    unrestricted_endpoint$n_beta,
+    constrained_endpoint$n_beta
+  )
+  result$diagnostics$same_donor_count <- identical(
+    unrestricted_endpoint$n_donors,
+    constrained_endpoint$n_donors
+  )
+  if (!isTRUE(result$diagnostics$same_criterion)) {
+    return(fail("endpoint_criterion_mismatch"))
+  }
+  if (!isTRUE(result$diagnostics$same_objective_instance)) {
+    return(fail("endpoint_objective_instance_mismatch"))
+  }
+  if (!isTRUE(result$diagnostics$same_gene)) {
+    return(fail("endpoint_gene_mismatch"))
+  }
+  if (!isTRUE(result$diagnostics$same_dimension)) {
+    return(fail("endpoint_dimension_mismatch"))
+  }
+  if (!isTRUE(result$diagnostics$same_donor_count)) {
+    return(fail("endpoint_donor_count_mismatch"))
+  }
+  result$objective_provenance <-
+    unrestricted_endpoint$objective_provenance
+  result$objective_instance <- unrestricted_endpoint$objective_instance
+
+  wP <- 2 * (
+    constrained_endpoint$state_objective -
+      unrestricted_endpoint$state_objective
+  )
+  wP_loglik <- 2 * (
+    unrestricted_endpoint$loglik_ln - constrained_endpoint$loglik_ln
+  )
+  result$wP <- wP
+  result$diagnostics$wP_loglik_identity_scaled <- ln_joint_scaled_max(
+    wP,
+    wP_loglik
+  )
+  if (!is.finite(wP) ||
+      !is.finite(result$diagnostics$wP_loglik_identity_scaled) ||
+      result$diagnostics$wP_loglik_identity_scaled >
+        ln_joint_thresholds()$objective_agreement) {
+    return(fail("working_objective_ratio_identity_failed"))
+  }
+  if (wP < 0) {
+    return(fail("negative_working_objective_ratio"))
+  }
+
+  score <- ln_joint_robust_score_diagnostic(
+    constrained_fit,
+    null_basis = null_basis,
+    interest_basis = interest_basis
+  )
+  result$score_diagnostic <- score
+  result$df <- result$theoretical_df <- score$df
+  if (!isTRUE(score$diagnostic_available)) {
+    return(fail(paste0(
+      "constrained_score_",
+      if (is.null(score$failure_reason) || is.na(score$failure_reason)) {
+        "unavailable"
+      } else {
+        score$failure_reason
+      }
+    )))
+  }
+  result$coordinate_map <- score$coordinate_map
+  result$projection <- score$projection
+  result$U_eff <- score$U_eff
+  result$U_eff_subject <- score$U_eff_subject
+  result$J_eff <- score$J_eff
+  result$diagnostics$J_eff <- score$diagnostics$J_eff
+
+  state <- constrained_fit$ln_joint$state
+  T <- score$coordinate_map$full
+  H_coordinate <- crossprod(T, state$A_full %*% T)
+  H_coordinate <- 0.5 * (H_coordinate + t(H_coordinate))
+  r <- score$df
+  interest <- seq_len(r)
+  nuisance <- r + seq_len(nrow(H_coordinate) - r)
+  H_psi_psi <- H_coordinate[interest, interest, drop = FALSE]
+  H_chi_psi <- H_coordinate[nuisance, interest, drop = FALSE]
+  H_chi_solution <- tryCatch(
+    solve(score$H_chi_chi, H_chi_psi),
+    error = function(e) NULL
+  )
+  if (is.null(H_chi_solution) || any(!is.finite(H_chi_solution))) {
+    return(fail("H_chi_chi_solve_failed_for_H_eff"))
+  }
+  H_eff_schur <- H_psi_psi - score$H_psi_chi %*% H_chi_solution
+  H_eff_projected <- score$projection %*% H_coordinate %*%
+    t(score$projection)
+  result$diagnostics$H_eff_projection_identity_scaled <-
+    ln_joint_relative_frobenius(H_eff_schur, H_eff_projected)
+  if (!is.finite(
+    result$diagnostics$H_eff_projection_identity_scaled
+  ) || result$diagnostics$H_eff_projection_identity_scaled >
+      ln_joint_thresholds()$covariance_identity) {
+    return(fail("H_eff_projection_identity_failed"))
+  }
+  H_eff <- 0.5 * (H_eff_schur + t(H_eff_schur))
+  H_eff_diagnostics <- ln_joint_score_matrix_diagnostics(H_eff)
+  result$H_eff <- H_eff
+  result$diagnostics$H_eff <- H_eff_diagnostics
+  if (!isTRUE(H_eff_diagnostics$symmetry_acceptable)) {
+    return(fail("H_eff_asymmetric"))
+  }
+  if (!isTRUE(H_eff_diagnostics$full_rank)) {
+    return(fail("H_eff_rank_deficient"))
+  }
+  if (!isTRUE(H_eff_diagnostics$positive_definite)) {
+    return(fail("H_eff_not_positive_definite"))
+  }
+  if (!isTRUE(H_eff_diagnostics$condition_acceptable)) {
+    return(fail("H_eff_ill_conditioned"))
+  }
+
+  qP_solution <- tryCatch(
+    solve(H_eff, score$U_eff),
+    error = function(e) NULL
+  )
+  wU_solution <- tryCatch(
+    solve(score$J_eff, score$U_eff),
+    error = function(e) NULL
+  )
+  if (is.null(qP_solution) || any(!is.finite(qP_solution))) {
+    return(fail("H_eff_solve_failed"))
+  }
+  if (is.null(wU_solution) || any(!is.finite(wU_solution))) {
+    return(fail("J_eff_solve_failed"))
+  }
+  qP <- as.numeric(crossprod(score$U_eff, qP_solution))
+  wU_reconstructed <- as.numeric(crossprod(
+    score$U_eff,
+    wU_solution
+  ))
+  wU <- as.numeric(score$statistic)
+  result$qP <- qP
+  result$wU <- wU
+  result$diagnostics$wU_score_identity_scaled <- ln_joint_scaled_max(
+    wU,
+    wU_reconstructed
+  )
+  if (!is.finite(result$diagnostics$wU_score_identity_scaled) ||
+      result$diagnostics$wU_score_identity_scaled >
+        ln_joint_thresholds()$covariance_identity) {
+    return(fail("wU_score_identity_failed"))
+  }
+  if (!is.finite(qP) || qP <= .Machine$double.eps) {
+    return(fail("qP_nonpositive_or_numerically_zero"))
+  }
+  if (!is.finite(wU) || wU <= .Machine$double.eps) {
+    return(fail("wU_nonpositive_or_numerically_zero"))
+  }
+
+  multiplier <- wU / qP
+  adjusted_ratio <- multiplier * wP
+  result$diagnostics$wP_minus_qP <- wP - qP
+  result$diagnostics$wP_over_qP <- wP / qP
+  result$diagnostics$adjusted_minus_wU <- adjusted_ratio - wU
+  pace_decomposition <- wU + multiplier * (wP - qP)
+  result$diagnostics$pace_decomposition_identity_scaled <-
+    ln_joint_scaled_max(adjusted_ratio, pace_decomposition)
+  if (!is.finite(multiplier) || multiplier <= 0) {
+    return(fail("nonpositive_pace_multiplier"))
+  }
+  if (!is.finite(adjusted_ratio) || adjusted_ratio < 0) {
+    return(fail("invalid_adjusted_working_objective_ratio"))
+  }
+  if (!is.finite(
+    result$diagnostics$pace_decomposition_identity_scaled
+  ) || result$diagnostics$pace_decomposition_identity_scaled >
+      ln_joint_thresholds()$covariance_identity) {
+    return(fail("pace_decomposition_identity_failed"))
+  }
+
+  result$multiplier <- result$scale <- multiplier
+  result$adjusted_ratio <- result$statistic <- adjusted_ratio
+  result$diagnostic_available <- TRUE
+  result$failure_reason <- NA_character_
+  result
+}
+
 ln_joint_root_metric <- function(U_subject, U) {
   if (is.null(U_subject) || !is.matrix(U_subject) || any(!is.finite(U_subject)) ||
       any(!is.finite(U))) {
@@ -1352,6 +2208,7 @@ ln_joint_candidate_state <- function(theta_reduced, objective, optimizer, label,
     theta_reduced = theta_reduced,
     theta_reduced_log = theta_log,
     theta_full_log = state$full_log,
+    objective_provenance = state$objective_provenance,
     objective = objective,
     optimizer = optimizer,
     state = state,
@@ -1565,6 +2422,7 @@ ln_joint_candidate_records <- function(candidates) {
       polished = isTRUE(x$polished),
       theta_reduced = x$theta_reduced,
       theta_full_log = x$theta_full_log,
+      objective_provenance = x$objective_provenance,
       finite_endpoint = isTRUE(x$finite_endpoint),
       certified = isTRUE(x$certified),
       objective = x$objective,
@@ -2018,10 +2876,19 @@ ln_joint_fixed_modes <- function(state, gene_index, posv, ctx) {
 
 fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
                                              extra_starts = NULL) {
+  objective_instance <- ln_joint_objective_instance_registry(
+    "register",
+    gene_index,
+    posv,
+    ctx
+  )
   map <- ln_joint_map(ctx$nb)
   engine <- ln_joint_fit_engine(gene_index, posv, ctx, map, extra_starts)
   best <- engine$best
   state <- if (!is.null(best)) best$state else NULL
+  if (!is.null(state)) {
+    state$objective_instance <- objective_instance
+  }
   route <- engine$route
   failure <- engine$failure_reason
   covariance <- NULL
@@ -2068,7 +2935,7 @@ fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
   godambe <- if (!is.null(derivative_object))
     extract_godambe_components(derivative_object, ctx$nb) else NULL
   theta <- list(beta = beta, subVar = sigma2, cellVar = gamma)
-  list(
+  result <- list(
     vec = restemp,
     godambe = godambe,
     loglik = loglik,
@@ -2090,6 +2957,12 @@ fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
     ln_joint = list(
       parameterization = "beta, log(sigma2), log(gamma_nb_size)",
       score_sign = "maximizing",
+      objective_provenance = if (!is.null(state)) {
+        state$objective_provenance
+      } else {
+        ln_joint_objective_provenance()
+      },
+      objective_instance = objective_instance,
       state = state,
       covariance = covariance,
       candidates = engine$diagnostics$candidates,
@@ -2116,13 +2989,30 @@ fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
       failure_reason = failure
     )
   )
+  ln_joint_objective_instance_registry(
+    "store_unrestricted",
+    gene_index,
+    posv,
+    ctx,
+    fit = result
+  )
+  result
 }
 
 fit_gene_joint_ln_constrained <- function(gene_index, posv, ctx, L, b) {
+  objective_instance <- ln_joint_objective_instance_registry(
+    "lookup",
+    gene_index,
+    posv,
+    ctx
+  )
   map <- ln_joint_map(ctx$nb, L, b)
   engine <- ln_joint_fit_engine(gene_index, posv, ctx, map)
   best <- engine$best
   state <- if (!is.null(best)) best$state else NULL
+  if (!is.null(state)) {
+    state$objective_instance <- objective_instance
+  }
   route <- engine$route
   failure <- engine$failure_reason
   beta <- if (!is.null(state)) state$beta else rep(NA_real_, ctx$nb)
@@ -2210,6 +3100,12 @@ fit_gene_joint_ln_constrained <- function(gene_index, posv, ctx, L, b) {
     ln_joint = list(
       parameterization = "beta, log(sigma2), log(gamma_nb_size)",
       score_sign = "maximizing",
+      objective_provenance = if (!is.null(state)) {
+        state$objective_provenance
+      } else {
+        ln_joint_objective_provenance()
+      },
+      objective_instance = objective_instance,
       state = state,
       candidates = engine$diagnostics$candidates,
       candidate_records = ln_joint_candidate_records(engine$candidates),
@@ -2230,5 +3126,16 @@ fit_gene_joint_ln_constrained <- function(gene_index, posv, ctx, L, b) {
   )
   result$ln_joint$score_diagnostic <-
     ln_joint_robust_score_diagnostic(result)
+  unrestricted_fit <- ln_joint_objective_instance_registry(
+    "get_unrestricted",
+    gene_index,
+    posv,
+    ctx
+  )
+  result$ln_joint$pace_ratio_diagnostic <-
+    ln_joint_pace_ratio_diagnostic(
+      if (is.list(unrestricted_fit)) unrestricted_fit else list(),
+      result
+    )
   result
 }
