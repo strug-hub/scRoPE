@@ -226,6 +226,593 @@ ln_joint_curvature_diagnostics <- function(A) {
   )
 }
 
+ln_joint_score_matrix_diagnostics <- function(x,
+                                              condition_limit =
+                                                ln_joint_thresholds()$condition_number,
+                                              symmetry_tolerance =
+                                                ln_joint_thresholds()$hard_stop$
+                                                  covariance_identity) {
+  unavailable <- function(nrow = NA_integer_, ncol = NA_integer_) {
+    list(
+      nrow = as.integer(nrow),
+      ncol = as.integer(ncol),
+      finite = FALSE,
+      square = FALSE,
+      symmetry_error = NA_real_,
+      symmetry_acceptable = FALSE,
+      rank = 0L,
+      rank_tolerance = NA_real_,
+      condition_number = Inf,
+      scaled_condition_number = Inf,
+      eigenvalues = NULL,
+      scaled_eigenvalues = NULL,
+      positive_definite = FALSE,
+      full_rank = FALSE,
+      condition_acceptable = FALSE,
+      usable = FALSE
+    )
+  }
+  if (is.null(x)) {
+    return(unavailable())
+  }
+  x <- as.matrix(x)
+  nr <- nrow(x)
+  nc <- ncol(x)
+  if (!length(x) || nr != nc || any(!is.finite(x))) {
+    out <- unavailable(nr, nc)
+    out$finite <- length(x) > 0L && all(is.finite(x))
+    out$square <- nr == nc
+    return(out)
+  }
+  symmetry_error <- as.numeric(
+    norm(x - t(x), "F") / (1 + norm(x, "F"))
+  )
+  symmetric_x <- 0.5 * (x + t(x))
+  singular_values <- tryCatch(
+    svd(symmetric_x, nu = 0L, nv = 0L)$d,
+    error = function(e) NULL
+  )
+  eigenvalues <- tryCatch(
+    eigen(symmetric_x, symmetric = TRUE, only.values = TRUE)$values,
+    error = function(e) NULL
+  )
+  diagonal_scale <- sqrt(pmax(
+    abs(diag(symmetric_x)),
+    .Machine$double.eps
+  ))
+  scaled_x <- symmetric_x / outer(diagonal_scale, diagonal_scale)
+  scaled_singular_values <- tryCatch(
+    svd(scaled_x, nu = 0L, nv = 0L)$d,
+    error = function(e) NULL
+  )
+  scaled_eigenvalues <- tryCatch(
+    eigen(scaled_x, symmetric = TRUE, only.values = TRUE)$values,
+    error = function(e) NULL
+  )
+  if (is.null(singular_values) || is.null(eigenvalues) ||
+      is.null(scaled_singular_values) || is.null(scaled_eigenvalues) ||
+      any(!is.finite(c(
+        singular_values,
+        eigenvalues,
+        scaled_singular_values,
+        scaled_eigenvalues
+      )))) {
+    out <- unavailable(nr, nc)
+    out$finite <- TRUE
+    out$square <- TRUE
+    out$symmetry_error <- symmetry_error
+    return(out)
+  }
+  max_singular <- max(singular_values)
+  rank_tolerance <- max(nr, nc) * .Machine$double.eps * max_singular
+  rank <- if (max_singular > 0) {
+    sum(singular_values > rank_tolerance)
+  } else {
+    0L
+  }
+  scaled_max_singular <- max(scaled_singular_values)
+  scaled_rank_tolerance <- max(nr, nc) * .Machine$double.eps *
+    scaled_max_singular
+  scaled_rank <- if (scaled_max_singular > 0) {
+    sum(scaled_singular_values > scaled_rank_tolerance)
+  } else {
+    0L
+  }
+  condition_number <- if (rank == nr && min(singular_values) > 0) {
+    max_singular / min(singular_values)
+  } else {
+    Inf
+  }
+  scaled_condition_number <- if (scaled_rank == nr &&
+      min(scaled_singular_values) > 0) {
+    scaled_max_singular / min(scaled_singular_values)
+  } else {
+    Inf
+  }
+  eigen_tolerance <- nr * .Machine$double.eps *
+    max(abs(eigenvalues))
+  positive_definite <- min(eigenvalues) > eigen_tolerance
+  full_rank <- rank == nr
+  symmetry_acceptable <- is.finite(symmetry_error) &&
+    symmetry_error <= symmetry_tolerance
+  condition_acceptable <- is.finite(scaled_condition_number) &&
+    scaled_condition_number <= condition_limit
+  list(
+    nrow = as.integer(nr),
+    ncol = as.integer(nc),
+    finite = TRUE,
+    square = TRUE,
+    symmetry_error = symmetry_error,
+    symmetry_acceptable = symmetry_acceptable,
+    rank = as.integer(rank),
+    scaled_rank = as.integer(scaled_rank),
+    rank_tolerance = rank_tolerance,
+    scaled_rank_tolerance = scaled_rank_tolerance,
+    condition_number = condition_number,
+    scaled_condition_number = scaled_condition_number,
+    eigenvalues = eigenvalues,
+    scaled_eigenvalues = scaled_eigenvalues,
+    positive_definite = positive_definite,
+    full_rank = full_rank,
+    condition_acceptable = condition_acceptable,
+    usable = symmetry_acceptable && full_rank && positive_definite &&
+      condition_acceptable
+  )
+}
+
+ln_joint_score_coordinate_map <- function(L, nb, null_basis = NULL,
+                                          interest_basis = NULL) {
+  thresholds <- ln_joint_thresholds()
+  L <- as.matrix(L)
+  r <- nrow(L)
+  observed_rank <- if (length(L) && all(is.finite(L))) {
+    qr(L)$rank
+  } else {
+    0L
+  }
+  unavailable <- function(reason) {
+    list(
+      success = FALSE,
+      failure_reason = reason,
+      requested_rows = as.integer(r),
+      rank = as.integer(observed_rank)
+    )
+  }
+  if (!length(L) || ncol(L) != nb || r < 1L || r > nb ||
+      any(!is.finite(L))) {
+    return(unavailable("invalid_hypothesis_matrix"))
+  }
+  if (observed_rank != r) {
+    return(unavailable("hypothesis_rank_deficient"))
+  }
+  qrt <- qr(t(L))
+  if (qrt$rank != r) {
+    return(unavailable("hypothesis_rank_deficient"))
+  }
+  complete_basis <- qr.Q(qrt, complete = TRUE)
+  if (is.null(interest_basis)) {
+    interest_basis <- complete_basis[, seq_len(r), drop = FALSE]
+  } else {
+    interest_basis <- as.matrix(interest_basis)
+  }
+  nuisance_beta_dim <- nb - r
+  if (is.null(null_basis)) {
+    null_basis <- if (nuisance_beta_dim) {
+      complete_basis[, r + seq_len(nuisance_beta_dim), drop = FALSE]
+    } else {
+      matrix(0, nrow = nb, ncol = 0L)
+    }
+  } else {
+    null_basis <- as.matrix(null_basis)
+  }
+  if (!all(dim(interest_basis) == c(nb, r)) ||
+      any(!is.finite(interest_basis))) {
+    return(unavailable("invalid_interest_basis"))
+  }
+  if (!all(dim(null_basis) == c(nb, nuisance_beta_dim)) ||
+      any(!is.finite(null_basis))) {
+    return(unavailable("invalid_null_basis"))
+  }
+  tested_map <- L %*% interest_basis
+  if (qr(tested_map)$rank != r) {
+    return(unavailable("interest_basis_rank_deficient"))
+  }
+  null_residual_scaled <- if (nuisance_beta_dim) {
+    max(abs(L %*% null_basis)) /
+      (1 + norm(L, "F") * norm(null_basis, "F"))
+  } else {
+    0
+  }
+  if (!is.finite(null_residual_scaled) ||
+      null_residual_scaled > thresholds$hard_stop$constraint) {
+    return(unavailable("null_basis_not_in_hypothesis_kernel"))
+  }
+  beta_map <- cbind(interest_basis, null_basis)
+  if (qr(beta_map)$rank != nb) {
+    return(unavailable("interest_nuisance_map_rank_deficient"))
+  }
+  beta_map_condition <- tryCatch(
+    kappa(beta_map, exact = TRUE),
+    error = function(e) Inf
+  )
+  if (!is.finite(beta_map_condition) ||
+      beta_map_condition > thresholds$hard_stop$condition_number) {
+    return(unavailable("interest_nuisance_map_ill_conditioned"))
+  }
+  full_dim <- nb + 2L
+  full_map <- matrix(0, nrow = full_dim, ncol = full_dim)
+  full_map[seq_len(nb), seq_len(nb)] <- beta_map
+  full_map[nb + 1L, nb + 1L] <- 1
+  full_map[nb + 2L, nb + 2L] <- 1
+  list(
+    success = TRUE,
+    failure_reason = NA_character_,
+    rank = as.integer(r),
+    interest_basis = interest_basis,
+    null_basis = null_basis,
+    beta = beta_map,
+    full = full_map,
+    tested_hypothesis_map = tested_map,
+    null_residual_scaled = null_residual_scaled,
+    beta_map_condition_number = beta_map_condition,
+    interest_crossprod = crossprod(interest_basis),
+    null_crossprod = crossprod(null_basis)
+  )
+}
+
+ln_joint_robust_score_diagnostic <- function(constrained_fit,
+                                             null_basis = NULL,
+                                             interest_basis = NULL) {
+  thresholds <- ln_joint_thresholds()
+  empty_matrix_diagnostics <- ln_joint_score_matrix_diagnostics(NULL)
+  result <- list(
+    diagnostic_available = FALSE,
+    failure_reason = NA_character_,
+    public_available = FALSE,
+    public_status = "joint_ln_calibration_pending",
+    statistic = NA_real_,
+    df = NA_integer_,
+    theoretical_df = NA_integer_,
+    theoretical_reference = paste(
+      "chi-square first-order reference only under smooth interior",
+      "independent-donor fixed-dimension regularity"
+    ),
+    score_sign = "maximizing_U_equals_negative_gradient_of_q",
+    no_numerical_repair = TRUE,
+    hypothesis = NULL,
+    coordinate_map = NULL,
+    U_coordinate = NULL,
+    U_subject_coordinate = NULL,
+    U_eff = NULL,
+    U_eff_subject = NULL,
+    H_psi_chi = NULL,
+    H_chi_chi = NULL,
+    J_eff = NULL,
+    projection = NULL,
+    diagnostics = list(
+      constraint_residual_scaled = NA_real_,
+      nuisance_root_scaled = NA_real_,
+      full_donor_additivity_scaled = NA_real_,
+      coordinate_donor_additivity_scaled = NA_real_,
+      efficient_donor_additivity_scaled = NA_real_,
+      efficient_vs_tested_score_scaled = NA_real_,
+      J_eff_projection_identity_scaled = NA_real_,
+      score_sign_aggregate_scaled = NA_real_,
+      score_sign_donor_scaled = NA_real_,
+      nuisance_root_scale = paste(
+        "max_j abs(sum_i U_ji) /",
+        "(1 + sqrt(sum_i U_ji^2))"
+      ),
+      H_coordinate_symmetry_scaled = NA_real_,
+      H_chi_chi = empty_matrix_diagnostics,
+      J_eff = empty_matrix_diagnostics
+    )
+  )
+  fail <- function(reason) {
+    result$failure_reason <- reason
+    result
+  }
+
+  constraint <- constrained_fit$constraint
+  L <- constraint$L
+  b <- constraint$b
+  if (is.null(L) || is.null(b)) {
+    return(fail("missing_hypothesis"))
+  }
+  L <- as.matrix(L)
+  b <- as.numeric(b)
+  if (!nrow(L) || length(b) != nrow(L) ||
+      any(!is.finite(c(L, b)))) {
+    return(fail("invalid_hypothesis"))
+  }
+  hypothesis_rank <- qr(L)$rank
+  result$hypothesis <- list(
+    L = L,
+    b = b,
+    requested_rows = as.integer(nrow(L)),
+    rank = as.integer(hypothesis_rank)
+  )
+  if (hypothesis_rank != nrow(L)) {
+    return(fail("hypothesis_rank_deficient"))
+  }
+  result$df <- result$theoretical_df <- as.integer(nrow(L))
+
+  if (!identical(constrained_fit$route, "R0")) {
+    reason <- if (identical(constrained_fit$failure_reason,
+                            "dispersion_boundary")) {
+      "constrained_boundary"
+    } else {
+      "constrained_route_not_R0"
+    }
+    return(fail(reason))
+  }
+  if (!isTRUE(constrained_fit$inference_available) ||
+      !isTRUE(constrained_fit$lrt_gate$converged)) {
+    return(fail("constrained_endpoint_uncertified"))
+  }
+  if (!isTRUE(constrained_fit$lrt_gate$interior) ||
+      !isTRUE(constrained_fit$lrt_gate$nuisance_interior)) {
+    return(fail("constrained_boundary"))
+  }
+  state <- constrained_fit$ln_joint$state
+  if (is.null(state) || is.null(state$beta)) {
+    return(fail("missing_constrained_score_state"))
+  }
+  nb <- length(state$beta)
+  full_dim <- nb + 2L
+  U_full <- as.numeric(state$U_full)
+  U_subject_full <- as.matrix(state$U_subject_full)
+  H_full <- as.matrix(state$A_full)
+  state_dimensions_ok <- length(U_full) == full_dim &&
+    nrow(U_subject_full) == full_dim && ncol(U_subject_full) > 0L &&
+    all(dim(H_full) == c(full_dim, full_dim))
+  if (!state_dimensions_ok || any(!is.finite(c(
+    state$beta,
+    U_full,
+    U_subject_full,
+    H_full
+  )))) {
+    return(fail("invalid_constrained_score_state"))
+  }
+  state_full_log <- as.numeric(state$full_log)
+  state_coordinates_match <- length(state_full_log) == full_dim &&
+    identical(
+      state_full_log[seq_len(nb)],
+      as.numeric(state$beta)
+    ) &&
+    length(state$sigma2) == 1L && length(state$gamma) == 1L &&
+    identical(
+      as.numeric(state$sigma2),
+      exp(state_full_log[nb + 1L])
+    ) &&
+    identical(
+      as.numeric(state$gamma),
+      exp(state_full_log[nb + 2L])
+    )
+  if (!isTRUE(state_coordinates_match)) {
+    return(fail("constrained_state_coordinate_mismatch"))
+  }
+  returned_theta <- constrained_fit$theta
+  returned_state_matches <- is.list(returned_theta) &&
+    identical(as.numeric(returned_theta$beta), as.numeric(state$beta)) &&
+    identical(as.numeric(returned_theta$subVar), as.numeric(state$sigma2)) &&
+    identical(as.numeric(returned_theta$cellVar), as.numeric(state$gamma)) &&
+    identical(
+      as.numeric(constrained_fit$beta_constrained),
+      as.numeric(state$beta)
+    )
+  if (!isTRUE(returned_state_matches)) {
+    return(fail("constrained_return_state_mismatch"))
+  }
+  candidate_records <- constrained_fit$ln_joint$candidate_records
+  certified_state_match <- length(candidate_records) > 0L && any(vapply(
+    candidate_records,
+    function(candidate) {
+      isTRUE(candidate$certified) &&
+        !is.null(candidate$theta_full_log) &&
+        identical(
+          as.numeric(candidate$theta_full_log),
+          state_full_log
+        )
+    },
+    logical(1)
+  ))
+  if (!certified_state_match) {
+    return(fail("constrained_endpoint_certification_missing"))
+  }
+
+  map <- ln_joint_score_coordinate_map(
+    L,
+    nb,
+    null_basis = if (is.null(null_basis)) constraint$null_basis else null_basis,
+    interest_basis = interest_basis
+  )
+  if (!isTRUE(map$success)) {
+    return(fail(map$failure_reason))
+  }
+  result$coordinate_map <- map
+
+  constraint_residual <- as.numeric(L %*% state$beta - b)
+  constraint_denom <- 1 + max(abs(b)) +
+    max(rowSums(abs(L))) * max(abs(state$beta))
+  constraint_residual_scaled <- max(abs(constraint_residual)) /
+    constraint_denom
+  result$diagnostics$constraint_residual_scaled <-
+    constraint_residual_scaled
+  if (!is.finite(constraint_residual_scaled) ||
+      constraint_residual_scaled > thresholds$constraint) {
+    return(fail("constraint_not_satisfied"))
+  }
+
+  score_sign_aggregate_scaled <- ln_joint_scaled_max(
+    U_full,
+    -state$q_gradient_full
+  )
+  score_sign_donor_scaled <- ln_joint_scaled_max(
+    U_subject_full,
+    -state$raw$per_subject_gradients
+  )
+  full_donor_additivity_scaled <- ln_joint_scaled_max(
+    rowSums(U_subject_full),
+    U_full
+  )
+  result$diagnostics$score_sign_aggregate_scaled <-
+    score_sign_aggregate_scaled
+  result$diagnostics$score_sign_donor_scaled <- score_sign_donor_scaled
+  result$diagnostics$full_donor_additivity_scaled <-
+    full_donor_additivity_scaled
+  if (!all(is.finite(c(
+    score_sign_aggregate_scaled,
+    score_sign_donor_scaled
+  ))) || max(score_sign_aggregate_scaled, score_sign_donor_scaled) >
+      thresholds$donor_additivity) {
+    return(fail("maximizing_score_sign_mismatch"))
+  }
+  if (!is.finite(full_donor_additivity_scaled) ||
+      full_donor_additivity_scaled > thresholds$donor_additivity) {
+    return(fail("full_score_donor_additivity_failed"))
+  }
+
+  T <- map$full
+  U_coordinate <- as.numeric(crossprod(T, U_full))
+  U_subject_coordinate <- crossprod(T, U_subject_full)
+  H_coordinate_raw <- crossprod(T, H_full %*% T)
+  H_coordinate_symmetry_scaled <- as.numeric(
+    norm(H_coordinate_raw - t(H_coordinate_raw), "F") /
+      (1 + norm(H_coordinate_raw, "F"))
+  )
+  result$diagnostics$H_coordinate_symmetry_scaled <-
+    H_coordinate_symmetry_scaled
+  if (!is.finite(H_coordinate_symmetry_scaled) ||
+      H_coordinate_symmetry_scaled >
+        thresholds$hard_stop$covariance_identity) {
+    return(fail("transformed_sensitivity_asymmetric"))
+  }
+  H_coordinate <- H_coordinate_raw
+  H_coordinate <- 0.5 * (H_coordinate + t(H_coordinate))
+  r <- result$df
+  interest <- seq_len(r)
+  nuisance <- r + seq_len(full_dim - r)
+  H_psi_chi <- H_coordinate[interest, nuisance, drop = FALSE]
+  H_chi_chi <- H_coordinate[nuisance, nuisance, drop = FALSE]
+  coordinate_donor_additivity_scaled <- ln_joint_scaled_max(
+    rowSums(U_subject_coordinate),
+    U_coordinate
+  )
+  nuisance_root_scaled <- ln_joint_root_metric(
+    U_subject_coordinate[nuisance, , drop = FALSE],
+    U_coordinate[nuisance]
+  )
+  result$U_coordinate <- U_coordinate
+  result$U_subject_coordinate <- U_subject_coordinate
+  result$H_psi_chi <- H_psi_chi
+  result$H_chi_chi <- H_chi_chi
+  result$diagnostics$coordinate_donor_additivity_scaled <-
+    coordinate_donor_additivity_scaled
+  result$diagnostics$nuisance_root_scaled <- nuisance_root_scaled
+  if (!is.finite(coordinate_donor_additivity_scaled) ||
+      coordinate_donor_additivity_scaled > thresholds$donor_additivity) {
+    return(fail("transformed_score_donor_additivity_failed"))
+  }
+  if (!is.finite(nuisance_root_scaled) ||
+      nuisance_root_scaled > thresholds$root) {
+    return(fail("constrained_nuisance_root_not_certified"))
+  }
+
+  H_chi_diagnostics <- ln_joint_score_matrix_diagnostics(H_chi_chi)
+  result$diagnostics$H_chi_chi <- H_chi_diagnostics
+  if (!isTRUE(H_chi_diagnostics$symmetry_acceptable)) {
+    return(fail("H_chi_chi_asymmetric"))
+  }
+  if (!isTRUE(H_chi_diagnostics$full_rank)) {
+    return(fail("H_chi_chi_rank_deficient"))
+  }
+  if (!isTRUE(H_chi_diagnostics$positive_definite)) {
+    return(fail("H_chi_chi_not_positive_definite"))
+  }
+  if (!isTRUE(H_chi_diagnostics$condition_acceptable)) {
+    return(fail("H_chi_chi_ill_conditioned"))
+  }
+  nuisance_adjustment <- tryCatch(
+    t(solve(t(H_chi_chi), t(H_psi_chi))),
+    error = function(e) NULL
+  )
+  if (is.null(nuisance_adjustment) ||
+      any(!is.finite(nuisance_adjustment))) {
+    return(fail("H_chi_chi_solve_failed"))
+  }
+  projection <- cbind(diag(r), -nuisance_adjustment)
+  U_eff <- as.numeric(projection %*% U_coordinate)
+  U_eff_subject <- projection %*% U_subject_coordinate
+  J_eff <- tcrossprod(U_eff_subject)
+  J_coordinate <- tcrossprod(U_subject_coordinate)
+  J_eff_projected <- projection %*% J_coordinate %*% t(projection)
+  efficient_donor_additivity_scaled <- ln_joint_scaled_max(
+    rowSums(U_eff_subject),
+    U_eff
+  )
+  efficient_vs_tested_score_scaled <- ln_joint_scaled_max(
+    U_eff,
+    U_coordinate[interest]
+  )
+  J_eff_projection_identity_scaled <- ln_joint_relative_frobenius(
+    J_eff,
+    J_eff_projected
+  )
+  result$projection <- projection
+  result$U_eff <- U_eff
+  result$U_eff_subject <- U_eff_subject
+  result$J_eff <- J_eff
+  result$diagnostics$efficient_donor_additivity_scaled <-
+    efficient_donor_additivity_scaled
+  result$diagnostics$efficient_vs_tested_score_scaled <-
+    efficient_vs_tested_score_scaled
+  result$diagnostics$J_eff_projection_identity_scaled <-
+    J_eff_projection_identity_scaled
+  if (!is.finite(efficient_donor_additivity_scaled) ||
+      efficient_donor_additivity_scaled > thresholds$donor_additivity) {
+    return(fail("efficient_score_donor_additivity_failed"))
+  }
+  if (!is.finite(efficient_vs_tested_score_scaled) ||
+      efficient_vs_tested_score_scaled > thresholds$root) {
+    return(fail("efficient_score_not_equal_tested_score_at_null"))
+  }
+  if (!is.finite(J_eff_projection_identity_scaled) ||
+      J_eff_projection_identity_scaled > thresholds$covariance_identity) {
+    return(fail("J_eff_projection_identity_failed"))
+  }
+
+  J_eff_diagnostics <- ln_joint_score_matrix_diagnostics(J_eff)
+  result$diagnostics$J_eff <- J_eff_diagnostics
+  if (!isTRUE(J_eff_diagnostics$symmetry_acceptable)) {
+    return(fail("J_eff_asymmetric"))
+  }
+  if (!isTRUE(J_eff_diagnostics$full_rank)) {
+    return(fail("J_eff_rank_deficient"))
+  }
+  if (!isTRUE(J_eff_diagnostics$positive_definite)) {
+    return(fail("J_eff_not_positive_definite"))
+  }
+  if (!isTRUE(J_eff_diagnostics$condition_acceptable)) {
+    return(fail("J_eff_ill_conditioned"))
+  }
+  J_eff_solution <- tryCatch(
+    solve(J_eff, U_eff),
+    error = function(e) NULL
+  )
+  if (is.null(J_eff_solution) || any(!is.finite(J_eff_solution))) {
+    return(fail("J_eff_solve_failed"))
+  }
+  statistic <- as.numeric(crossprod(U_eff, J_eff_solution))
+  if (length(statistic) != 1L || !is.finite(statistic) || statistic < 0) {
+    return(fail("nonfinite_or_negative_score_statistic"))
+  }
+  result$statistic <- statistic
+  result$diagnostic_available <- TRUE
+  result$failure_reason <- NA_character_
+  result
+}
+
 ln_joint_root_metric <- function(U_subject, U) {
   if (is.null(U_subject) || !is.matrix(U_subject) || any(!is.finite(U_subject)) ||
       any(!is.finite(U))) {
@@ -1577,7 +2164,7 @@ fit_gene_joint_ln_constrained <- function(gene_index, posv, ctx, L, b) {
     H_red = state$A_reduced,
     per_subject_gradients = state$U_subject_reduced
   ) else NULL
-  list(
+  result <- list(
     vec = restemp,
     godambe = godambe,
     beta_constrained = beta,
@@ -1641,4 +2228,7 @@ fit_gene_joint_ln_constrained <- function(gene_index, posv, ctx, L, b) {
       failure_reason = failure
     )
   )
+  result$ln_joint$score_diagnostic <-
+    ln_joint_robust_score_diagnostic(result)
+  result
 }
