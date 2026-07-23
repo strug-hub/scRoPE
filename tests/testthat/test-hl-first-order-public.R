@@ -63,6 +63,36 @@ test_that("public HL sample-data replay uses only the corrected first-order path
     logical(1)
   )))
 
+  expect_identical(fit$provenance$schema_version, 2L)
+  expect_identical(fit$provenance$route, "HL")
+  expect_identical(fit$provenance$requested_model, "HL")
+  expect_identical(fit$provenance$effective_model, "HL")
+  expect_identical(fit$provenance$estimator, "first_order_nested_hl")
+  expect_identical(fit$provenance$model_covariance, "not_reported")
+  expect_identical(
+    fit$provenance$robust_covariance,
+    "hl_first_order_augmented_donor_sandwich"
+  )
+  expect_identical(
+    fit$provenance$test_capabilities,
+    data.frame(
+      test = c("wald", "score", "lrt"),
+      public_available = c(TRUE, TRUE, FALSE),
+      status = c("available", "available", "objective_ratio_unsupported"),
+      stringsAsFactors = FALSE
+    )
+  )
+  expect_identical(fit$provenance$per_gene$gene_id, fit$summary$gene_id)
+  expect_identical(fit$provenance$per_gene$gene, fit$summary$gene)
+  expect_identical(
+    fit$provenance$per_gene$fit_success,
+    fit$summary$fit_success
+  )
+  expect_identical(
+    fit$provenance$per_gene$covariance_success,
+    fit$summary$covariance_success
+  )
+
   expect_match(paste(deparse(body(scrope_hl)), collapse = "\n"),
                "hl_fo_public_scrope_hl")
   expect_false(grepl(
@@ -70,4 +100,57 @@ test_that("public HL sample-data replay uses only the corrected first-order path
     paste(deparse(body(scrope_hl)), collapse = "\n"),
     ignore.case = TRUE
   ))
+})
+
+test_that("standalone HL compatibility arguments warn when ignored", {
+  data(sample_data)
+  design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
+  warnings <- character(0)
+
+  fit <- withCallingHandlers(
+    scrope_hl(
+      sample_data$count[1L, , drop = FALSE],
+      sample_data$sid,
+      pred = design,
+      cpc = 0,
+      mincp = 1,
+      opt = "trust",
+      ncore = 2L,
+      fmaxsize = 1e8,
+      use_betas = "final_betas",
+      adj_ridge_factor = 1e-6,
+      adj_cond_limit = 1e6,
+      keep_diagnostics = FALSE,
+      verbose = FALSE
+    ),
+    warning = function(w) {
+      warnings <<- c(warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+
+  expect_true(any(grepl("opt='trust' is ignored", warnings, fixed = TRUE)))
+  expect_true(any(grepl("use_betas is ignored", warnings, fixed = TRUE)))
+  expect_true(any(grepl("ncore > 1 is ignored", warnings, fixed = TRUE)))
+  expect_true(any(grepl("fmaxsize is ignored", warnings, fixed = TRUE)))
+  expect_true(any(grepl("adj_ridge_factor is ignored", warnings, fixed = TRUE)))
+  expect_true(any(grepl("adj_cond_limit is ignored", warnings, fixed = TRUE)))
+  expect_null(fit$diagnostics)
+  expect_identical(fit$provenance$route, "HL")
+  expect_identical(
+    fit$provenance$test_capabilities$public_available,
+    c(TRUE, TRUE, FALSE)
+  )
+
+  expect_error(
+    scrope_hl(
+      sample_data$count[1L, , drop = FALSE],
+      sample_data$sid,
+      pred = design,
+      opt = "unsupported",
+      verbose = FALSE
+    ),
+    "opt must be 'lbfgs' or 'trust'",
+    fixed = TRUE
+  )
 })

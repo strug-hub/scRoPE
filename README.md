@@ -14,8 +14,8 @@ quantification. This protects inference against broad variance-model
 misspecification when the mean model still identifies the fixed-effect target.
 
 Robust Wald inference is returned by default. Adjusted Score and scaled
-adjusted likelihood-ratio tests are route-dependent optional tests; the opt-in
-joint-LN route currently returns them as unavailable pending calibration.
+adjusted likelihood-ratio tests are optional and depend on the selected
+estimator; they are currently unavailable for the opt-in joint-LN estimator.
 
 ## Installation
 
@@ -25,12 +25,16 @@ install.packages("remotes")
 remotes::install_github("strug-hub/scRoPE")
 ```
 
-## Quick Start: Current Default LN Route
+## Quick start
 
 The default `scrope()` call uses the scalable LN approximation to the
 negative-binomial gamma mixed-model (NBGMM) working likelihood. The design can
-contain both subject-level and cell-level predictors. The current default is
-`ln_estimator = "legacy_post_pml"` for legacy output reproduction.
+contain both subject-level and cell-level predictors. The released
+`legacy_post_pml` estimator remains the default.
+
+The `model` argument explicitly selects one complete fitting route: `"LN"`,
+`"HL"`, or `"PGMM"`. sc-RoPE does not silently replace the requested route with
+another route.
 
 ```r
 library(scRoPE)
@@ -73,10 +77,10 @@ standard error, and `p_robust_X1` is the robust Wald p-value. The complete
 `fit$summary` also contains model-based results and results for the other
 predictors.
 
-## Opt-in Joint-LN Estimator
+## Opt-in joint-LN estimation
 
-The estimator-aligned LN route is available explicitly while the public
-default remains unchanged:
+The public default remains unchanged. Users who want the estimator-aligned
+joint-LN fit can request it explicitly:
 
 ```r
 fit_joint <- scrope(
@@ -89,54 +93,101 @@ fit_joint <- scrope(
 
 fit_joint$provenance$per_gene[, c(
   "gene",
-  "route",
-  "start_provenance",
   "inference_available",
-  "failure_reason",
-  "mode_status"
+  "failure_reason"
 )]
 ```
 
-For genes classified `R0`, `joint_ln` reports a stationary local maximizer of
-the NEBULA-LN approximate marginal criterion that passed the declared root,
-curvature, derivative, and start-agreement gates. This is not a claim of global
-uniqueness. Model covariance is evaluated from the full joint-LN curvature,
-and robust covariance is evaluated from the full donor-level sandwich at the
-same root.
+When `inference_available` is `TRUE`, the coefficient, covariance, robust
+standard error, Wald statistic, and p-value are all evaluated at the same
+joint-LN fit. When it is `FALSE`, the affected standard errors, Wald statistics,
+and p-values are returned as `NA`; sc-RoPE does not silently substitute results
+from another estimator.
 
-sc-RoPE 0.2.3 operationally reported `repml$beta` after the raw-LN fit. The
-NEBULA paper describes its LN approximate-marginal-likelihood M-estimator and a
-separate h-likelihood step for standard-error computation, but does not clearly
-state this software-level coefficient replacement. Accordingly, `joint_ln` is
-defined by the NEBULA-LN approximate marginal criterion; it is not claimed to
-reproduce legacy NEBULA coefficients.
+The joint-LN estimator estimates coefficients and dispersions together. It is
+not expected to reproduce the legacy estimator exactly, and its verified
+solution is local rather than a claim of global uniqueness.
 
-The structured `provenance` object distinguishes:
-
-- `R0`: regular joint-LN root with model and robust Wald inference available;
-- `R1`: legacy post-PML output reproduction, without a claim of
-  estimator-aligned joint-LN inference; and
-- `R2`: unsupported analytic joint-LN inference. Covariance, standard errors,
-  Wald statistics, and p-values are unavailable rather than filled by a
-  fallback statistic.
+Technical route labels are retained in `provenance` for reproducibility and
+debugging, but users do not need them to select results. Use
+`inference_available` and `failure_reason` for the primary joint-LN fit, and use
+the fallback status described below when fallback was requested.
 
 With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters. They
-cannot change coefficients, dispersions, covariance, tests, convergence, or
-route classification.
+cannot change coefficient inference.
 
 Adjusted Score and scaled adjusted likelihood-ratio tests remain unavailable
-for `joint_ln`. Requests through `additional_tests` return unavailable
-statistics with status `joint_ln_calibration_pending`; same-objective
-constrained fits are retained for diagnostics, not as calibration evidence.
-Switching from the legacy route to `joint_ln` may change coefficients, standard
-errors, p-values, convergence statuses, FDR calls, and downstream results.
+for `joint_ln`; robust Wald is the supported test for this option.
+Switching from the legacy estimator to `joint_ln` may change coefficients,
+standard errors, p-values, convergence statuses, and downstream results.
+
+### Optional legacy fallback
+
+For operational sensitivity analyses, sc-RoPE can try the released legacy
+post-PML method when a joint-LN fit cannot provide inference because a
+dispersion estimate reached its allowed boundary:
+
+```r
+fit_joint_fallback <- scrope(
+  sample_data$count,
+  sample_data$sid,
+  pred = design,
+  ncore = 1,
+  ln_estimator = "joint_ln",
+  ln_operational_fallback = "legacy_post_pml"
+)
+
+fallback <- fit_joint_fallback$operational_fallback
+
+fallback$per_gene[, c(
+  "gene",
+  "fallback_status",
+  "fallback_route_class",
+  "fallback_boundary"
+)]
+
+subset(fallback$coefficients, coefficient_available %in% TRUE)
+fallback$overdispersion
+```
+
+The bundled quick-start data do not need fallback, so the filtered fallback
+table in this example is empty.
+
+The default is `ln_operational_fallback = "none"`, which performs no fallback
+fit, returns no separate fallback results, and emits no fallback-specific
+warning. The `"legacy_post_pml"` option is available only for `model = "LN"` with
+`ln_estimator = "joint_ln"` and `allow_per_gene_switch = FALSE`.
+
+Each fallback attempt is a new, independent legacy post-PML fit. Its
+coefficient and dispersions come from that same fit, while the primary joint-LN
+result remains unchanged. The sidecar deliberately contains no covariance,
+standard error, test statistic, p-value, q-value, or inferential-success field;
+`inference_supported` is always `FALSE`.
+
+For routine use, interpret each gene in one of three ways:
+
+- **Primary available:** `inference_available` is `TRUE`; use the primary
+  `summary` result.
+- **Operational coefficient available:** `fallback_status` is
+  `"coefficient_available"`; the separate coefficient can be reported as an
+  operational sensitivity estimate, without uncertainty or hypothesis testing.
+- **Unavailable:** neither result is available; do not assign a p-value.
+
+The remaining `fallback_status` values distinguish a failed fallback attempt
+from a gene that did not need or qualify for fallback. They are diagnostic and
+do not provide inference.
+
+An available fallback coefficient is still a point estimate from a different,
+potentially rescued or boundary, estimator route. Inspect
+`fallback_route_class`, `fallback_boundary`, and the distance-to-boundary
+diagnostics before using it descriptively. It cannot be combined with primary
+p-values in an FDR procedure because no fallback p-value is produced.
 
 ## Optional Adjusted Score and LRT Inference
 
-The example below uses the current `legacy_post_pml` default. It does not
-describe `joint_ln`, for which adjusted Score and LRT results remain
-unavailable with status `joint_ln_calibration_pending`.
+The example below uses the default estimator. Adjusted Score and LRT tests are
+unavailable for `joint_ln` pending calibration.
 
 Request the adjusted Score and scaled adjusted likelihood-ratio tests through
 `additional_tests`:
@@ -185,12 +236,36 @@ donor-level score contributions to the Godambe adjustment.
 | Working-likelihood route | Call | Variance structure | Typical use |
 |---|---|---|---|
 | NBGMM, LN approximation | `scrope()` | Donor heterogeneity and cell-level extra-Poisson variation | Default scalable association analysis |
-| NBGMM, HL/APHL approximation | `scrope_hl()` | Donor heterogeneity and cell-level extra-Poisson variation | HL fitting or comparison with the LN approximation |
+| NBGMM, first-order nested HL | `scrope(model = "HL")` | Donor heterogeneity and cell-level extra-Poisson variation | Explicit HL fitting or comparison with the LN approximation |
 | PGMM, exact marginal likelihood | `scrope(model = "PGMM")` | Donor heterogeneity without a separate cell-level overdispersion parameter | Simpler exact working likelihood for fixed-effect inference |
 
 The NBGMM working likelihood is the more complete variance model. PGMM is a
 targeted simplification: it retains the donor-level gamma random effect but
 omits the cell-level gamma overdispersion component.
+
+For example, the corrected first-order HL route is requested through the same
+front door:
+
+```r
+fit_hl <- scrope(
+  sample_data$count,
+  sample_data$sid,
+  pred = design,
+  model = "HL",
+  ncore = 1
+)
+```
+
+The existing `scrope_hl()` function remains available as a compatibility
+wrapper. The current first-order HL implementation runs sequentially; asking
+for `ncore > 1` produces a warning rather than silently claiming parallel
+execution.
+
+Test availability remains route-specific. Legacy LN and PGMM retain their
+existing optional tests; certified joint-LN currently exposes robust Wald only,
+with Score and ratio inference calibration-pending; first-order HL exposes
+robust Wald and Score while its objective-ratio/LRT remains unsupported. The
+`provenance$test_capabilities` table records these distinctions in every fit.
 
 ## PGMM Working Likelihood
 
@@ -273,19 +348,21 @@ For each modeled predictor, `summary` includes:
   returned by default;
 - `wald_stat_*`, `wald_success_*`, and `wald_failure_*`: robust Wald statistic
   and diagnostics;
-- optional, route-dependent `score_adj_*` and `p_score_adj_*`: adjusted Score
-  results; and
-- optional, route-dependent `lrt_adj_*`, `p_lrt_adj_*`, and `lrt_method_*`:
+- optional `score_adj_*` and `p_score_adj_*`: adjusted Score results, when
+  supported by the selected estimator; and
+- optional `lrt_adj_*`, `p_lrt_adj_*`, and `lrt_method_*`:
   scaled adjusted likelihood-ratio results and method diagnostics.
 
 The returned object also contains:
 
 - `overdispersion`: fitted working-model overdispersion parameters;
 - `convergence` and `algorithm`: per-gene fitting status;
-- `provenance`: estimator definition, parameter maps, and per-gene route,
-  start, inference-availability, failure, and optional-mode status;
+- `provenance`: estimator definition and technical information about each fit;
 - `diagnostics`: detailed per-gene fitting and robust-inference information;
-- `lrt_details`: optional tidy likelihood-ratio diagnostics; and
+- `lrt_details`: optional tidy likelihood-ratio diagnostics;
+- `operational_fallback`: separate inference-free legacy coefficients,
+  dispersions, and diagnostics, returned only when
+  `ln_operational_fallback = "legacy_post_pml"`; and
 - `random_effect`: donor-level random effects when `output_re = TRUE`.
 
 ## Advanced PGMM Profile-Likelihood Diagnostics

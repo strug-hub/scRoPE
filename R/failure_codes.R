@@ -1,5 +1,14 @@
 # Canonical labels for adjusted-test failure reasons
 failure_codes <- list(
+  operational_fallback = list(
+    legacy_fit_error = "legacy_fit_error",
+    legacy_nonconvergence = "legacy_nonconvergence",
+    legacy_gradient_convergence_not_accepted =
+      "legacy_gradient_convergence_not_accepted",
+    nonfinite_coefficient = "nonfinite_coefficient",
+    invalid_dispersion = "invalid_dispersion",
+    invalid_coefficient_transform = "invalid_coefficient_transform"
+  ),
   wald = list(
     missing_godambe = "missing_godambe",
     missing_blocks = "missing_blocks",
@@ -103,4 +112,17 @@ normalise_failure <- function(reason, type = c("wald", "lrt", "score")) {
     return(out[[1]])
   }
   out
+}
+
+normalise_operational_fallback_failure <- function(reason) {
+  if (is.null(reason) || !length(reason) || is.na(reason[[1L]]) ||
+      !nzchar(as.character(reason[[1L]]))) {
+    return(NA_character_)
+  }
+  reason <- as.character(reason[[1L]])
+  known <- unname(unlist(failure_codes$operational_fallback, use.names = FALSE))
+  if (!reason %in% known) {
+    stop("Unknown operational fallback failure reason: ", reason)
+  }
+  reason
 }

@@ -1,10 +1,6 @@
 fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
   if (identical(ctx$ln_estimator, "joint_ln")) {
-    joint_fitter <- utils::getFromNamespace(
-      "fit_gene_joint_ln_unconstrained",
-      "scRoPE"
-    )
-    return(joint_fitter(
+    return(fit_gene_joint_ln_unconstrained(
       gene_index = gene_index,
       posv = posv,
       ctx = ctx,
@@ -924,11 +920,7 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
 
 fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
   if (identical(ctx$ln_estimator, "joint_ln")) {
-    joint_fitter <- utils::getFromNamespace(
-      "fit_gene_joint_ln_constrained",
-      "scRoPE"
-    )
-    return(joint_fitter(
+    return(fit_gene_joint_ln_constrained(
       gene_index = gene_index,
       posv = posv,
       ctx = ctx,

@@ -1,13 +1,34 @@
-# scRoPE (development version)
+# scRoPE 0.2.4 (2026-07-23)
 
-- Added the opt-in `ln_estimator = "joint_ln"` route. For `R0` genes it
-  reports a stationary local maximizer of the NEBULA-LN approximate marginal
-  criterion and evaluates model and donor-sandwich covariance at that same
-  root. The public default remains `legacy_post_pml`.
+- Added one explicit `scrope(model = ...)` front door for the LN, corrected
+  first-order HL, and PGMM routes. `scrope_hl()` remains available as a
+  compatibility wrapper, and structured provenance advertises route-specific
+  Wald, Score, and LRT availability.
+- Fixed installed-package PSOCK execution for joint-LN by exposing fitter
+  dependencies directly and starting workers with the exact loaded candidate
+  library. Serial and two-worker fits now agree across public output,
+  provenance, and internal Score/Pace diagnostics.
+- Made `nbresidual()` select coefficients by exact `logFC_*` design names, so
+  residuals remain valid when a route interleaves coefficient and inference
+  columns. Legacy unnamed leading coefficient blocks remain supported.
+- Route-specific no-op arguments now fail clearly or warn independently of
+  `verbose`; legacy optional tests that are skipped record the fit-specific
+  reason in `provenance$test_capabilities`.
+- Added the explicit opt-in
+  `ln_operational_fallback = "legacy_post_pml"`. When joint-LN inference is
+  unavailable because a dispersion estimate reached its allowed boundary,
+  sc-RoPE can independently fit the released legacy estimator. The separate
+  sidecar exposes only operational coefficients, dispersions, boundary status,
+  and diagnostics; it contains no covariance, standard errors, statistics,
+  p-values, q-values, or FDR-eligible output. The primary joint-LN result is
+  unchanged, and the default remains `"none"`.
+- Added the opt-in `ln_estimator = "joint_ln"`. For genes that pass its
+  numerical checks, it evaluates model and donor-sandwich covariance at the
+  same joint fit. Otherwise, standard errors and Wald tests are unavailable.
+  The public default remains `legacy_post_pml`.
 - Added structured estimator and per-gene provenance, including numerical
-  route, start provenance, inference availability, normalized failure reason,
-  and optional-mode status. `R2` genes receive unavailable covariance and Wald
-  results rather than a fallback statistic.
+  details, start provenance, inference availability, normalized failure reason,
+  and optional-mode status.
 - Added auxiliary fixed-beta conditional donor modes for joint-LN fits. These
   modes do not alter coefficient inference.
 - Kept adjusted Score and scaled adjusted likelihood-ratio tests unavailable
@@ -20,7 +41,7 @@
 - Documented that sc-RoPE 0.2.3 operationally reported `repml$beta` after the
   raw-LN fit, whereas `joint_ln` targets the NEBULA-LN approximate marginal
   criterion. Coefficients, standard errors, p-values, convergence statuses,
-  FDR calls, and downstream results may therefore change.
+  and downstream results may therefore change.
 
 # scRoPE 0.2.3 (2026-07-14)
 

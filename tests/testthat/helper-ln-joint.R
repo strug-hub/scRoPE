@@ -86,7 +86,8 @@ ln_joint_fit_fixture <- function(output_re = FALSE,
                                  additional_tests = character(0),
                                  lrt_contrasts = NULL,
                                  max = c(10, 1000),
-                                 ncore = 1L) {
+                                 ncore = 1L,
+                                 ln_operational_fallback = "none") {
   fx <- ln_joint_test_fixture()
   fit <- scrope(
     fx$count,
@@ -104,7 +105,8 @@ ln_joint_fit_fixture <- function(output_re = FALSE,
     lrt_contrasts = lrt_contrasts,
     lrt_details = "lrt" %in% additional_tests,
     keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln"
+    ln_estimator = "joint_ln",
+    ln_operational_fallback = ln_operational_fallback
   )
   list(fx = fx, fit = fit)
 }

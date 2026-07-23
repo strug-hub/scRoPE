@@ -8,7 +8,7 @@
 A Seurat object with a count assay and per-cell metadata.
 }
 \usage{
-sample_seurat
+data(sample_seurat)
 }
 \description{
 A compact Seurat object for demonstrating `scToNeb()` and related helpers.

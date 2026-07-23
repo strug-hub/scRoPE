@@ -9,6 +9,7 @@
 #'   \item{pred}{A data frame of three predictors}
 #'   \item{offset}{A vector of scaling factors}
 #' }
+#' @usage data(sample_data)
 #' 
 "sample_data"
 
@@ -17,5 +18,6 @@
 #' A compact Seurat object for demonstrating `scToNeb()` and related helpers.
 #'
 #' @format A Seurat object with a count assay and per-cell metadata.
+#' @usage data(sample_seurat)
 #'
 "sample_seurat"

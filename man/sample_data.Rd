@@ -14,7 +14,7 @@ A list of four objects:
 }
 }
 \usage{
-sample_data
+data(sample_data)
 }
 \description{
 A dataset containing a count matrix, subject IDs, a data frame of predictors and scaling factors.

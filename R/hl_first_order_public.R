@@ -83,12 +83,51 @@ hl_fo_public_scrope_hl <- function(
     adj_ridge_factor = 1e-8, adj_cond_limit = 1e8,
     keep_diagnostics = TRUE) {
 
+  if (length(opt) != 1L || is.na(opt) || !opt %in% c("lbfgs", "trust")) {
+    stop("opt must be 'lbfgs' or 'trust'.")
+  }
+  if (identical(opt, "trust")) {
+    warning(
+      "opt='trust' is ignored by the current first-order HL path; the dedicated deterministic solver is used.",
+      call. = FALSE
+    )
+  }
   if (!use_betas %in% c("betae", "final_betas")) {
     stop("use_betas must be 'betae' or 'final_betas'.")
   }
   if (identical(use_betas, "final_betas")) {
     warning(
       "use_betas is ignored by the estimator-aligned first-order HL path; retained for API compatibility.",
+      call. = FALSE
+    )
+  }
+  if (length(ncore) == 1L && !is.na(ncore) && ncore > 1L) {
+    warning(
+      "ncore > 1 is ignored by the current first-order HL path; fitting is sequential.",
+      call. = FALSE
+    )
+  }
+  if (!isTRUE(all.equal(fmaxsize, Inf, check.attributes = FALSE))) {
+    warning(
+      "fmaxsize is ignored by the current first-order HL path because fitting is sequential.",
+      call. = FALSE
+    )
+  }
+  if (!isTRUE(all.equal(adj_ridge_factor, 1e-8, check.attributes = FALSE))) {
+    warning(
+      paste0(
+        "adj_ridge_factor is ignored by the current first-order HL path; ",
+        "objective-ratio/LRT inference is unsupported."
+      ),
+      call. = FALSE
+    )
+  }
+  if (!isTRUE(all.equal(adj_cond_limit, 1e8, check.attributes = FALSE))) {
+    warning(
+      paste0(
+        "adj_cond_limit is ignored by the current first-order HL path; ",
+        "objective-ratio/LRT inference is unsupported."
+      ),
       call. = FALSE
     )
   }
@@ -102,10 +141,6 @@ hl_fo_public_scrope_hl <- function(
                             paste(invalid, collapse = ", "), ".")
   want_score <- "score" %in% extra
   want_lrt <- "lrt" %in% extra
-  if (ncore > 1L && verbose) {
-    message("scrope_hl first-order multistarts are deterministic and currently run sequentially.")
-  }
-
   prep <- hl_prepare_data(
     count = count, id = id, pred = pred, offset = offset,
     min = min, max = max, opt = opt, verbose = verbose,
@@ -341,6 +376,22 @@ hl_fo_public_scrope_hl <- function(
     message("Some first-order HL Score null roots were unavailable; see score status fields.")
   }
 
+  test_capabilities <- data.frame(
+    test = c("wald", "score", "lrt"),
+    public_available = c(TRUE, TRUE, FALSE),
+    status = c("available", "available", "objective_ratio_unsupported"),
+    stringsAsFactors = FALSE
+  )
+  per_gene_provenance <- data.frame(
+    gene_id = summary_df$gene_id,
+    gene = summary_df$gene,
+    fit_success = as.logical(summary_df$fit_success),
+    fit_status = as.character(summary_df$fit_status),
+    covariance_success = as.logical(summary_df$covariance_success),
+    covariance_status = as.character(summary_df$covariance_status),
+    stringsAsFactors = FALSE
+  )
+
   list(
     summary = summary_df,
     overdispersion = overdispersion,
@@ -358,6 +409,17 @@ hl_fo_public_scrope_hl <- function(
       wald = coefficient_wald,
       test_status = test_status,
       design_transform = ctx$design_transform
-    ) else NULL
+    ) else NULL,
+    provenance = list(
+      schema_version = 2L,
+      route = "HL",
+      requested_model = "HL",
+      effective_model = "HL",
+      estimator = "first_order_nested_hl",
+      model_covariance = "not_reported",
+      robust_covariance = "hl_first_order_augmented_donor_sandwich",
+      test_capabilities = test_capabilities,
+      per_gene = per_gene_provenance
+    )
   )
 }

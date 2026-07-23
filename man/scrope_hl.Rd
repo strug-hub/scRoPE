@@ -42,7 +42,9 @@ scrope_hl(
 
 \item{max}{Upper bounds for the overdispersion parameters `(sigma^2, phi)`.}
 
-\item{opt}{Optimiser for the LN fit (`"lbfgs"` or `"trust"`).}
+\item{opt}{Compatibility argument constrained to `"lbfgs"` or `"trust"`.
+The current first-order HL route uses its dedicated deterministic solver;
+requesting non-default `"trust"` is ignored with a warning.}
 
 \item{verbose}{Logical; print progress messages.}
 
@@ -50,19 +52,23 @@ scrope_hl(
 
 \item{mincp}{Minimum number of non-zero cells required to keep a gene.}
 
-\item{ncore}{Number of cores for parallel processing.}
+\item{ncore}{Compatibility argument. The current first-order HL route is
+sequential; values greater than one are ignored with a warning.}
 
-\item{fmaxsize}{Maximum future.globals size (in bytes) when using parallel execution.}
+\item{fmaxsize}{Compatibility argument for the former parallel route. A
+non-default value is ignored with a warning.}
 
-\item{use_betas}{Which fixed-effect anchor to use in LN variance-refinement
-starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
-`"final_betas"` uses the LN optimizer coefficients.}
+\item{use_betas}{Compatibility argument. `"betae"` is accepted silently;
+`"final_betas"` is ignored with a warning.}
 
-\item{output_re}{Logical; return subject-level random effects.}
+\item{output_re}{Logical; return subject-level random effects. PGMM does not
+currently support this output and warns before returning `NULL`.}
 
 \item{additional_tests}{Character vector selecting additional adjusted HL
-statistics to compute. Supported values are `"score"` and `"lrt"`. Wald
-statistics are always included.}
+statistics to compute. `"score"` requests the supported robust Score test;
+`"lrt"` is accepted for API compatibility but returns explicit
+`objective_ratio_unsupported` status. Robust Wald statistics are always
+included when their covariance is available.}
 
 \item{lrt}{Logical convenience flag; equivalent to including `"lrt"` in
 `additional_tests`.}
@@ -71,17 +77,20 @@ statistics are always included.}
 may be a matrix `L`, a numeric vector, or a list with elements `L`, `b`,
 and an optional `name`.}
 
-\item{lrt_include_scale}{Logical; include the HL invariant scale factor for
-each contrast in the summary output when `"lrt"` is requested.}
+\item{lrt_include_scale}{Logical; retain the scale column when `"lrt"` is
+requested. Its values are `NA` because objective-ratio/LRT inference is
+unsupported by the current first-order HL route.}
 
 \item{lrt_details}{Logical; if `TRUE`, attach a `hl_adj_details` data frame
-with per-contrast diagnostics (statistics, p-values, ridge indicators).}
+with per-contrast test status and failure reasons.}
 
-\item{adj_ridge_factor}{Baseline ridge multiplier supplied to the adjusted
-test solver (see `hl_adjusted_tests()`).}
+\item{adj_ridge_factor}{Compatibility argument for the former adjusted-LRT
+implementation. A non-default value is ignored with a warning because
+objective-ratio/LRT inference is unsupported.}
 
-\item{adj_cond_limit}{Condition-number threshold for injecting a ridge into
-the adjusted test inversions.}
+\item{adj_cond_limit}{Compatibility argument for the former adjusted-LRT
+implementation. A non-default value is ignored with a warning because
+objective-ratio/LRT inference is unsupported.}
 
 \item{keep_diagnostics}{Logical; retain per-gene diagnostic objects
 (including the HL caches).}
@@ -94,10 +103,13 @@ A list matching the structure of `scrope()` with the following HL
   `hl_score_adj_*`, `p_hl_score_*`, `hl_lrt_adj_*`, `p_hl_lrt_*`, and
   `hl_lrt_scale_*`. The tidy `hl_adj_details` frame is populated when
   `lrt_details = TRUE`, and `diagnostics$hl_adj` stores the per-contrast
-  objects when `keep_diagnostics = TRUE`.
+  objects when `keep_diagnostics = TRUE`. The top-level `provenance` object
+  identifies the effective HL estimator and covariance definitions, exposes
+  a route-level `test_capabilities` table, and records per-gene fit and
+  covariance status.
 }
 \description{
-Fits the sc-RoPE model using the H-likelihood (APHL) objective for every
-gene. The output mirrors the structure of `scrope()` while providing the
-APHL value and subject-level caches required for the adjusted HL tests.
+Fits the corrected first-order nested sc-RoPE HL estimator for every gene.
+The output mirrors the core structure of `scrope()` while retaining the
+estimator state and subject-level caches required for robust HL inference.
 }

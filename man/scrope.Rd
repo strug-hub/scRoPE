@@ -28,8 +28,9 @@ scrope(
   lrt_include_scale = FALSE,
   lrt_details = FALSE,
   keep_diagnostics = TRUE,
-  model = c("LN", "PGMM"),
-  ln_estimator = c("legacy_post_pml", "joint_ln")
+  model = c("LN", "HL", "PGMM"),
+  ln_estimator = c("legacy_post_pml", "joint_ln"),
+  ln_operational_fallback = c("none", "legacy_post_pml")
 )
 }
 \arguments{
@@ -45,7 +46,10 @@ scrope(
 
 \item{max}{Upper bounds for the overdispersion parameters `(sigma^2, phi)`.}
 
-\item{opt}{Optimiser for the LN fit (`"lbfgs"` or `"trust"`).}
+\item{opt}{Optimiser selector (`"lbfgs"` or `"trust"`). It controls the LN
+route. The corrected first-order HL route uses its dedicated solver, and
+PGMM uses its exact-route optimisers; those routes warn when `"trust"` is
+supplied.}
 
 \item{verbose}{Logical; print progress messages.}
 
@@ -57,19 +61,24 @@ scrope(
 
 \item{fmaxsize}{Maximum future.globals size (in bytes) when using parallel execution.}
 
-\item{cutoff_cell}{Threshold (cells per subject × phi) below which HL refinement is triggered.}
+\item{cutoff_cell}{Threshold (cells per subject × phi) below which legacy LN
+refinement is triggered. Non-default values are unavailable outside the
+legacy LN route.}
 
-\item{kappa}{Kappa threshold for adaptive HL refinement.}
+\item{kappa}{Kappa threshold for adaptive legacy LN refinement. This argument
+is unavailable outside the legacy LN route when set to a non-default value.}
 
-\item{allow_per_gene_switch}{Logical; allow per-gene LN/HL switching. Defaults to
-`FALSE` so one LN route is used for every gene. Adjusted LRT availability
-depends on `ln_estimator`.}
+\item{allow_per_gene_switch}{Logical; allow legacy per-gene LN/HL switching.
+Defaults to `FALSE` so one requested route is used for every gene. This is
+unavailable for `model = "HL"`, `model = "PGMM"`, and joint-LN.}
 
 \item{use_betas}{Which fixed-effect anchor to use in LN variance-refinement
 starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
-`"final_betas"` uses the LN optimizer coefficients.}
+`"final_betas"` uses the LN optimizer coefficients. The non-default option
+is unavailable for PGMM and ignored with a warning by first-order HL.}
 
-\item{output_re}{Logical; return subject-level random effects.}
+\item{output_re}{Logical; return subject-level random effects. PGMM does not
+currently support this output and warns before returning `NULL`.}
 
 \item{additional_tests}{Optional character vector selecting extra
 contrast-level diagnostics to compute, in addition to the default
@@ -87,59 +96,86 @@ including `"lrt"` in `additional_tests`.}
 
 \item{keep_diagnostics}{Logical; retain per-gene diagnostic objects.}
 
-\item{model}{Fitting path. `"LN"` uses the existing LN pipeline with optional
-HL refinement. `"PGMM"` uses the exact Poisson-gamma mixed model path. It
-supports subject- and cell-level fixed effects. Because PGMM omits separate
-cell-level overdispersion, prefer robust results for cell-level predictors.
-Use the LN/HL NBGMM path when that variance component should be modeled
-explicitly.}
+\item{model}{Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
+`"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
+analyzed gene, and `"PGMM"` uses the exact Poisson-gamma mixed-model path.
+PGMM supports subject- and cell-level fixed effects but omits separate
+cell-level overdispersion, so robust results are preferred for cell-level
+predictors. No route is silently changed to another route.}
 
-\item{ln_estimator}{LN coefficient-estimator route. The current default,
-`"legacy_post_pml"`, retains the version 0.2.3 post-PML architecture for
-legacy output reproduction; this label is not a claim of
-estimator-aligned joint-LN inference. `"joint_ln"` is an opt-in route
-that reports the joint maximizer of the NEBULA-LN approximate marginal
-criterion for genes classified `R0` and evaluates model and donor-sandwich
-covariance at that root. Genes classified `R2` have analytic covariance
-and Wald results set to unavailable. This argument applies only when
-`model = "LN"`.}
+\item{ln_estimator}{LN estimator. `"legacy_post_pml"` is the default and
+preserves the released post-PML behavior. `"joint_ln"` is opt-in and
+estimates coefficients and dispersions together. It returns model-based
+and donor-robust Wald inference for genes that pass its numerical checks;
+otherwise, uncertainty and test fields are `NA`. This argument applies
+only when `model = "LN"`.}
+
+\item{ln_operational_fallback}{Optional independent legacy fallback for
+joint-LN fits. `"none"` (the default) performs no fallback fitting.
+`"legacy_post_pml"` independently refits a gene when joint-LN inference is
+unavailable because a dispersion estimate reached its allowed boundary.
+The sidecar exposes only an operational legacy coefficient, dispersions,
+and diagnostics when the legacy fit passes its numerical checks; it never
+exposes covariance or inferential output. This option requires
+`model = "LN"`, `ln_estimator = "joint_ln"`, and
+`allow_per_gene_switch = FALSE`.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,
   `algorithm`, optional `random_effect`, `diagnostics`, optional
-  `lrt_details`, and structured `provenance`. For LN fits, provenance records
-  the estimator definition and parameter maps; its `per_gene` table records
-  route, start provenance, inference availability, normalized failure reason,
-  and mode status, while `mode_diagnostics` retains per-gene auxiliary-mode
-  checks.
+  route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
+  and, only when requested,
+  `operational_fallback`. For joint-LN fits, use
+  `provenance$per_gene$inference_available` and `failure_reason` to determine
+  whether primary inference is available. The fallback component contains
+  `per_gene` status, long `coefficients`, `overdispersion`, and technical
+  `diagnostics`, all explicitly marked as inference-unsupported. Fallback
+  values never overwrite the primary result fields.
 }
 \description{
 Fits sc-RoPE working-likelihood models for multi-subject single-cell data
-and, where supported by the selected route, computes optional adjusted
+and, where supported by the selected estimator, computes optional adjusted
 tests for fixed-effect contrasts.
 }
 \details{
-The public default remains `ln_estimator = "legacy_post_pml"`. Version 0.2.3
-operationally reported the post-PML `repml$beta` after the raw-LN fit. The
-NEBULA paper describes the LN approximate-marginal-likelihood M-estimator and
-a separate h-likelihood step for standard-error computation, but does not
-clearly state that software-level coefficient replacement. The opt-in
-`"joint_ln"` route instead reports a stationary local maximizer of the
-NEBULA-LN approximate marginal criterion; it is not claimed to reproduce
-legacy NEBULA coefficients or to establish global uniqueness.
+The public default remains `ln_estimator = "legacy_post_pml"`. The opt-in
+`"joint_ln"` estimator jointly estimates fixed effects and dispersions from
+the LN approximate marginal criterion. It reports a numerically verified
+local solution; global uniqueness is not claimed.
 
-Joint-LN numerical provenance uses `R0` for a regular joint root with model
-and robust Wald inference available, `R1` for legacy post-PML output
-reproduction without an estimator-alignment claim, and `R2` for unsupported
-analytic joint-LN inference. `R2` covariance, standard errors, Wald
-statistics, and p-values are returned as unavailable rather than replaced by
-a fallback statistic. Adjusted Score and scaled adjusted likelihood-ratio
-tests remain unavailable for `"joint_ln"` with status
-`joint_ln_calibration_pending`; same-objective constrained endpoints are
-retained only as diagnostics pending separate calibration work.
+Because the three routes share one function signature, non-LN routes accept
+explicit default values of LN-only compatibility arguments. A non-default
+LN-only value is rejected rather than silently ignored, except where the
+route-specific documentation explicitly promises a warning.
+
+For genes passing the joint-LN numerical checks, model-based and robust Wald
+inference is returned. Otherwise, covariance, standard errors, Wald
+statistics, and p-values are `NA`. Adjusted Score and likelihood-ratio tests
+are unavailable for `"joint_ln"` pending calibration.
+
+When the fallback is requested, eligible genes are independently refitted
+with the default legacy estimator. A successful fallback exposes only the
+operational coefficient and dispersions from that fit. It is judged by its
+own numerical checks and never overwrites the primary joint-LN result.
+
+The separate `operational_fallback` component contains per-gene fallback
+status, a long coefficient table, fitted dispersions, and technical
+diagnostics. Use `fallback_status == "coefficient_available"` and
+`coefficient_available` to identify an operational point estimate.
+`inference_supported` is always `FALSE`; there are deliberately no fallback
+covariance, standard-error, test-statistic, p-value, or q-value fields.
+
+Routine interpretation has three states: use the primary result when
+`inference_available` is `TRUE`; optionally report an available legacy
+fallback coefficient as an operational sensitivity estimate without
+uncertainty or hypothesis testing; otherwise treat inference as unavailable.
+
+FDR control for joint-LN Score/LRT remains calibration-pending. The fallback
+cannot enter an FDR procedure because it contains no p-values. Internal route
+codes and numerical checks are retained only in provenance and diagnostics.
 
 With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters.
-They do not alter coefficients, dispersions, covariance, tests, convergence,
-or route classification.
+They do not alter coefficients, dispersions, covariance, tests, or
+convergence.
 }

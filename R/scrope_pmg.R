@@ -62,17 +62,23 @@ scrope_pmg_internal <- function(
     lrt_details = FALSE,
     keep_diagnostics = TRUE) {
 
-  if (output_re && verbose) {
-    warning("output_re=TRUE is not available for model='PGMM'; returning NULL random_effect.")
+  if (output_re) {
+    warning(
+      "output_re=TRUE is not available for model='PGMM'; returning NULL random_effect.",
+      call. = FALSE
+    )
   }
-  if (allow_per_gene_switch && verbose) {
-    warning("allow_per_gene_switch is ignored for model='PGMM'.")
+  if (allow_per_gene_switch) {
+    warning("allow_per_gene_switch is ignored for model='PGMM'.", call. = FALSE)
   }
-  if (!identical(opt, "lbfgs") && verbose) {
-    warning("opt is ignored for model='PGMM'; the exact PMG path uses nlminb with bobyqa fallback.")
+  if (!identical(opt, "lbfgs")) {
+    warning(
+      "opt='trust' is ignored for model='PGMM'; the exact PGMM path uses nlminb with bobyqa fallback.",
+      call. = FALSE
+    )
   }
-  if (!identical(use_betas, "betae") && verbose) {
-    warning("use_betas is ignored for model='PGMM'.")
+  if (!identical(use_betas, "betae")) {
+    warning("use_betas is ignored for model='PGMM'.", call. = FALSE)
   }
 
   prep <- hl_prepare_data(
@@ -230,8 +236,18 @@ scrope_pmg_internal <- function(
   if (ncore == 1) {
     plan(sequential)
   } else {
-    cls <- parallelly::makeClusterPSOCK(ncore)
+    cls <- parallelly::makeClusterPSOCK(
+      ncore,
+      rscript_libs = scrope_psock_library_paths()
+    )
     plan(cluster, workers = cls)
+    cluster_open <- TRUE
+    on.exit({
+      if (isTRUE(cluster_open)) {
+        try(parallel::stopCluster(cls), silent = TRUE)
+        plan(sequential)
+      }
+    }, add = TRUE)
   }
 
   gene_results <- foreach(gene_idx = gid) %dorng% {
@@ -285,6 +301,7 @@ scrope_pmg_internal <- function(
 
   if (ncore > 1) {
     parallel::stopCluster(cls)
+    cluster_open <- FALSE
     plan(sequential)
     gc()
   }

@@ -41,6 +41,31 @@
       return(cached)
     }
 
+    original_kind <- RNGkind()
+    had_original_seed <- exists(
+      ".Random.seed",
+      envir = .GlobalEnv,
+      inherits = FALSE
+    )
+    original_seed <- if (had_original_seed) .Random.seed else NULL
+    on.exit({
+      do.call(RNGkind, as.list(original_kind))
+      if (had_original_seed) {
+        assign(".Random.seed", original_seed, envir = .GlobalEnv)
+      } else if (exists(
+          ".Random.seed",
+          envir = .GlobalEnv,
+          inherits = FALSE)) {
+        rm(".Random.seed", envir = .GlobalEnv)
+      }
+    }, add = TRUE)
+    RNGkind(
+      kind = "Mersenne-Twister",
+      normal.kind = "Inversion",
+      sample.kind = "Rejection"
+    )
+    set.seed(20260723)
+
     fx <- ln_joint_test_fixture()
     base <- .ln_ratio_fit(fx)
     p <- ncol(fx$pred)
