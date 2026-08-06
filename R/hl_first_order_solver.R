@@ -385,6 +385,10 @@ hl_fo_inner_recession <- function(data, K) {
   Z <- data$X %*% K
   positive <- data$y > 0
   Z_positive <- Z[positive, , drop = FALSE]
+  positive_rank <- hl_fo_num_rank(Z_positive)
+  if (positive_rank$rank == k) {
+    return(list(recession = FALSE, direction = numeric(k)))
+  }
   reduced_positive <- hl_fo_reduce_linear_rows(
     Z_positive, numeric(nrow(Z_positive))
   )
@@ -448,6 +452,18 @@ hl_fo_inner_recession <- function(data, K) {
   )
 }
 
+hl_fo_make_recession_check <- function(data, K) {
+  ready <- FALSE
+  result <- NULL
+  function() {
+    if (!ready) {
+      result <<- hl_fo_inner_recession(data, K)
+      ready <<- TRUE
+    }
+    result
+  }
+}
+
 hl_fo_inner_acceptance_decision <- function(score_metric, step_metric,
                                             iteration, max_iter,
                                             acceptance_tier = c(
@@ -484,7 +500,8 @@ hl_fo_inner_acceptance_decision <- function(score_metric, step_metric,
 hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
                               eta_start = NULL, cold = FALSE,
                               max_iter = 100L,
-                              acceptance_tier = c("derivative", "statistical")) {
+                              acceptance_tier = c("derivative", "statistical"),
+                              recession_check = NULL) {
   acceptance_tier <- match.arg(acceptance_tier)
   beta_star <- as.numeric(beta_star)
   K <- as.matrix(K)
@@ -497,7 +514,14 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
     return(list(success = FALSE, status = "inner_rank_deficient",
                 reason = "reduced_design_rank_deficient"))
   }
-  recession <- hl_fo_inner_recession(data, K)
+  if (!is.null(recession_check) && !is.function(recession_check)) {
+    stop("recession_check must be NULL or a zero-argument function.")
+  }
+  recession <- if (is.null(recession_check)) {
+    hl_fo_inner_recession(data, K)
+  } else {
+    recession_check()
+  }
   if (isTRUE(recession$recession)) {
     return(list(success = FALSE, status = "inner_no_finite_root",
                 reason = if (sum(data$y) == 0)
@@ -884,7 +908,8 @@ hl_fo_profile_evaluate <- function(data, rho_active, rho_template, active,
                                    beta_star, K, beta_start, eta_start = NULL,
                                    cold = FALSE,
                                    include_laplace_constant = TRUE,
-                                   inner_acceptance_tier = "derivative") {
+                                   inner_acceptance_tier = "derivative",
+                                   recession_check = NULL) {
   rho_full <- as.numeric(rho_template)
   active <- as.integer(active)
   if (length(active)) {
@@ -898,7 +923,8 @@ hl_fo_profile_evaluate <- function(data, rho_active, rho_template, active,
     beta_start = beta_start,
     eta_start = eta_start,
     cold = cold,
-    acceptance_tier = inner_acceptance_tier
+    acceptance_tier = inner_acceptance_tier,
+    recession_check = recession_check
   )
   if (!isTRUE(inner$success)) {
     return(inner)
@@ -1107,7 +1133,11 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
                                        seed_beta, include_laplace_constant = TRUE,
                                        constraint_C = NULL,
                                        constraint_rhs = numeric(0),
-                                       inner_acceptance_tier = "derivative") {
+                                       inner_acceptance_tier = "derivative",
+                                       recession_check = NULL) {
+  if (is.null(recession_check)) {
+    recession_check <- hl_fo_make_recession_check(data, K)
+  }
   cache <- list()
   trace <- list()
   evaluate <- function(rho, cold = FALSE) {
@@ -1129,7 +1159,8 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
       eta_start = eta_start,
       cold = cold,
       include_laplace_constant = include_laplace_constant,
-      inner_acceptance_tier = inner_acceptance_tier
+      inner_acceptance_tier = inner_acceptance_tier,
+      recession_check = recession_check
     )
     reconstruction <- if (isTRUE(ans$success))
       as.numeric(ans$beta - beta_star - K %*% ans$gamma) else NULL
@@ -1748,12 +1779,14 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
   upper_full <- log(guard_max)
   expansion_trace <- list()
   boundary_rounds <- list()
+  recession_check <- hl_fo_make_recession_check(data, K)
 
   if (!length(active)) {
     evaluator <- hl_fo_make_outer_evaluator(
       data, rho_template, active, beta_star, K, seed$beta,
       include_laplace_constant, constraint_C, constraint_rhs,
-      inner_acceptance_tier = "statistical"
+      inner_acceptance_tier = "statistical",
+      recession_check = recession_check
     )
     state <- evaluator$evaluate(numeric(0), cold = TRUE)
     if (!isTRUE(state$success)) {
@@ -1776,7 +1809,8 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
     if (any(primary <= lower) || any(primary >= upper)) primary <- (lower + upper) / 2
     evaluator <- hl_fo_make_outer_evaluator(
       data, rho_template, active, beta_star, K, seed$beta,
-      include_laplace_constant, constraint_C, constraint_rhs
+      include_laplace_constant, constraint_C, constraint_rhs,
+      recession_check = recession_check
     )
     starts <- hl_fo_outer_starts(primary, lower, upper)
     runs <- lapply(starts, hl_fo_optimize_outer_start,
@@ -1902,7 +1936,8 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
 
   cold_evaluator <- hl_fo_make_outer_evaluator(
     data, selected$rho_full, active, beta_star, K, seed$beta,
-    include_laplace_constant, constraint_C, constraint_rhs
+    include_laplace_constant, constraint_C, constraint_rhs,
+    recession_check = recession_check
   )
   cold <- cold_evaluator$evaluate(selected$rho, cold = TRUE)
   if (isTRUE(cold$success)) {

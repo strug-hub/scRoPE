@@ -437,6 +437,105 @@ test_that("q zero has no dummy outer coordinate and retains a certified beta fit
   expect_equal(dim(fit$covariance$V_beta), rep(case$data$p, 2L))
 })
 
+test_that("cached recession checks preserve inner results and rank-failure order", {
+  case <- .hl_fo_solver_case()
+  solve_inner <- .hl_fo_solver("hl_fo_solve_inner")
+  args <- list(
+    data = case$data,
+    rho_full = case$rho_full,
+    beta_star = numeric(case$data$p),
+    K = diag(case$data$p),
+    beta_start = c(4, -4),
+    cold = TRUE
+  )
+  direct <- do.call(solve_inner, args)
+  cached <- do.call(solve_inner, c(
+    args,
+    list(recession_check = .hl_fo_solver("hl_fo_make_recession_check")(
+      case$data, diag(case$data$p)
+    ))
+  ))
+  expect_identical(cached, direct)
+
+  never_force <- function() stop("rank failure must precede recession")
+  duplicate_K <- cbind(c(1, 0), c(1, 0))
+  rank_failure <- solve_inner(
+    data = case$data,
+    rho_full = case$rho_full,
+    beta_star = numeric(case$data$p),
+    K = duplicate_K,
+    beta_start = c(0, 0),
+    cold = TRUE,
+    recession_check = never_force
+  )
+  expect_false(rank_failure$success)
+  expect_identical(rank_failure$status, "inner_rank_deficient")
+  expect_identical(rank_failure$reason, "reduced_design_rank_deficient")
+})
+
+test_that("one lazy recession result is shared across affine evaluators", {
+  case <- .hl_fo_solver_case()
+  original <- .hl_fo_solver("hl_fo_inner_recession")
+  calls <- 0L
+  local_mocked_bindings(
+    hl_fo_inner_recession = function(data, K) {
+      calls <<- calls + 1L
+      original(data, K)
+    },
+    .package = "scRoPE"
+  )
+
+  seed <- list(
+    beta = c(4, -4),
+    rho_full = case$rho_full,
+    coordinate_tag = "canonical_conditional_beta_tau_xi"
+  )
+  fixed <- .hl_fo_solver("hl_fo_fit_affine")(
+    data = case$data,
+    active = integer(0),
+    fixed_natural = c(
+      sigma2 = exp(case$rho_full[[1L]]),
+      phi = exp(case$rho_full[[2L]])
+    ),
+    seed = seed
+  )
+  expect_true(fixed$success)
+  expect_identical(calls, 1L)
+
+  calls <- 0L
+  shared <- .hl_fo_solver("hl_fo_make_recession_check")(
+    case$data, diag(case$data$p)
+  )
+  make_evaluator <- .hl_fo_solver("hl_fo_make_outer_evaluator")
+  evaluator_one <- make_evaluator(
+    data = case$data,
+    rho_template = case$rho_full,
+    active = 1:2,
+    beta_star = numeric(case$data$p),
+    K = diag(case$data$p),
+    seed_beta = c(4, -4),
+    recession_check = shared
+  )
+  first <- evaluator_one$evaluate(case$rho_full, cold = TRUE)
+  second <- evaluator_one$evaluate(case$rho_full, cold = TRUE)
+  evaluator_two <- make_evaluator(
+    data = case$data,
+    rho_template = case$rho_full,
+    active = 1:2,
+    beta_star = numeric(case$data$p),
+    K = diag(case$data$p),
+    seed_beta = c(4, -4),
+    recession_check = shared
+  )
+  third <- evaluator_two$evaluate(case$rho_full, cold = TRUE)
+  expect_true(all(vapply(list(first, second, third), `[[`, logical(1), "success")))
+  expect_identical(calls, 1L)
+  expect_identical(second$beta, first$beta)
+  expect_identical(third$beta, first$beta)
+  expect_identical(second$F, first$F)
+  expect_identical(third$F, first$F)
+})
+
 test_that("rank deficiency and nonattainment retain distinct explicit statuses", {
   make_fixture_data <- function(id) {
     fixture <- hl_fo_fixture(id)

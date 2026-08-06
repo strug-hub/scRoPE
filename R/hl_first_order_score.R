@@ -62,7 +62,8 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
                                      include_laplace_constant = TRUE,
                                      constraint_R = NULL,
                                      constraint_rhs = numeric(0),
-                                     inner_acceptance_tier = "derivative") {
+                                     inner_acceptance_tier = "derivative",
+                                     recession_check = NULL) {
   active <- as.integer(active)
   rho_full <- as.numeric(rho_template)
   if (length(active)) rho_full[active] <- as.numeric(rho_active)
@@ -78,7 +79,8 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
     beta_start = beta_start,
     eta_start = eta_start,
     cold = cold,
-    acceptance_tier = inner_acceptance_tier
+    acceptance_tier = inner_acceptance_tier,
+    recession_check = recession_check
   )
   if (!isTRUE(inner$success)) return(inner)
 
@@ -187,7 +189,11 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
 
 hl_fo_score_make_evaluator <- function(data, rho_template, active, beta_star, K,
                                        seed_beta, include_laplace_constant = TRUE,
-                                       constraint_R, constraint_rhs) {
+                                       constraint_R, constraint_rhs,
+                                       recession_check = NULL) {
+  if (is.null(recession_check)) {
+    recession_check <- hl_fo_make_recession_check(data, K)
+  }
   cache <- list()
   trace <- list()
   evaluate <- function(rho, cold = FALSE) {
@@ -211,7 +217,8 @@ hl_fo_score_make_evaluator <- function(data, rho_template, active, beta_star, K,
       include_laplace_constant = include_laplace_constant,
       constraint_R = constraint_R,
       constraint_rhs = constraint_rhs,
-      inner_acceptance_tier = if (length(active)) "derivative" else "statistical"
+      inner_acceptance_tier = if (length(active)) "derivative" else "statistical",
+      recession_check = recession_check
     )
     trace[[length(trace) + 1L]] <<- list(
       rho = as.numeric(rho),

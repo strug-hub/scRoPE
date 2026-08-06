@@ -62,6 +62,35 @@ test_that("RHS consistency follows the common SVD projection rule", {
   )
 })
 
+test_that("homogeneous RHS consistency avoids a complete left basis", {
+  x <- seq(-1, 1, length.out = 9L)
+  M <- cbind(one = 1, x = x, duplicate = 2 * x)
+  rhs_good <- as.vector(M %*% c(0.4, -0.2, 0.1))
+  rhs_bad <- rhs_good
+  rhs_bad[[5L]] <- rhs_bad[[5L]] + 1e-4
+
+  old_info <- hl_fo_svd_info(M, compute_pinv = TRUE, complete_left = TRUE)
+  old_residual <- as.vector(
+    old_info$left_null_basis %*% crossprod(old_info$left_null_basis, rhs_good)
+  )
+  good <- hl_fo_rhs_consistency(M, rhs_good)
+  bad <- hl_fo_rhs_consistency(M, rhs_bad)
+  expect_equal(good$residual, old_residual, tolerance = 0)
+  expect_true(good$consistent)
+  expect_false(bad$consistent)
+
+  n <- 40000L
+  tall <- cbind(one = rep(1, n), x = rep(c(-0.5, 0.5), n / 2L))
+  tall_info <- hl_fo_svd_info(tall, compute_pinv = FALSE)
+  expect_identical(tall_info$rank, 2L)
+  expect_null(tall_info$left_null_basis)
+  zero <- hl_fo_rhs_consistency(tall, numeric(n))
+  expect_true(zero$consistent)
+  expect_identical(zero$residual, numeric(n))
+  expect_identical(zero$rank, tall_info$rank)
+  expect_identical(zero$threshold, tall_info$threshold)
+})
+
 test_that("affine constraints are rank-reduced deterministically", {
   C <- rbind(
     c(1, 0, 0),
