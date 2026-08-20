@@ -758,9 +758,19 @@ test_that("public fallback is primary-isolated and coefficient-only", {
     ln_estimator = "joint_ln"
   )
   set.seed(20260721)
-  primary <- do.call(
+  primary_capture <- ln_operational_capture_warnings(do.call(
     scrope,
     c(args, list(ln_operational_fallback = "none"))
+  ))
+  primary <- primary_capture$value
+  expect_length(primary_capture$messages, 1L)
+  expect_match(
+    primary_capture$messages,
+    "Joint-LN inference was unavailable for 1 gene"
+  )
+  expect_match(
+    primary_capture$messages,
+    "operational coefficients remain unavailable for 1"
   )
   set.seed(20260721)
   enabled_capture <- ln_operational_capture_warnings(do.call(
@@ -789,7 +799,18 @@ test_that("public fallback is primary-isolated and coefficient-only", {
 
   primary_enabled <- enabled
   primary_enabled$operational_fallback <- NULL
-  ln_operational_expect_cross_run_identical(primary_enabled, primary)
+  expect_identical(
+    primary_enabled$availability$availability,
+    "estimate_only"
+  )
+  expect_identical(primary$availability$availability, "unavailable")
+  primary_enabled$availability <- NULL
+  primary_without_availability <- primary
+  primary_without_availability$availability <- NULL
+  ln_operational_expect_cross_run_identical(
+    primary_enabled,
+    primary_without_availability
+  )
   expect_identical(primary$provenance$per_gene$route, "R2")
   expect_identical(primary$convergence, -70)
   primary_inference_columns <- grep(

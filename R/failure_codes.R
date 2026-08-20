@@ -26,6 +26,11 @@ failure_codes <- list(
     start_objective_review_zone = "start_objective_review_zone",
     start_objective_hard_stop = "start_objective_hard_stop",
     competing_uncertified_candidate = "competing_uncertified_candidate",
+    competitive_boundary_candidate = "competitive_boundary_candidate",
+    competitive_distinct_basin_candidate =
+      "competitive_distinct_basin_candidate",
+    competitive_hard_stop_candidate = "competitive_hard_stop_candidate",
+    same_basin_review_unresolved = "same_basin_review_unresolved",
     singular_joint_curvature = "singular_joint_curvature",
     covariance_identity_failed = "covariance_identity_failed",
     donor_additivity_target_failed = "donor_additivity_target_failed",

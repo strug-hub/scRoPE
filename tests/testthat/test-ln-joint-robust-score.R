@@ -549,15 +549,18 @@ test_that("Score diagnostics fail closed for invalid sensitivity and provenance"
 })
 
 test_that("boundary, non-R0, and uncertified constrained fits stay unavailable", {
-  boundary <- ln_joint_fit_fixture(
-    max = c(0.01, 1000),
-    additional_tests = "score",
-    lrt_contrasts = list(list(
-      name = "boundary",
-      L = matrix(c(1, 0, 0), nrow = 1L),
-      b = 0
-    ))
-  )$fit
+  expect_warning(
+    boundary <- ln_joint_fit_fixture(
+      max = c(0.01, 1000),
+      additional_tests = "score",
+      lrt_contrasts = list(list(
+        name = "boundary",
+        L = matrix(c(1, 0, 0), nrow = 1L),
+        b = 0
+      ))
+    )$fit,
+    "Joint-LN inference was unavailable for 1 gene"
+  )
   constrained_boundary <- boundary$diagnostics$raw[[1L]]$lrt$boundary$constrained
   boundary_score <- constrained_boundary$ln_joint$score_diagnostic
 

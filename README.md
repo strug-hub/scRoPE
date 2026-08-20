@@ -91,18 +91,17 @@ fit_joint <- scrope(
   ln_estimator = "joint_ln"
 )
 
-fit_joint$provenance$per_gene[, c(
-  "gene",
-  "inference_available",
-  "failure_reason"
-)]
+fit_joint$availability
 ```
 
-When `inference_available` is `TRUE`, the coefficient, covariance, robust
-standard error, Wald statistic, and p-value are all evaluated at the same
-joint-LN fit. When it is `FALSE`, the affected standard errors, Wald statistics,
-and p-values are returned as `NA`; sc-RoPE does not silently substitute results
-from another estimator.
+`fit_joint$availability` has exactly one row per analyzed gene/request, rather
+than one row per coefficient or contrast. `availability = "inference"` means
+the coefficient, covariance, robust standard error, Wald statistic, and p-value
+are all evaluated at the same certified joint-LN fit. When primary inference is
+unavailable, the affected standard errors, Wald statistics, and p-values remain
+typed `NA`; sc-RoPE does not store `p = 1` or silently substitute results from
+another estimator. Technical route and failure details remain in `provenance`
+and, when requested, `diagnostics`.
 
 The joint-LN estimator estimates coefficients and dispersions together. It is
 not expected to reproduce the legacy estimator exactly, and its verified
@@ -140,6 +139,8 @@ fit_joint_fallback <- scrope(
 
 fallback <- fit_joint_fallback$operational_fallback
 
+fit_joint_fallback$availability
+
 fallback$per_gene[, c(
   "gene",
   "fallback_status",
@@ -155,8 +156,10 @@ The bundled quick-start data do not need fallback, so the filtered fallback
 table in this example is empty.
 
 The default is `ln_operational_fallback = "none"`, which performs no fallback
-fit, returns no separate fallback results, and emits no fallback-specific
-warning. The `"legacy_post_pml"` option is available only for `model = "LN"` with
+fit and returns no separate fallback results. Joint-LN emits one consolidated
+availability warning when one or more genes lack certified primary inference;
+it does not emit one availability warning per contrast. The
+`"legacy_post_pml"` option is available only for `model = "LN"` with
 `ln_estimator = "joint_ln"` and `allow_per_gene_switch = FALSE`.
 
 Each fallback attempt is a new, independent legacy post-PML fit. Its
@@ -165,14 +168,22 @@ result remains unchanged. The sidecar deliberately contains no covariance,
 standard error, test statistic, p-value, q-value, or inferential-success field;
 `inference_supported` is always `FALSE`.
 
-For routine use, interpret each gene in one of three ways:
+For routine use, interpret the three values in `fit$availability` as follows:
 
-- **Primary available:** `inference_available` is `TRUE`; use the primary
-  `summary` result.
-- **Operational coefficient available:** `fallback_status` is
-  `"coefficient_available"`; the separate coefficient can be reported as an
-  operational sensitivity estimate, without uncertainty or hypothesis testing.
-- **Unavailable:** neither result is available; do not assign a p-value.
+- **`inference`:** use the certified primary `summary` result.
+- **`estimate_only`:** an explicitly requested fallback has
+  `fallback_status = "coefficient_available"`; its separate coefficient can be
+  reported operationally, without uncertainty or hypothesis testing.
+- **`unavailable`:** neither result is available; do not assign a p-value.
+
+This precedence is fixed: certified primary inference, then a successful
+explicitly requested coefficient-only fallback, then unavailable. A finite
+diagnostic endpoint from an uncertified joint-LN fit is never promoted to
+`estimate_only`. The `reason_group`, `status_message`, and `technical_code`
+columns provide a short explanation while preserving the complete expert
+records in `provenance`, `diagnostics`, and `operational_fallback`.
+The remaining columns are `gene_id`, `gene`, `inference_supported`,
+`estimate_source`, and `attention_flag`.
 
 The remaining `fallback_status` values distinguish a failed fallback attempt
 from a gene that did not need or qualify for fallback. They are diagnostic and
@@ -357,6 +368,7 @@ The returned object also contains:
 
 - `overdispersion`: fitted working-model overdispersion parameters;
 - `convergence` and `algorithm`: per-gene fitting status;
+- `availability`: one joint-LN status row per analyzed gene/request;
 - `provenance`: estimator definition and technical information about each fit;
 - `diagnostics`: detailed per-gene fitting and robust-inference information;
 - `lrt_details`: optional tidy likelihood-ratio diagnostics;

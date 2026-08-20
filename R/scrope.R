@@ -106,10 +106,15 @@ scrope_psock_library_paths <- function() {
 #' `inference_supported` is always `FALSE`; there are deliberately no fallback
 #' covariance, standard-error, test-statistic, p-value, or q-value fields.
 #'
-#' Routine interpretation has three states: use the primary result when
-#' `inference_available` is `TRUE`; optionally report an available legacy
-#' fallback coefficient as an operational sensitivity estimate without
-#' uncertainty or hypothesis testing; otherwise treat inference as unavailable.
+#' For joint-LN, `availability` gives exactly one row per analyzed gene/request.
+#' Its three states are `"inference"` for certified primary Wald inference,
+#' `"estimate_only"` for an explicitly requested successful operational
+#' coefficient with no uncertainty, and `"unavailable"`. A finite diagnostic
+#' joint-LN endpoint is never promoted to `"estimate_only"`. One consolidated
+#' availability warning is emitted when any row lacks primary inference.
+#' Columns are `gene_id`, `gene`, `availability`, `reason_group`,
+#' `status_message`, `inference_supported`, `estimate_source`,
+#' `attention_flag`, and `technical_code`.
 #'
 #' FDR control for joint-LN Score/LRT remains calibration-pending. The fallback
 #' cannot enter an FDR procedure because it contains no p-values. Internal route
@@ -123,13 +128,13 @@ scrope_psock_library_paths <- function() {
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, optional
 #'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-#'   and, only when requested,
-#'   `operational_fallback`. For joint-LN fits, use
-#'   `provenance$per_gene$inference_available` and `failure_reason` to determine
-#'   whether primary inference is available. The fallback component contains
-#'   `per_gene` status, long `coefficients`, `overdispersion`, and technical
-#'   `diagnostics`, all explicitly marked as inference-unsupported. Fallback
-#'   values never overwrite the primary result fields.
+#'   and, for joint-LN, the one-row-per-gene `availability` table and, only when
+#'   requested, `operational_fallback`. The availability table applies the
+#'   precedence certified primary inference, requested successful operational
+#'   coefficient, then unavailable. The fallback component contains `per_gene`
+#'   status, long `coefficients`, `overdispersion`, and technical `diagnostics`,
+#'   all explicitly marked as inference-unsupported. Fallback values never
+#'   overwrite the primary result fields.
 #'
 #' @useDynLib scRoPE, .registration = TRUE
 #' @importFrom Rcpp evalCpp
@@ -582,7 +587,19 @@ scrope <- function(
   )
 
   gene_results <- foreach(i = gid) %dorng% {
+    (function() {
     posv <- call_posindy(count, i - 1, nind)
+    if (identical(ctx$ln_estimator, "joint_ln")) {
+      on.exit(
+        ln_joint_objective_instance_registry(
+          "remove_matching",
+          gene_index = i,
+          posv = posv,
+          ctx = ctx
+        ),
+        add = TRUE
+      )
+    }
     unconstrained <- fit_gene_unconstrained(i, posv, ctx)
 
     if ((want_score || want_lrt) && length(lrt_names) > 0) {
@@ -873,6 +890,7 @@ scrope <- function(
     }
 
     unconstrained
+    })()
   }
 
   fallback_eligibility <- NULL
@@ -1578,7 +1596,25 @@ scrope <- function(
       term_names = fallback_terms,
       ctx = ctx
     )
-    ln_operational_warn(result_list$operational_fallback)
+  }
+
+  if (identical(ln_estimator, "joint_ln")) {
+    operational_fallback <- if (
+        "operational_fallback" %in% names(result_list)) {
+      result_list$operational_fallback
+    } else {
+      NULL
+    }
+    result_list$availability <- ln_availability_build(
+      primary_results = gene_results,
+      gid = gid,
+      gene_names = gname[gid],
+      operational_fallback = operational_fallback
+    )
+    ln_availability_warn(
+      result_list$availability,
+      operational_fallback_requested = !is.null(operational_fallback)
+    )
   }
 
   return(result_list)

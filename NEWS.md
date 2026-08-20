@@ -1,5 +1,11 @@
 # scRoPE 0.2.4 (2026-07-23)
 
+- Added a joint-LN-scoped `availability` table with exactly one row per
+  analyzed gene/request. It distinguishes certified `inference`, an explicitly
+  requested successful operational `estimate_only`, and `unavailable`, while
+  preserving typed missing inferential fields and all expert diagnostics. A
+  finite uncertified joint-LN endpoint is never promoted to an operational
+  estimate, and mixed availability produces one consolidated warning.
 - Added one explicit `scrope(model = ...)` front door for the LN, corrected
   first-order HL, and PGMM routes. `scrope_hl()` remains available as a
   compatibility wrapper, and structured provenance advertises route-specific

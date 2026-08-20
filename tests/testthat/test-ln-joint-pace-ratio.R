@@ -132,6 +132,27 @@
   }
 })
 
+.ln_ratio_objective_context <- function(case, gene_index = 1L) {
+  list(
+    gene_index = as.integer(gene_index),
+    posv = case$prep$posv,
+    ctx = case$prep$ctx
+  )
+}
+
+.ln_ratio_replay <- function(case, constrained_fit,
+                             unrestricted_fit = case$raw,
+                             null_basis = NULL,
+                             interest_basis = NULL) {
+  ln_joint_pace_ratio_diagnostic(
+    unrestricted_fit,
+    constrained_fit,
+    null_basis = null_basis,
+    interest_basis = interest_basis,
+    objective_context = .ln_ratio_objective_context(case)
+  )
+}
+
 .ln_ratio_required_fields <- c(
   "diagnostic_available", "failure_reason", "public_available",
   "public_status", "statistic", "adjusted_ratio", "df", "wP", "wU",
@@ -156,7 +177,7 @@ test_that("Pace ratio audit retains certified same-objective endpoint contracts"
     expect_true(ratio$diagnostic_available, info = name)
     expect_equal(
       ratio,
-      ln_joint_pace_ratio_diagnostic(case$raw, constrained),
+      .ln_ratio_replay(case, constrained),
       tolerance = 0,
       info = name
     )
@@ -448,8 +469,8 @@ test_that("Pace ratio is invariant to equivalent constraints and bases", {
   K <- scalar_reference$coordinate_map$null_basis
   K_transform <- matrix(c(1, 0.3, -0.2, 1.15), nrow = 2L,
                         byrow = TRUE)
-  alternative_K <- ln_joint_pace_ratio_diagnostic(
-    case$raw,
+  alternative_K <- .ln_ratio_replay(
+    case,
     scalar,
     null_basis = K %*% K_transform
   )
@@ -459,8 +480,8 @@ test_that("Pace ratio is invariant to equivalent constraints and bases", {
   C <- rank2_reference$coordinate_map$interest_basis
   C_transform <- matrix(c(1.25, 0.2, -0.15, 0.85), nrow = 2L,
                         byrow = TRUE)
-  alternative_C <- ln_joint_pace_ratio_diagnostic(
-    case$raw,
+  alternative_C <- .ln_ratio_replay(
+    case,
     rank2,
     interest_basis = C %*% C_transform
   )
@@ -522,10 +543,24 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   unrestricted <- case$raw
   constrained <- case$constrained$scalar
 
+  no_context_result <- ln_joint_pace_ratio_diagnostic(
+    unrestricted,
+    constrained
+  )
+  expect_false(no_context_result$diagnostic_available)
+  expect_identical(
+    no_context_result$failure_reason,
+    "unrestricted_objective_context_missing_or_mismatched"
+  )
+
   non_r0 <- unrestricted
   non_r0$route <- "R2"
   non_r0$inference_available <- FALSE
-  non_r0_result <- ln_joint_pace_ratio_diagnostic(non_r0, constrained)
+  non_r0_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = non_r0
+  )
   expect_false(non_r0_result$diagnostic_available)
   expect_identical(non_r0_result$failure_reason,
                    "unrestricted_route_not_R0")
@@ -538,9 +573,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
       candidate
     }
   )
-  certificate_result <- ln_joint_pace_ratio_diagnostic(
-    missing_certificate,
-    constrained
+  certificate_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = missing_certificate
   )
   expect_false(certificate_result$diagnostic_available)
   expect_identical(
@@ -550,9 +586,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
 
   malformed_records <- unrestricted
   malformed_records$ln_joint$candidate_records[[1L]] <- 1
-  malformed_result <- ln_joint_pace_ratio_diagnostic(
-    malformed_records,
-    constrained
+  malformed_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = malformed_records
   )
   expect_false(malformed_result$diagnostic_available)
   expect_identical(
@@ -560,13 +597,21 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
     "unrestricted_candidate_records_invalid"
   )
 
-  atomic_result <- ln_joint_pace_ratio_diagnostic(1, constrained)
+  atomic_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = 1
+  )
   expect_false(atomic_result$diagnostic_available)
   expect_identical(
     atomic_result$failure_reason,
     "unrestricted_fit_invalid"
   )
-  missing_pair_result <- ln_joint_pace_ratio_diagnostic(list(), constrained)
+  missing_pair_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = list()
+  )
   expect_false(missing_pair_result$diagnostic_available)
   expect_identical(
     missing_pair_result$failure_reason,
@@ -574,9 +619,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   )
   malformed_nested <- unrestricted
   malformed_nested$ln_joint <- 1
-  nested_result <- ln_joint_pace_ratio_diagnostic(
-    malformed_nested,
-    constrained
+  nested_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = malformed_nested
   )
   expect_false(nested_result$diagnostic_available)
   expect_identical(
@@ -587,9 +633,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   corrupted_root <- unrestricted
   corrupted_root$ln_joint$state$U_reduced[1L] <-
     corrupted_root$ln_joint$state$U_reduced[1L] + 1
-  root_result <- ln_joint_pace_ratio_diagnostic(
-    corrupted_root,
-    constrained
+  root_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = corrupted_root
   )
   expect_false(root_result$diagnostic_available)
   expect_identical(
@@ -600,9 +647,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   corrupted_curvature <- unrestricted
   corrupted_curvature$ln_joint$state$A_reduced[1L, 1L] <-
     -abs(corrupted_curvature$ln_joint$state$A_reduced[1L, 1L])
-  curvature_result <- ln_joint_pace_ratio_diagnostic(
-    corrupted_curvature,
-    constrained
+  curvature_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = corrupted_curvature
   )
   expect_false(curvature_result$diagnostic_available)
   expect_identical(
@@ -626,9 +674,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
     objective_mismatch$ln_joint$candidate_records[[matching_record]]$objective
   objective_mismatch$ln_joint$candidate_records[[matching_record]]$
     objective <- matching_objective + 1
-  objective_result <- ln_joint_pace_ratio_diagnostic(
-    objective_mismatch,
-    constrained
+  objective_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = objective_mismatch
   )
   expect_false(objective_result$diagnostic_available)
   expect_identical(objective_result$failure_reason,
@@ -636,9 +685,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
 
   provenance_mismatch <- unrestricted
   provenance_mismatch$ln_joint$objective_provenance$id <- "wrong_objective"
-  provenance_result <- ln_joint_pace_ratio_diagnostic(
-    provenance_mismatch,
-    constrained
+  provenance_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = provenance_mismatch
   )
   expect_false(provenance_result$diagnostic_available)
   expect_identical(
@@ -648,7 +698,11 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
 
   wrong_gene <- unrestricted
   wrong_gene$debug$gene_index <- wrong_gene$debug$gene_index + 1L
-  gene_result <- ln_joint_pace_ratio_diagnostic(wrong_gene, constrained)
+  gene_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = wrong_gene
+  )
   expect_false(gene_result$diagnostic_available)
   expect_identical(
     gene_result$failure_reason,
@@ -658,9 +712,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   constrained_non_r0 <- constrained
   constrained_non_r0$route <- "R2"
   constrained_non_r0$inference_available <- FALSE
-  constrained_route_result <- ln_joint_pace_ratio_diagnostic(
-    unrestricted,
-    constrained_non_r0
+  constrained_route_result <- .ln_ratio_replay(
+    case,
+    constrained_non_r0,
+    unrestricted_fit = unrestricted
   )
   expect_false(constrained_route_result$diagnostic_available)
   expect_identical(
@@ -670,9 +725,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
 
   constrained_loglik <- constrained
   constrained_loglik$loglik_ln <- constrained_loglik$loglik_ln + 1
-  constrained_loglik_result <- ln_joint_pace_ratio_diagnostic(
-    unrestricted,
-    constrained_loglik
+  constrained_loglik_result <- .ln_ratio_replay(
+    case,
+    constrained_loglik,
+    unrestricted_fit = unrestricted
   )
   expect_false(constrained_loglik_result$diagnostic_available)
   expect_identical(
@@ -701,9 +757,14 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   other_constrained <- other_raw$lrt$other$constrained
   expect_identical(other_raw$route, "R0")
   expect_identical(other_constrained$route, "R0")
-  instance_result <- ln_joint_pace_ratio_diagnostic(
-    unrestricted,
-    other_constrained
+  expect_false(identical(
+    unrestricted$ln_joint$objective_instance,
+    other_constrained$ln_joint$objective_instance
+  ))
+  instance_result <- .ln_ratio_replay(
+    case,
+    other_constrained,
+    unrestricted_fit = unrestricted
   )
   expect_false(instance_result$diagnostic_available)
   expect_identical(
@@ -722,7 +783,11 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   H_coordinate[1L, 1L] <- -abs(H_coordinate[1L, 1L])
   nonpositive_H$ln_joint$state$A_full <-
     t(T_inv) %*% H_coordinate %*% T_inv
-  H_result <- ln_joint_pace_ratio_diagnostic(unrestricted, nonpositive_H)
+  H_result <- .ln_ratio_replay(
+    case,
+    nonpositive_H,
+    unrestricted_fit = unrestricted
+  )
   expect_false(H_result$diagnostic_available)
   expect_identical(
     H_result$failure_reason,
@@ -756,9 +821,10 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   corrupted_records[[matching_record]]$objective <- corrupted_objective
   reported_objective_corruption$ln_joint$candidate_records <-
     corrupted_records
-  reported_objective_result <- ln_joint_pace_ratio_diagnostic(
-    reported_objective_corruption,
-    constrained
+  reported_objective_result <- .ln_ratio_replay(
+    case,
+    constrained,
+    unrestricted_fit = reported_objective_corruption
   )
   expect_false(reported_objective_result$diagnostic_available)
   expect_identical(
@@ -767,6 +833,7 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
   )
 
   for (result in list(
+    no_context_result,
     non_r0_result,
     certificate_result,
     malformed_result,
