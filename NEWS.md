@@ -1,11 +1,23 @@
+# scRoPE 0.2.5 (2026-08-24)
+
+- Improved diagnostics when joint-LN optimization finds more than one plausible
+  solution. scRoPE now distinguishes near-duplicate solutions from boundary or
+  genuinely competing solutions, making withheld results easier to investigate.
+  In 0.2.5, this assessment is diagnostic-only and does not change which results
+  are eligible for inference.
+
+- Added an `availability` table for joint-LN fits, with one row per analyzed
+  gene. It reports whether inference is available, whether only an explicitly
+  requested operational estimate is available, or whether the result is
+  unavailable. Concise status messages explain unavailable results, while full
+  technical diagnostics remain available for advanced users.
+
+- Improved the performance of corrected first-order HL fits by reusing
+  recession checks when the design is unchanged. This reduces repeated work
+  without changing the acceptance criteria or statistical results.
+
 # scRoPE 0.2.4 (2026-07-23)
 
-- Added a joint-LN-scoped `availability` table with exactly one row per
-  analyzed gene/request. It distinguishes certified `inference`, an explicitly
-  requested successful operational `estimate_only`, and `unavailable`, while
-  preserving typed missing inferential fields and all expert diagnostics. A
-  finite uncertified joint-LN endpoint is never promoted to an operational
-  estimate, and mixed availability produces one consolidated warning.
 - Added one explicit `scrope(model = ...)` front door for the LN, corrected
   first-order HL, and PGMM routes. `scrope_hl()` remains available as a
   compatibility wrapper, and structured provenance advertises route-specific
