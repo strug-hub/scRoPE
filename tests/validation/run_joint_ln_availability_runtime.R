@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# Bounded synthetic timing harness for the shadow-only joint-LN candidate
+# Bounded synthetic timing harness for the enabled joint-LN calibration-candidate
 # resolver. This measures classifier/probe plumbing, not estimator runtime and
 # not inferential calibration.
 
@@ -320,7 +320,7 @@ run_scenario <- function(name, scenario) {
       scenario$candidates,
       resolution_thresholds = resolution_thresholds(),
       basin_probe = probe,
-      enable_prospective = FALSE
+      enable_prospective = TRUE
     )
     elapsed <- wall_clock_seconds() - started
     list(
@@ -344,7 +344,10 @@ run_scenario <- function(name, scenario) {
     identical(warm_one$result$resolution$strict_route,
               scenario$expected_strict_route),
     scenario$expected_class %in% classes,
-    identical(warm_one$result$resolution$mode, "shadow_default_off")
+    identical(
+      warm_one$result$resolution$mode,
+      "calibration_candidate_enabled"
+    )
   )
 
   invisible(gc(reset = TRUE))

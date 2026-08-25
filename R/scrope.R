@@ -65,9 +65,11 @@ scrope_psock_library_paths <- function() {
 #' @param ln_estimator LN estimator. `"legacy_post_pml"` is the default and
 #'   preserves the released post-PML behavior. `"joint_ln"` is opt-in and
 #'   estimates coefficients and dispersions together. It returns model-based
-#'   and donor-robust Wald inference for genes that pass its numerical checks;
-#'   otherwise, uncertainty and test fields are `NA`. This argument applies
-#'   only when `model = "LN"`.
+#'   and donor-robust Wald inference from the certified selected root for genes
+#'   that pass its numerical checks, including a bounded same-basin review in
+#'   the 0.2.5.9000 calibration-candidate build. Boundary, distinct-basin,
+#'   hard-stop, and unresolved cases retain missing uncertainty and test fields.
+#'   This argument applies only when `model = "LN"`.
 #' @param ln_operational_fallback Optional independent legacy fallback for
 #'   joint-LN fits. `"none"` (the default) performs no fallback fitting.
 #'   `"legacy_post_pml"` independently refits a gene when joint-LN inference is
@@ -83,6 +85,15 @@ scrope_psock_library_paths <- function() {
 #' `"joint_ln"` estimator jointly estimates fixed effects and dispersions from
 #' the LN approximate marginal criterion. It reports a numerically verified
 #' local solution; global uniqueness is not claimed.
+#'
+#' In the 0.2.5.9000 calibration-candidate build, an extra nearby uncertified
+#' endpoint may undergo one bounded same-basin review. A resolved endpoint is
+#' not certified and never replaces the selected root. It only removes that
+#' endpoint's veto; estimates, model-based covariance, donor-robust covariance,
+#' and Wald inference remain functions of the fully certified selected root.
+#' The original strict decision is retained in per-gene provenance. This build
+#' is intended for simulation calibration and is not a calibrated public
+#' release.
 #'
 #' Because the three routes share one function signature, non-LN routes accept
 #' explicit default values of LN-only compatibility arguments. A non-default
@@ -112,13 +123,21 @@ scrope_psock_library_paths <- function() {
 #' coefficient with no uncertainty, and `"unavailable"`. A finite diagnostic
 #' joint-LN endpoint is never promoted to `"estimate_only"`. One consolidated
 #' availability warning is emitted when any row lacks primary inference.
-#' Columns are `gene_id`, `gene`, `availability`, `reason_group`,
-#' `status_message`, `inference_supported`, `estimate_source`,
-#' `attention_flag`, and `technical_code`.
+#' Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
+#' `inference_status`, `strict_inference_status`,
+#' `enabled_inference_status`, `resolution_status`, `inference_source`,
+#' `newly_enabled`, `availability_transition`, `resolution_policy_version`,
+#' `availability`, `reason_group`, `status_message`, `inference_supported`,
+#' `estimate_source`, `attention_flag`, and `technical_code`. The compact
+#' `provenance$per_gene` table also retains strict and enabled route codes,
+#' failure reasons, policy identity, mode, and all veto classes. Earlier
+#' `route`, `inference_available`, and `failure_reason` fields are retained for
+#' compatibility.
 #'
-#' FDR control for joint-LN Score/LRT remains calibration-pending. The fallback
-#' cannot enter an FDR procedure because it contains no p-values. Internal route
-#' codes and numerical checks are retained only in provenance and diagnostics.
+#' FDR control for joint-LN Score/Pace/LRT remains calibration-pending. The
+#' fallback cannot enter an FDR procedure because it contains no p-values.
+#' Internal route codes and numerical checks are retained only in provenance
+#' and diagnostics.
 #'
 #' With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 #' conditional PML predictions evaluated at the plug-in joint-LN parameters.
@@ -583,6 +602,14 @@ scrope <- function(
     output_re = output_re,
     id = id,
     ln_estimator = ln_estimator,
+    ln_candidate_resolution_mode = if (identical(
+        ln_estimator,
+        "joint_ln"
+      )) {
+      "calibration_candidate_enabled"
+    } else {
+      "not_applicable"
+    },
     coef_internal_to_public = coef_internal_to_public
   )
 
@@ -1289,10 +1316,54 @@ scrope <- function(
   }
 
   if (identical(ln_estimator, "joint_ln")) {
+    joint_status <- lapply(gene_results, ln_joint_status_record)
     per_gene_provenance <- data.frame(
       gene_id = gid,
       gene = gname[gid],
+      estimator = vapply(joint_status, `[[`, character(1), "estimator"),
+      certified_root = vapply(
+        joint_status, `[[`, logical(1), "certified_root"
+      ),
+      inference_status = vapply(
+        joint_status, `[[`, character(1), "inference_status"
+      ),
+      strict_inference_status = vapply(
+        joint_status, `[[`, character(1), "strict_inference_status"
+      ),
+      enabled_inference_status = vapply(
+        joint_status, `[[`, character(1), "enabled_inference_status"
+      ),
+      resolution_status = vapply(
+        joint_status, `[[`, character(1), "resolution_status"
+      ),
+      inference_source = vapply(
+        joint_status, `[[`, character(1), "inference_source"
+      ),
+      newly_enabled = vapply(
+        joint_status, `[[`, logical(1), "newly_enabled"
+      ),
+      availability_transition = vapply(
+        joint_status, `[[`, character(1), "availability_transition"
+      ),
+      resolution_veto_classes = vapply(
+        joint_status, `[[`, character(1), "resolution_veto_classes"
+      ),
+      resolution_policy_version = vapply(
+        joint_status, `[[`, character(1), "resolution_policy_version"
+      ),
+      resolution_mode = vapply(
+        joint_status, `[[`, character(1), "resolution_mode"
+      ),
       route = vapply(gene_results, function(gr) gr$route, character(1)),
+      route_code = vapply(
+        joint_status, `[[`, character(1), "route_code"
+      ),
+      strict_route_code = vapply(
+        joint_status, `[[`, character(1), "strict_route_code"
+      ),
+      enabled_route_code = vapply(
+        joint_status, `[[`, character(1), "enabled_route_code"
+      ),
       start_provenance = vapply(gene_results, function(gr) {
         value <- gr$start_provenance
         if (is.null(value) || !length(value)) NA_character_ else as.character(value[[1L]])
@@ -1304,6 +1375,12 @@ scrope <- function(
         value <- gr$failure_reason
         if (is.null(value) || !length(value)) NA_character_ else as.character(value[[1L]])
       }, character(1)),
+      strict_failure_reason = vapply(
+        joint_status, `[[`, character(1), "strict_failure_reason"
+      ),
+      enabled_failure_reason = vapply(
+        joint_status, `[[`, character(1), "enabled_failure_reason"
+      ),
       mode_method = vapply(gene_results, function(gr) gr$mode_method, character(1)),
       mode_status = vapply(gene_results, function(gr) gr$mode_status, character(1)),
       mode_max_score_residual = vapply(gene_results, function(gr) {
@@ -1319,8 +1396,11 @@ scrope <- function(
     mode_diagnostics <- lapply(gene_results, function(gr) gr$mode)
     names(mode_diagnostics) <- gname[gid]
     result_list$provenance <- list(
-      schema_version = 2L,
+      schema_version = 3L,
       estimator = "ln_joint_root",
+      candidate_resolution_policy =
+        ln_joint_resolution_thresholds()$policy_version,
+      candidate_resolution_mode = ctx$ln_candidate_resolution_mode,
       model_covariance = "ln_joint_curvature_inverse",
       robust_covariance = "ln_joint_donor_sandwich",
       random_effect = if (output_re) {
@@ -1396,12 +1476,14 @@ scrope <- function(
     "LN"
   }
   if (identical(ln_estimator, "joint_ln")) {
-    result_list$provenance$inference_policy <- "joint_ln_calibration_pending"
+    result_list$provenance$inference_policy <-
+      "joint_ln_same_basin_wald_calibration_candidate"
+    result_list$provenance$pace_status <- "joint_ln_calibration_pending"
     result_list$provenance$test_capabilities <- data.frame(
       test = c("wald", "score", "lrt"),
       public_available = c(TRUE, FALSE, FALSE),
       status = c(
-        "available_for_certified_R0",
+        "available_when_inference_status_available",
         "joint_ln_calibration_pending",
         "joint_ln_calibration_pending"
       ),

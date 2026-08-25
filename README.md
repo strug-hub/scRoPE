@@ -94,6 +94,14 @@ fit_joint <- scrope(
 fit_joint$availability
 ```
 
+In the 0.2.5.9000 calibration-candidate build, a narrowly bounded review can
+resolve an extra nearby numerical endpoint as belonging to the same solution
+basin. When that happens, model-based and donor-robust Wald inference is
+reported from the unchanged certified selected root. The original strict
+decision is retained in provenance. Boundary, distinct-basin, hard-stop, and
+unresolved cases continue to withhold inference. This behavior is for
+simulation calibration and is not yet a calibrated public release.
+
 `fit_joint$availability` has exactly one row per analyzed gene/request, rather
 than one row per coefficient or contrast. `availability = "inference"` means
 the coefficient, covariance, robust standard error, Wald statistic, and p-value
@@ -108,16 +116,20 @@ not expected to reproduce the legacy estimator exactly, and its verified
 solution is local rather than a claim of global uniqueness.
 
 Technical route labels are retained in `provenance` for reproducibility and
-debugging, but users do not need them to select results. Use
-`inference_available` and `failure_reason` for the primary joint-LN fit, and use
-the fallback status described below when fallback was requested.
+debugging, but users do not need them to select results. Use `inference_status`,
+`resolution_status`, and `inference_source` for the primary joint-LN fit.
+`strict_inference_status`, `enabled_inference_status`, and `newly_enabled`
+record how the calibration-candidate rule differs from the original strict
+decision. The earlier `route`, `inference_available`, and `failure_reason`
+fields remain available for compatibility and expert review.
 
 With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters. They
 cannot change coefficient inference.
 
-Adjusted Score and scaled adjusted likelihood-ratio tests remain unavailable
-for `joint_ln`; robust Wald is the supported test for this option.
+Adjusted Score, Pace scaling, and scaled adjusted likelihood-ratio tests remain
+unavailable for `joint_ln`; model-based and donor-robust Wald are the supported
+tests for this option.
 Switching from the legacy estimator to `joint_ln` may change coefficients,
 standard errors, p-values, convergence statuses, and downstream results.
 
@@ -179,10 +191,13 @@ For routine use, interpret the three values in `fit$availability` as follows:
 This precedence is fixed: certified primary inference, then a successful
 explicitly requested coefficient-only fallback, then unavailable. A finite
 diagnostic endpoint from an uncertified joint-LN fit is never promoted to
-`estimate_only`. The `reason_group`, `status_message`, and `technical_code`
+`estimate_only`. The `inference_status`, `resolution_status`,
+`inference_source`, `reason_group`, `status_message`, and `technical_code`
 columns provide a short explanation while preserving the complete expert
-records in `provenance`, `diagnostics`, and `operational_fallback`.
-The remaining columns are `gene_id`, `gene`, `inference_supported`,
+records in `provenance`, `diagnostics`, and `operational_fallback`. The table
+also records `estimator`, `certified_root`, `strict_inference_status`,
+`enabled_inference_status`, `newly_enabled`, `availability_transition`,
+`resolution_policy_version`, `gene_id`, `gene`, `inference_supported`,
 `estimate_source`, and `attention_flag`.
 
 The remaining `fallback_status` values distinguish a failed fallback attempt
@@ -273,10 +288,11 @@ for `ncore > 1` produces a warning rather than silently claiming parallel
 execution.
 
 Test availability remains route-specific. Legacy LN and PGMM retain their
-existing optional tests; certified joint-LN currently exposes robust Wald only,
-with Score and ratio inference calibration-pending; first-order HL exposes
-robust Wald and Score while its objective-ratio/LRT remains unsupported. The
-`provenance$test_capabilities` table records these distinctions in every fit.
+existing optional tests; certified joint-LN exposes model-based and donor-robust
+Wald, with Score, Pace, and LRT inference calibration-pending; first-order HL
+exposes robust Wald and Score while its objective-ratio/LRT remains unsupported.
+The `provenance$test_capabilities` table records these distinctions in every
+fit.
 
 ## PGMM Working Likelihood
 

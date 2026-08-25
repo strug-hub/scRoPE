@@ -106,9 +106,11 @@ predictors. No route is silently changed to another route.}
 \item{ln_estimator}{LN estimator. `"legacy_post_pml"` is the default and
 preserves the released post-PML behavior. `"joint_ln"` is opt-in and
 estimates coefficients and dispersions together. It returns model-based
-and donor-robust Wald inference for genes that pass its numerical checks;
-otherwise, uncertainty and test fields are `NA`. This argument applies
-only when `model = "LN"`.}
+and donor-robust Wald inference from the certified selected root for genes
+that pass its numerical checks, including a bounded same-basin review in
+the 0.2.5.9000 calibration-candidate build. Boundary, distinct-basin,
+hard-stop, and unresolved cases retain missing uncertainty and test fields.
+This argument applies only when `model = "LN"`.}
 
 \item{ln_operational_fallback}{Optional independent legacy fallback for
 joint-LN fits. `"none"` (the default) performs no fallback fitting.
@@ -143,6 +145,15 @@ The public default remains `ln_estimator = "legacy_post_pml"`. The opt-in
 the LN approximate marginal criterion. It reports a numerically verified
 local solution; global uniqueness is not claimed.
 
+In the 0.2.5.9000 calibration-candidate build, an extra nearby uncertified
+endpoint may undergo one bounded same-basin review. A resolved endpoint is
+not certified and never replaces the selected root. It only removes that
+endpoint's veto; estimates, model-based covariance, donor-robust covariance,
+and Wald inference remain functions of the fully certified selected root.
+The original strict decision is retained in per-gene provenance. This build
+is intended for simulation calibration and is not a calibrated public
+release.
+
 Because the three routes share one function signature, non-LN routes accept
 explicit default values of LN-only compatibility arguments. A non-default
 LN-only value is rejected rather than silently ignored, except where the
@@ -171,13 +182,21 @@ Its three states are `"inference"` for certified primary Wald inference,
 coefficient with no uncertainty, and `"unavailable"`. A finite diagnostic
 joint-LN endpoint is never promoted to `"estimate_only"`. One consolidated
 availability warning is emitted when any row lacks primary inference.
-Columns are `gene_id`, `gene`, `availability`, `reason_group`,
-`status_message`, `inference_supported`, `estimate_source`,
-`attention_flag`, and `technical_code`.
+Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
+`inference_status`, `strict_inference_status`,
+`enabled_inference_status`, `resolution_status`, `inference_source`,
+`newly_enabled`, `availability_transition`, `resolution_policy_version`,
+`availability`, `reason_group`, `status_message`, `inference_supported`,
+`estimate_source`, `attention_flag`, and `technical_code`. The compact
+`provenance$per_gene` table also retains strict and enabled route codes,
+failure reasons, policy identity, mode, and all veto classes. Earlier
+`route`, `inference_available`, and `failure_reason` fields are retained for
+compatibility.
 
-FDR control for joint-LN Score/LRT remains calibration-pending. The fallback
-cannot enter an FDR procedure because it contains no p-values. Internal route
-codes and numerical checks are retained only in provenance and diagnostics.
+FDR control for joint-LN Score/Pace/LRT remains calibration-pending. The
+fallback cannot enter an FDR procedure because it contains no p-values.
+Internal route codes and numerical checks are retained only in provenance
+and diagnostics.
 
 With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters.

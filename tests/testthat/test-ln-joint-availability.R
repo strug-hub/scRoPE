@@ -92,15 +92,46 @@ test_that("availability has one typed row per gene rather than contrast", {
   )
 
   expect_identical(names(availability), c(
-    "gene_id", "gene", "availability", "reason_group", "status_message",
-    "inference_supported", "estimate_source", "attention_flag",
-    "technical_code"
+    "gene_id", "gene", "estimator", "certified_root",
+    "inference_status", "strict_inference_status",
+    "enabled_inference_status", "resolution_status", "inference_source",
+    "newly_enabled", "availability_transition",
+    "resolution_policy_version", "availability", "reason_group",
+    "status_message", "inference_supported", "estimate_source",
+    "attention_flag", "technical_code"
   ))
   expect_identical(nrow(availability), 2L)
   expect_type(availability$gene_id, "integer")
   expect_type(availability$gene, "character")
   expect_type(availability$inference_supported, "logical")
   expect_type(availability$attention_flag, "logical")
+  expect_identical(availability$estimator, rep("joint_ln", 2L))
+  expect_identical(availability$certified_root, c(TRUE, FALSE))
+  expect_identical(
+    availability$inference_status,
+    c("available", "withheld")
+  )
+  expect_identical(
+    availability$strict_inference_status,
+    c("available", "withheld")
+  )
+  expect_identical(
+    availability$enabled_inference_status,
+    c("available", "withheld")
+  )
+  expect_identical(
+    availability$resolution_status,
+    c("not_needed", "competitive_boundary")
+  )
+  expect_identical(
+    availability$inference_source,
+    c("certified_selected_root", "none")
+  )
+  expect_identical(availability$newly_enabled, c(FALSE, FALSE))
+  expect_identical(
+    availability$availability_transition,
+    c("unchanged_available", "unchanged_withheld")
+  )
   expect_identical(
     availability$availability,
     c("inference", "unavailable")
@@ -415,6 +446,51 @@ test_that("availability stays joint-LN scoped", {
     ln_estimator = "legacy_post_pml"
   )
   expect_false("availability" %in% names(legacy))
+})
+
+test_that("compact descriptive provenance does not require raw diagnostics", {
+  fx <- ln_joint_test_fixture()
+  fit <- scrope(
+    fx$count,
+    fx$id,
+    pred = fx$pred,
+    offset = fx$offset,
+    verbose = FALSE,
+    cpc = 0,
+    mincp = 1,
+    ncore = 1L,
+    keep_diagnostics = FALSE,
+    ln_estimator = "joint_ln"
+  )
+  compact <- fit$provenance$per_gene
+  required <- c(
+    "estimator", "certified_root", "inference_status",
+    "strict_inference_status", "enabled_inference_status",
+    "resolution_status", "inference_source", "newly_enabled",
+    "availability_transition", "resolution_veto_classes",
+    "resolution_policy_version", "resolution_mode", "route_code",
+    "strict_route_code", "enabled_route_code", "strict_failure_reason",
+    "enabled_failure_reason"
+  )
+
+  expect_true(all(required %in% names(compact)))
+  expect_identical(
+    fit$provenance$candidate_resolution_policy,
+    unique(compact$resolution_policy_version)
+  )
+  expect_identical(
+    fit$provenance$candidate_resolution_mode,
+    unique(compact$resolution_mode)
+  )
+  expect_identical(unserialize(serialize(compact, NULL)), compact)
+  expect_identical(
+    fit$availability$inference_status,
+    compact$inference_status
+  )
+  expect_identical(
+    fit$availability$resolution_status,
+    compact$resolution_status
+  )
 })
 
 test_that("joint-LN output retains typed missing inference and expert detail", {

@@ -9,6 +9,192 @@ ln_availability_scalar_character <- function(value, default = NA_character_) {
   value
 }
 
+ln_joint_resolution_status <- function(gene_result, resolution) {
+  if (!is.list(resolution) && isTRUE(gene_result$inference_available)) {
+    return("not_needed")
+  }
+  classes <- if (is.list(resolution) &&
+      !is.null(resolution$global_veto_classes)) {
+    values <- as.character(resolution$global_veto_classes)
+    unique(values[!is.na(values) & nzchar(values)])
+  } else {
+    character(0)
+  }
+  if ("competitive_boundary" %in% classes) {
+    return("competitive_boundary")
+  }
+  if ("competitive_distinct_basin" %in% classes) {
+    return("competitive_distinct_basin")
+  }
+  if ("competitive_hard_stop" %in% classes) {
+    return("hard_stop")
+  }
+  if ("same_basin_review_unresolved" %in% classes) {
+    return("review_unresolved")
+  }
+  if (is.list(resolution) && isTRUE(resolution$would_nonveto) &&
+      identical(
+        ln_availability_scalar_character(resolution$prospective_route),
+        "R0"
+      )) {
+    return("same_basin_review_resolved")
+  }
+  if (is.list(resolution) && identical(
+      ln_availability_scalar_character(resolution$strict_route),
+      "R0"
+    )) {
+    return("not_needed")
+  }
+
+  failure <- ln_availability_scalar_character(gene_result$failure_reason)
+  if (is.na(failure) && is.list(resolution)) {
+    failure <- ln_availability_scalar_character(
+      resolution$strict_failure_reason
+    )
+  }
+  failure_lower <- tolower(failure)
+  if (!is.na(failure_lower) && grepl("boundary", failure_lower, fixed = TRUE)) {
+    return("competitive_boundary")
+  }
+  if (!is.na(failure_lower) && grepl("distinct", failure_lower, fixed = TRUE)) {
+    return("competitive_distinct_basin")
+  }
+  if (!is.na(failure_lower) && grepl("unresolved", failure_lower, fixed = TRUE)) {
+    return("review_unresolved")
+  }
+  hard_stop_failures <- c(
+    "required_start_failed", "singular_joint_curvature",
+    "covariance_identity_failed", "derivative_evaluation_failed",
+    "derivative_audit_failed"
+  )
+  if (!is.na(failure_lower) && (
+      grepl("hard_stop", failure_lower, fixed = TRUE) ||
+      failure_lower %in% hard_stop_failures)) {
+    return("hard_stop")
+  }
+  "certification_failure"
+}
+
+ln_joint_status_record <- function(gene_result) {
+  resolution <- gene_result$ln_joint$resolution
+  inference_available <- isTRUE(gene_result$inference_available)
+  actual_route <- ln_availability_scalar_character(
+    gene_result$route,
+    if (inference_available) "R0" else "R2"
+  )
+  strict_route <- if (is.list(resolution) &&
+      "strict_inference_route" %in% names(resolution)) {
+    ln_availability_scalar_character(resolution$strict_inference_route)
+  } else if (is.list(resolution)) {
+    ln_availability_scalar_character(resolution$strict_route, actual_route)
+  } else {
+    actual_route
+  }
+  enabled_route <- if (is.list(resolution) &&
+      "enabled_inference_route" %in% names(resolution)) {
+    ln_availability_scalar_character(resolution$enabled_inference_route)
+  } else if (is.list(resolution)) {
+    ln_availability_scalar_character(resolution$prospective_route, actual_route)
+  } else {
+    actual_route
+  }
+  strict_failure <- if (is.list(resolution) &&
+      "strict_inference_failure_reason" %in% names(resolution)) {
+    ln_availability_scalar_character(
+      resolution$strict_inference_failure_reason
+    )
+  } else if (is.list(resolution)) {
+    ln_availability_scalar_character(resolution$strict_failure_reason)
+  } else {
+    ln_availability_scalar_character(gene_result$failure_reason)
+  }
+  enabled_failure <- if (is.list(resolution) &&
+      "enabled_inference_failure_reason" %in% names(resolution)) {
+    ln_availability_scalar_character(
+      resolution$enabled_inference_failure_reason
+    )
+  } else if (is.list(resolution)) {
+    ln_availability_scalar_character(resolution$prospective_failure_reason)
+  } else {
+    ln_availability_scalar_character(gene_result$failure_reason)
+  }
+  selected_root_certified <- if (is.list(resolution) &&
+      is.logical(resolution$selected_root_certified) &&
+      length(resolution$selected_root_certified) == 1L &&
+      !is.na(resolution$selected_root_certified)) {
+    isTRUE(resolution$selected_root_certified)
+  } else {
+    inference_available
+  }
+  newly_enabled <- inference_available && identical(strict_route, "R2") &&
+    identical(enabled_route, "R0") && is.list(resolution) &&
+    isTRUE(resolution$would_nonveto)
+  transition <- if (identical(strict_route, "R0") &&
+      identical(enabled_route, "R0")) {
+    "unchanged_available"
+  } else if (identical(strict_route, "R2") &&
+      identical(enabled_route, "R0")) {
+    "strict_withheld_to_available"
+  } else if (identical(strict_route, "R0") &&
+      identical(enabled_route, "R2")) {
+    "strict_available_to_withheld"
+  } else {
+    "unchanged_withheld"
+  }
+  veto_classes <- if (is.list(resolution) &&
+      !is.null(resolution$global_veto_classes)) {
+    values <- sort(unique(as.character(resolution$global_veto_classes)))
+    values <- values[!is.na(values) & nzchar(values)]
+    if (length(values)) paste(values, collapse = ";") else NA_character_
+  } else {
+    NA_character_
+  }
+
+  list(
+    estimator = "joint_ln",
+    certified_root = selected_root_certified,
+    inference_status = if (inference_available) "available" else "withheld",
+    strict_inference_status = if (is.na(strict_route)) {
+      "not_assessed"
+    } else if (identical(strict_route, "R0")) {
+      "available"
+    } else {
+      "withheld"
+    },
+    enabled_inference_status = if (is.na(enabled_route)) {
+      "not_assessed"
+    } else if (identical(enabled_route, "R0")) {
+      "available"
+    } else {
+      "withheld"
+    },
+    resolution_status = ln_joint_resolution_status(gene_result, resolution),
+    inference_source = if (inference_available) {
+      "certified_selected_root"
+    } else {
+      "none"
+    },
+    newly_enabled = newly_enabled,
+    availability_transition = transition,
+    resolution_veto_classes = veto_classes,
+    resolution_policy_version = if (is.list(resolution)) {
+      ln_availability_scalar_character(resolution$policy_version)
+    } else {
+      NA_character_
+    },
+    resolution_mode = if (is.list(resolution)) {
+      ln_availability_scalar_character(resolution$mode)
+    } else {
+      NA_character_
+    },
+    route_code = actual_route,
+    strict_route_code = strict_route,
+    enabled_route_code = enabled_route,
+    strict_failure_reason = strict_failure,
+    enabled_failure_reason = enabled_failure
+  )
+}
+
 ln_availability_strict_failure <- function(gene_result) {
   failure <- ln_availability_scalar_character(gene_result$failure_reason)
   if (!is.na(failure)) {
@@ -188,6 +374,7 @@ ln_availability_build <- function(primary_results, gid, gene_names,
   estimate_source <- rep(NA_character_, n_gene)
   attention_flag <- rep(TRUE, n_gene)
   technical_code <- rep("no_certified_candidate", n_gene)
+  status_records <- lapply(primary_results, ln_joint_status_record)
 
   fallback_available <- ln_availability_fallback_available(
     operational_fallback,
@@ -200,11 +387,21 @@ ln_availability_build <- function(primary_results, gid, gene_names,
     if (primary_available) {
       availability[[index]] <- "inference"
       reason_group[[index]] <- "certified_inference"
-      status_message[[index]] <- "Certified inference"
+      status_message[[index]] <- if (isTRUE(
+          status_records[[index]]$newly_enabled)) {
+        "Certified inference \u2014 numerical review resolved"
+      } else {
+        "Certified inference"
+      }
       inference_supported[[index]] <- TRUE
       estimate_source[[index]] <- "joint_ln"
       attention_flag[[index]] <- FALSE
-      technical_code[[index]] <- "joint_ln_certified"
+      technical_code[[index]] <- if (isTRUE(
+          status_records[[index]]$newly_enabled)) {
+        "joint_ln_certified_after_same_basin_review"
+      } else {
+        "joint_ln_certified"
+      }
       next
     }
 
@@ -232,6 +429,34 @@ ln_availability_build <- function(primary_results, gid, gene_names,
   data.frame(
     gene_id = as.integer(gid),
     gene = as.character(gene_names),
+    estimator = vapply(status_records, `[[`, character(1), "estimator"),
+    certified_root = vapply(
+      status_records, `[[`, logical(1), "certified_root"
+    ),
+    inference_status = vapply(
+      status_records, `[[`, character(1), "inference_status"
+    ),
+    strict_inference_status = vapply(
+      status_records, `[[`, character(1), "strict_inference_status"
+    ),
+    enabled_inference_status = vapply(
+      status_records, `[[`, character(1), "enabled_inference_status"
+    ),
+    resolution_status = vapply(
+      status_records, `[[`, character(1), "resolution_status"
+    ),
+    inference_source = vapply(
+      status_records, `[[`, character(1), "inference_source"
+    ),
+    newly_enabled = vapply(
+      status_records, `[[`, logical(1), "newly_enabled"
+    ),
+    availability_transition = vapply(
+      status_records, `[[`, character(1), "availability_transition"
+    ),
+    resolution_policy_version = vapply(
+      status_records, `[[`, character(1), "resolution_policy_version"
+    ),
     availability = availability,
     reason_group = reason_group,
     status_message = status_message,

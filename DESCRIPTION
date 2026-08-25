@@ -1,7 +1,7 @@
 Package: scRoPE
 Type: Package
 Title: Robust Differential Analysis for Single-Cell RNA-Seq
-Version: 0.2.5
+Version: 0.2.5.9000
 Date: 2026-08-24
 Authors@R: person("Lehang", "Zhong", email = "lehang.zhong@mail.utoronto.ca", role = c("aut", "cre"))
 Author: Lehang Zhong [aut, cre]

@@ -45,16 +45,16 @@ ln_joint_candidate_check_names <- function() {
   )
 }
 
-# Shadow-only candidate-resolution thresholds.  The existing selected-root
+# Calibration-candidate resolution thresholds.  The existing selected-root
 # certificate above is deliberately not changed.  Review-zone thresholds reuse
 # its pre-existing hard-stop scales; a proposed basin map must return to the
-# stricter selected-root scales before it can be recorded as a prospective
+# stricter selected-root scales before it can be recorded as a same-basin
 # nonveto.
 ln_joint_resolution_thresholds <- function() {
   selected <- ln_joint_thresholds()
   list(
     schema_version = 1L,
-    policy_version = "joint_ln_candidate_resolution_shadow_v1",
+    policy_version = "joint_ln_candidate_resolution_calibration_v1",
     objective_equivalence = selected$hard_stop$objective_agreement,
     review_full_state = selected$hard_stop$parameter_agreement,
     review_beta_block = selected$hard_stop$parameter_agreement,
@@ -4831,14 +4831,14 @@ ln_joint_resolve_candidates <- function(
     }, integer(1)))
   )
   shadow_resolution <- list(
-    schema_version = 1L,
+    schema_version = 2L,
     policy_version = if (isTRUE(threshold_configuration_valid)) {
       resolution_thresholds$policy_version
     } else {
       NA_character_
     },
     mode = if (isTRUE(enable_prospective)) {
-      "test_enablement"
+      "calibration_candidate_enabled"
     } else {
       "shadow_default_off"
     },
@@ -4847,6 +4847,8 @@ ln_joint_resolve_candidates <- function(
     strict_failure_reason = strict_failure,
     prospective_route = prospective_route,
     prospective_failure_reason = prospective_failure,
+    selected_root_certified = isTRUE(certified_cluster_valid) &&
+      !is.na(best_idx) && best_idx %in% certified,
     would_nonveto = isTRUE(would_nonveto),
     would_route = prospective_route,
     numerical_resolution = numerical_resolution,
@@ -5249,7 +5251,10 @@ fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
                                              extra_starts = NULL,
                                              resolution_thresholds =
                                                ln_joint_resolution_thresholds(),
-                                             enable_prospective = FALSE) {
+                                             enable_prospective = identical(
+                                               ctx$ln_candidate_resolution_mode,
+                                               "calibration_candidate_enabled"
+                                             )) {
   objective_instance <- ln_joint_objective_instance_registry(
     "register",
     gene_index,
@@ -5274,9 +5279,62 @@ fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
   }
   route <- engine$route
   failure <- engine$failure_reason
+  resolution <- engine$diagnostics$resolution
+  strict_resolution_route <- resolution$strict_route
+  enabled_resolution_route <- resolution$prospective_route
+  covariance_assessment <- NULL
+  if (identical(strict_resolution_route, "R0") ||
+      (identical(resolution$mode, "calibration_candidate_enabled") &&
+        identical(enabled_resolution_route, "R0"))) {
+    covariance_assessment <- ln_joint_covariance(state, ctx$nb)
+  }
+  effective_route <- function(resolution_route) {
+    if (!identical(resolution_route, "R0")) {
+      return("R2")
+    }
+    if (is.null(covariance_assessment)) {
+      return(NA_character_)
+    }
+    if (isTRUE(covariance_assessment$success)) "R0" else "R2"
+  }
+  effective_failure <- function(resolution_route, resolution_failure) {
+    if (!identical(resolution_route, "R0")) {
+      return(resolution_failure)
+    }
+    if (is.null(covariance_assessment)) {
+      return(NA_character_)
+    }
+    if (isTRUE(covariance_assessment$success)) {
+      return(NA_character_)
+    }
+    ln_joint_diagnostic_character(
+      covariance_assessment$failure_reason,
+      fallback = "joint_covariance_unavailable"
+    )
+  }
+  resolution$strict_inference_route <- effective_route(
+    strict_resolution_route
+  )
+  resolution$strict_inference_failure_reason <- effective_failure(
+    strict_resolution_route,
+    resolution$strict_failure_reason
+  )
+  resolution$enabled_inference_route <- effective_route(
+    enabled_resolution_route
+  )
+  resolution$enabled_inference_failure_reason <- effective_failure(
+    enabled_resolution_route,
+    resolution$prospective_failure_reason
+  )
+  resolution$covariance_assessed_from_selected_root <-
+    !is.null(covariance_assessment)
+  resolution$covariance_assessment_success <-
+    isTRUE(covariance_assessment$success)
+  engine$diagnostics$resolution <- resolution
+
   covariance <- NULL
   if (identical(route, "R0")) {
-    covariance <- ln_joint_covariance(state, ctx$nb)
+    covariance <- covariance_assessment
     if (!isTRUE(covariance$success)) {
       route <- "R2"
       failure <- covariance$failure_reason
@@ -5348,6 +5406,13 @@ fit_gene_joint_ln_unconstrained <- function(gene_index, posv, ctx,
       objective_instance = objective_instance,
       state = state,
       covariance = covariance,
+      strict_comparator_covariance = if (
+          identical(resolution$strict_inference_route, "R0") &&
+          !identical(route, "R0")) {
+        covariance_assessment
+      } else {
+        NULL
+      },
       candidates = engine$diagnostics$candidates,
       candidate_records = ln_joint_candidate_records(
         engine$candidates,

@@ -274,7 +274,10 @@ test_that("fallback trigger preserves primary R2 boundary selection", {
   expect_true(eligible$eligible)
   expect_identical(
     eligible$eligibility_rule,
-    "primary_R2_and_final_failure_reason_dispersion_boundary"
+    paste0(
+      "actual_or_strict_comparator_R2_and_",
+      "failure_reason_dispersion_boundary"
+    )
   )
   expect_false(eligible$selected_check_audit_used_for_eligibility)
 
@@ -569,7 +572,10 @@ test_that("sidecar exposes coefficients and diagnostics only for every route", {
   )
   expect_identical(
     sidecar$selection_rule,
-    "primary_R2_and_failure_reason_dispersion_boundary"
+    paste0(
+      "actual_or_strict_comparator_R2_and_",
+      "failure_reason_dispersion_boundary"
+    )
   )
   expect_false(sidecar$inference_supported)
   expect_identical(

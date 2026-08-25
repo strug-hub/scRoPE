@@ -88,6 +88,23 @@ test_that("installed joint-LN PSOCK fits use the running package", {
     two$provenance$per_gene,
     tolerance = 1e-8
   )
+  expect_identical(one$provenance$schema_version, 3L)
+  expect_identical(
+    one$provenance$candidate_resolution_policy,
+    "joint_ln_candidate_resolution_calibration_v1"
+  )
+  expect_identical(
+    one$provenance$candidate_resolution_mode,
+    "calibration_candidate_enabled"
+  )
+  expect_true(all(
+    one$provenance$per_gene$resolution_mode ==
+      "calibration_candidate_enabled"
+  ))
+  expect_true(all(
+    two$provenance$per_gene$resolution_mode ==
+      "calibration_candidate_enabled"
+  ))
   expect_equal(one$lrt_details, two$lrt_details, tolerance = 1e-8)
   expect_equal(
     ln_joint_normalise_psock_objective_ids(one$diagnostics$raw),

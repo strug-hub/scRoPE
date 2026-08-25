@@ -200,7 +200,7 @@ ln_joint_resolution_test_probe <- function(candidate, theta_reduced_log) {
   )
 }
 
-test_that("shadow thresholds are versioned and leave the root certificate unchanged", {
+test_that("calibration thresholds are versioned and leave the root certificate unchanged", {
   selected <- ln_joint_thresholds()
   resolution <- ln_joint_resolution_thresholds()
 
@@ -208,7 +208,7 @@ test_that("shadow thresholds are versioned and leave the root certificate unchan
   expect_identical(resolution$schema_version, 1L)
   expect_identical(
     resolution$policy_version,
-    "joint_ln_candidate_resolution_shadow_v1"
+    "joint_ln_candidate_resolution_calibration_v1"
   )
   expect_identical(
     resolution$objective_equivalence,
@@ -248,7 +248,8 @@ test_that("shadow thresholds are versioned and leave the root certificate unchan
   changed$max_state_evaluations <- 2L
   expect_false(ln_joint_resolution_thresholds_valid(changed))
   changed <- resolution
-  changed$policy_version <- "joint_ln_candidate_resolution_shadow_v1_loose"
+  changed$policy_version <-
+    "joint_ln_candidate_resolution_calibration_v1_loose"
   expect_false(ln_joint_resolution_thresholds_valid(changed))
 })
 
@@ -471,7 +472,10 @@ test_that("default strict route is unchanged while the test seam records nonveto
   expect_identical(strict$resolution$mode, "shadow_default_off")
   expect_identical(enabled$route, "R0")
   expect_true(is.na(enabled$failure_reason))
-  expect_identical(enabled$resolution$mode, "test_enablement")
+  expect_identical(
+    enabled$resolution$mode,
+    "calibration_candidate_enabled"
+  )
   expect_identical(enabled$best_index, strict$best_index)
   expect_identical(
     enabled$resolution$evaluation_counts$probe_state_evaluations,
@@ -917,11 +921,13 @@ test_that("resolution and additive candidate records serialize losslessly", {
     c(
       "schema_version", "policy_version", "mode", "thresholds",
       "strict_route", "strict_failure_reason", "prospective_route",
-      "prospective_failure_reason", "would_nonveto", "would_route",
-      "numerical_resolution", "global_veto_classes",
+      "prospective_failure_reason", "selected_root_certified",
+      "would_nonveto", "would_route", "numerical_resolution",
+      "global_veto_classes",
       "candidate_resolutions", "evaluation_counts"
     )
   )
+  expect_identical(result$resolution$schema_version, 2L)
   expect_true(all(c(
     "resolution_class", "resolution_veto", "objective_relation",
     "full_state_distance", "beta_block_distance",

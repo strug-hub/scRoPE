@@ -144,7 +144,7 @@ ln_isolation_injected_candidate <- function(selected, kind) {
   full_log <- as.numeric(selected$theta_full_log)
   n_beta <- as.integer(selected$n_beta)
 
-  if (identical(kind, "same_basin_shadow")) {
+  if (kind %in% c("same_basin_shadow", "same_basin_unresolved")) {
     transition <- ln_isolation_review_transition(candidate)
     full_log <- transition$full_log
     delta <- full_log - selected$theta_full_log
@@ -170,7 +170,7 @@ ln_isolation_injected_candidate <- function(selected, kind) {
     stop("Unknown synthetic candidate kind: ", kind)
   }
 
-  if (identical(kind, "same_basin_shadow")) {
+  if (kind %in% c("same_basin_shadow", "same_basin_unresolved")) {
     failed <- names(candidate$checks)[!candidate$checks]
     stopifnot(
       length(failed) > 0L,
@@ -182,20 +182,40 @@ ln_isolation_injected_candidate <- function(selected, kind) {
   candidate
 }
 
-ln_isolation_fit_with_candidate <- function(kind,
-                                            enable_prospective = FALSE) {
+ln_isolation_fit_with_candidate <- function(
+    kind,
+    expected_production_enable = TRUE,
+    resolver_enable_override = NULL,
+    covariance_failure = FALSE,
+    additional_tests = character(0)) {
   original_resolver <- getFromNamespace(
     "ln_joint_resolve_candidates",
     "scRoPE"
   )
-  requested_enable <- isTRUE(enable_prospective)
+  original_covariance <- getFromNamespace("ln_joint_covariance", "scRoPE")
+  injected_capture <- NULL
   force(kind)
-  force(requested_enable)
+  force(expected_production_enable)
+  force(resolver_enable_override)
+  force(covariance_failure)
   resolver_wrapper <- function(
       candidates,
       resolution_thresholds = ln_joint_resolution_thresholds(),
       basin_probe = NULL,
       enable_prospective = FALSE) {
+    if (!isTRUE(enable_prospective) &&
+        isTRUE(expected_production_enable)) {
+      return(original_resolver(
+        candidates,
+        resolution_thresholds = resolution_thresholds,
+        basin_probe = basin_probe,
+        enable_prospective = FALSE
+      ))
+    }
+    stopifnot(identical(
+      isTRUE(enable_prospective),
+      isTRUE(expected_production_enable)
+    ))
     certified <- which(vapply(candidates, function(candidate) {
       isTRUE(candidate$certified)
     }, logical(1)))
@@ -210,11 +230,15 @@ ln_isolation_fit_with_candidate <- function(kind,
       candidates[[selected_index]],
       kind
     )
+    injected_capture <<- injected
     delegated_probe <- basin_probe
     combined_probe <- function(candidate, theta_reduced_log) {
       if (identical(candidate$label, injected$label)) {
-        if (!identical(kind, "same_basin_shadow")) {
+        if (!kind %in% c("same_basin_shadow", "same_basin_unresolved")) {
           stop("Immediate-veto candidate unexpectedly entered basin review")
+        }
+        if (identical(kind, "same_basin_unresolved")) {
+          return(NULL)
         }
         if (!is.function(delegated_probe)) {
           stop("Production basin probe was unavailable")
@@ -236,14 +260,32 @@ ln_isolation_fit_with_candidate <- function(kind,
       c(candidates, list(injected)),
       resolution_thresholds = resolution_thresholds,
       basin_probe = combined_probe,
-      enable_prospective = requested_enable
+      enable_prospective = if (is.null(resolver_enable_override)) {
+        enable_prospective
+      } else {
+        isTRUE(resolver_enable_override)
+      }
     )
+  }
+  covariance_wrapper <- function(state, nb) {
+    if (isTRUE(covariance_failure)) {
+      return(list(
+        success = FALSE,
+        failure_reason = "synthetic_covariance_failure"
+      ))
+    }
+    original_covariance(state, nb)
   }
   local_mocked_bindings(
     ln_joint_resolve_candidates = resolver_wrapper,
+    ln_joint_covariance = covariance_wrapper,
     .package = "scRoPE"
   )
-  suppressWarnings(ln_joint_fit_fixture()$fit)
+  fit <- suppressWarnings(ln_joint_fit_fixture(
+    additional_tests = additional_tests
+  )$fit)
+  attr(fit, "synthetic_injected_candidate") <- injected_capture
+  fit
 }
 
 ln_isolation_public_inference_columns <- function(summary) {
@@ -364,12 +406,9 @@ test_that("same-basin shadow is default-off and enabled inference uses only the 
   baseline <- ln_joint_fit_fixture()$fit
   shadow <- ln_isolation_fit_with_candidate(
     "same_basin_shadow",
-    enable_prospective = FALSE
+    resolver_enable_override = FALSE
   )
-  enabled <- ln_isolation_fit_with_candidate(
-    "same_basin_shadow",
-    enable_prospective = TRUE
-  )
+  enabled <- ln_isolation_fit_with_candidate("same_basin_shadow")
 
   baseline_raw <- baseline$diagnostics$raw[[1L]]
   shadow_raw <- shadow$diagnostics$raw[[1L]]
@@ -432,10 +471,84 @@ test_that("same-basin shadow is default-off and enabled inference uses only the 
 
   expect_identical(enabled_raw$route, "R0")
   expect_true(enabled_raw$inference_available)
-  expect_identical(enabled_resolution$mode, "test_enablement")
+  expect_identical(
+    enabled_resolution$mode,
+    "calibration_candidate_enabled"
+  )
   expect_identical(enabled_resolution$strict_route, "R2")
   expect_identical(enabled_resolution$prospective_route, "R0")
   expect_true(enabled_resolution$would_nonveto)
+  expect_true(enabled_resolution$selected_root_certified)
+  expect_identical(
+    enabled_resolution$strict_inference_route,
+    "R2"
+  )
+  expect_identical(
+    enabled_resolution$enabled_inference_route,
+    "R0"
+  )
+  expect_true(enabled_resolution$covariance_assessed_from_selected_root)
+  expect_true(enabled_resolution$covariance_assessment_success)
+  status <- enabled$provenance$per_gene
+  expect_identical(enabled$provenance$schema_version, 3L)
+  expect_identical(
+    enabled$provenance$candidate_resolution_policy,
+    "joint_ln_candidate_resolution_calibration_v1"
+  )
+  expect_identical(
+    enabled$provenance$candidate_resolution_mode,
+    "calibration_candidate_enabled"
+  )
+  expect_identical(status$estimator, "joint_ln")
+  expect_true(status$certified_root)
+  expect_identical(status$inference_status, "available")
+  expect_identical(status$strict_inference_status, "withheld")
+  expect_identical(status$enabled_inference_status, "available")
+  expect_identical(
+    status$resolution_status,
+    "same_basin_review_resolved"
+  )
+  expect_identical(status$inference_source, "certified_selected_root")
+  expect_true(status$newly_enabled)
+  expect_identical(
+    status$availability_transition,
+    "strict_withheld_to_available"
+  )
+  expect_true(is.na(status$resolution_veto_classes))
+  expect_identical(status$route, status$route_code)
+  expect_identical(status$strict_route_code, "R2")
+  expect_identical(status$enabled_route_code, "R0")
+  expect_identical(
+    status$resolution_policy_version,
+    "joint_ln_candidate_resolution_calibration_v1"
+  )
+  expect_identical(
+    status$resolution_mode,
+    "calibration_candidate_enabled"
+  )
+  expect_identical(enabled$availability$availability, "inference")
+  expect_identical(enabled$availability$inference_status, "available")
+  expect_identical(
+    enabled$availability$resolution_status,
+    "same_basin_review_resolved"
+  )
+  expect_true(enabled$availability$newly_enabled)
+  expect_identical(
+    enabled$availability$status_message,
+    "Certified inference \u2014 numerical review resolved"
+  )
+  expect_identical(
+    enabled$availability$technical_code,
+    "joint_ln_certified_after_same_basin_review"
+  )
+  injected_record <- attr(enabled, "synthetic_injected_candidate")
+  expect_true(is.list(injected_record))
+  expect_identical(injected_record$label, "synthetic_same_basin_shadow")
+  expect_false(isTRUE(all.equal(
+    injected_record$theta_full_log,
+    enabled_raw$ln_joint$state$full_log,
+    tolerance = 0
+  )))
   expect_equal(
     enabled_raw$ln_joint$state$full_log,
     baseline_raw$ln_joint$state$full_log,
@@ -475,6 +588,147 @@ test_that("same-basin shadow is default-off and enabled inference uses only the 
     baseline$summary[inference_columns],
     tolerance = 1e-10
   )
+  restored <- unserialize(serialize(enabled, NULL, version = 3L))
+  expect_identical(restored, enabled)
+})
+
+test_that("same-basin resolution remains withheld when selected-root covariance fails", {
+  failed <- ln_isolation_fit_with_candidate(
+    "same_basin_shadow",
+    covariance_failure = TRUE
+  )
+  raw <- failed$diagnostics$raw[[1L]]
+  resolution <- raw$ln_joint$resolution
+  status <- failed$provenance$per_gene
+
+  expect_identical(resolution$prospective_route, "R0")
+  expect_identical(
+    resolution$numerical_resolution,
+    "would_same_basin_review_nonveto"
+  )
+  expect_identical(resolution$enabled_inference_route, "R2")
+  expect_false(resolution$covariance_assessment_success)
+  expect_identical(raw$route, "R2")
+  expect_false(raw$inference_available)
+  expect_false(raw$ln_joint$covariance$success)
+  expect_identical(
+    raw$ln_joint$covariance$failure_reason,
+    "synthetic_covariance_failure"
+  )
+  expect_identical(status$resolution_status, "same_basin_review_resolved")
+  expect_identical(status$enabled_inference_status, "withheld")
+  expect_identical(status$inference_status, "withheld")
+  expect_identical(status$inference_source, "none")
+  expect_false(status$newly_enabled)
+  expect_identical(failed$availability$availability, "unavailable")
+  ln_isolation_expect_withheld(failed)
+})
+
+test_that("strict-only comparator covariance never leaks through an enabled veto", {
+  original_resolver <- getFromNamespace(
+    "ln_joint_resolve_candidates",
+    "scRoPE"
+  )
+  resolver_wrapper <- function(
+      candidates,
+      resolution_thresholds = ln_joint_resolution_thresholds(),
+      basin_probe = NULL,
+      enable_prospective = FALSE) {
+    stopifnot(isTRUE(enable_prospective))
+    result <- original_resolver(
+      candidates,
+      resolution_thresholds = resolution_thresholds,
+      basin_probe = basin_probe,
+      enable_prospective = enable_prospective
+    )
+    stopifnot(identical(result$resolution$strict_route, "R0"))
+    result$route <- "R2"
+    result$failure_reason <- "competitive_hard_stop_candidate"
+    result$resolution$prospective_route <- "R2"
+    result$resolution$prospective_failure_reason <-
+      "competitive_hard_stop_candidate"
+    result$resolution$would_nonveto <- FALSE
+    result$resolution$would_route <- "R2"
+    result$resolution$numerical_resolution <-
+      "prospective_veto_competitive_hard_stop"
+    result$resolution$global_veto_classes <- "competitive_hard_stop"
+    result
+  }
+  local_mocked_bindings(
+    ln_joint_resolve_candidates = resolver_wrapper,
+    .package = "scRoPE"
+  )
+
+  fit <- suppressWarnings(ln_joint_fit_fixture()$fit)
+  raw <- fit$diagnostics$raw[[1L]]
+  status <- fit$provenance$per_gene
+
+  expect_identical(raw$route, "R2")
+  expect_false(raw$inference_available)
+  expect_null(raw$ln_joint$covariance)
+  expect_true(raw$ln_joint$strict_comparator_covariance$success)
+  expect_identical(
+    raw$ln_joint$resolution$strict_inference_route,
+    "R0"
+  )
+  expect_identical(
+    raw$ln_joint$resolution$enabled_inference_route,
+    "R2"
+  )
+  expect_identical(status$strict_inference_status, "available")
+  expect_identical(status$enabled_inference_status, "withheld")
+  expect_identical(status$inference_status, "withheld")
+  expect_identical(
+    status$availability_transition,
+    "strict_available_to_withheld"
+  )
+  expect_identical(status$inference_source, "none")
+  expect_false(status$newly_enabled)
+  ln_isolation_expect_withheld(fit)
+})
+
+test_that("enabled same-basin Wald leaves Score Pace and LRT pending", {
+  fit <- ln_isolation_fit_with_candidate(
+    "same_basin_shadow",
+    additional_tests = c("score", "lrt")
+  )
+  status <- fit$provenance$per_gene
+  capabilities <- fit$provenance$test_capabilities
+
+  expect_identical(status$inference_status, "available")
+  model_and_robust <- grep(
+    "^se_|^se_robust_|^p_naive_|^p_robust_|^wald_stat_",
+    names(fit$summary),
+    value = TRUE
+  )
+  expect_true(length(model_and_robust) > 0L)
+  expect_true(all(is.finite(as.matrix(fit$summary[model_and_robust]))))
+  expect_identical(
+    capabilities$status[capabilities$test %in% c("score", "lrt")],
+    rep("joint_ln_calibration_pending", 2L)
+  )
+  expect_identical(
+    fit$provenance$pace_status,
+    "joint_ln_calibration_pending"
+  )
+  expect_true(all(!fit$lrt_details$success))
+  expect_true(all(!fit$lrt_details$score_success))
+  expect_true(all(
+    fit$lrt_details$failure_reason == "joint_ln_calibration_pending"
+  ))
+  expect_true(all(
+    fit$lrt_details$score_failure == "joint_ln_calibration_pending"
+  ))
+  expect_true(all(is.na(fit$lrt_details$stat)))
+  expect_true(all(is.na(fit$lrt_details$p_value)))
+  constrained <- Filter(
+    Negate(is.null),
+    lapply(fit$diagnostics$raw[[1L]]$lrt, `[[`, "constrained")
+  )
+  expect_true(length(constrained) > 0L)
+  expect_true(all(vapply(constrained, function(item) {
+    identical(item$ln_joint$resolution$mode, "shadow_default_off")
+  }, logical(1))))
 })
 
 test_that("competitive boundary distinct and hard-stop candidates retain withholding", {
@@ -484,7 +738,7 @@ test_that("competitive boundary distinct and hard-stop candidates retain withhol
     competitive_hard_stop = "competitive_hard_stop"
   )
   for (kind in names(cases)) {
-    fit <- ln_isolation_fit_with_candidate(kind, enable_prospective = TRUE)
+    fit <- ln_isolation_fit_with_candidate(kind)
     raw <- fit$diagnostics$raw[[1L]]
     resolution <- raw$ln_joint$resolution
     injected <- Filter(function(record) {
@@ -493,7 +747,11 @@ test_that("competitive boundary distinct and hard-stop candidates retain withhol
 
     expect_identical(raw$route, "R2", info = kind)
     expect_false(raw$inference_available, info = kind)
-    expect_identical(resolution$mode, "test_enablement", info = kind)
+    expect_identical(
+      resolution$mode,
+      "calibration_candidate_enabled",
+      info = kind
+    )
     expect_identical(resolution$strict_route, "R2", info = kind)
     expect_identical(resolution$prospective_route, "R2", info = kind)
     expect_false(resolution$would_nonveto, info = kind)
@@ -507,6 +765,31 @@ test_that("competitive boundary distinct and hard-stop candidates retain withhol
     expect_true(injected[[1L]]$veto, info = kind)
     expect_null(injected[[1L]]$probe, info = kind)
     expect_null(raw$ln_joint$covariance, info = kind)
+    status <- fit$provenance$per_gene
+    expect_identical(status$inference_status, "withheld", info = kind)
+    expect_identical(
+      status$enabled_inference_status,
+      "withheld",
+      info = kind
+    )
+    expect_identical(status$inference_source, "none", info = kind)
+    expect_false(status$newly_enabled, info = kind)
+    expected_status <- c(
+      competitive_boundary = "competitive_boundary",
+      competitive_distinct_basin = "competitive_distinct_basin",
+      competitive_hard_stop = "hard_stop"
+    )
+    expect_identical(
+      status$resolution_status,
+      expected_status[[kind]],
+      info = kind
+    )
+    expect_match(
+      status$resolution_veto_classes,
+      cases[[kind]],
+      fixed = TRUE,
+      info = kind
+    )
     expect_identical(
       resolution$evaluation_counts$probe_state_evaluations,
       0L,
@@ -514,6 +797,34 @@ test_that("competitive boundary distinct and hard-stop candidates retain withhol
     )
     ln_isolation_expect_withheld(fit)
   }
+})
+
+test_that("an unresolved bounded review retains inference withholding", {
+  fit <- ln_isolation_fit_with_candidate("same_basin_unresolved")
+  raw <- fit$diagnostics$raw[[1L]]
+  resolution <- raw$ln_joint$resolution
+  injected <- Filter(function(record) {
+    identical(record$label, "synthetic_same_basin_unresolved")
+  }, resolution$candidate_resolutions)
+
+  expect_identical(raw$route, "R2")
+  expect_false(raw$inference_available)
+  expect_identical(resolution$prospective_route, "R2")
+  expect_false(resolution$would_nonveto)
+  expect_true(
+    "same_basin_review_unresolved" %in% resolution$global_veto_classes
+  )
+  expect_length(injected, 1L)
+  expect_identical(injected[[1L]]$class, "same_basin_review_unresolved")
+  expect_true(injected[[1L]]$veto)
+  expect_identical(
+    fit$provenance$per_gene$resolution_status,
+    "review_unresolved"
+  )
+  expect_identical(fit$provenance$per_gene$inference_status, "withheld")
+  expect_identical(fit$provenance$per_gene$inference_source, "none")
+  expect_false(fit$provenance$per_gene$newly_enabled)
+  ln_isolation_expect_withheld(fit)
 })
 
 test_that("candidate resolution and probe records deep-round-trip and replay", {

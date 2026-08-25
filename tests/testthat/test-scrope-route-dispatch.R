@@ -89,6 +89,27 @@ test_that("top-level routes expose honest method capabilities", {
     joint$provenance$test_capabilities$public_available,
     c(TRUE, FALSE, FALSE)
   )
+  expect_identical(joint$provenance$schema_version, 3L)
+  expect_identical(
+    joint$provenance$inference_policy,
+    "joint_ln_same_basin_wald_calibration_candidate"
+  )
+  expect_identical(
+    joint$provenance$candidate_resolution_policy,
+    "joint_ln_candidate_resolution_calibration_v1"
+  )
+  expect_identical(
+    joint$provenance$candidate_resolution_mode,
+    "calibration_candidate_enabled"
+  )
+  expect_identical(
+    joint$provenance$pace_status,
+    "joint_ln_calibration_pending"
+  )
+  expect_identical(
+    joint$provenance$test_capabilities$status[[1L]],
+    "available_when_inference_status_available"
+  )
   expect_identical(
     joint$provenance$test_capabilities$status[2:3],
     rep("joint_ln_calibration_pending", 2L)

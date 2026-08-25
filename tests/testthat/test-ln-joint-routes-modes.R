@@ -12,7 +12,12 @@ test_that("joint LN R2 removes every analytic covariance and Wald field", {
 
   expect_identical(provenance$route, "R2")
   expect_false(provenance$inference_available)
-  expect_identical(provenance$failure_reason, "dispersion_boundary")
+  expect_identical(
+    provenance$failure_reason,
+    "competitive_hard_stop_candidate"
+  )
+  expect_identical(provenance$strict_failure_reason, "dispersion_boundary")
+  expect_identical(provenance$resolution_status, "hard_stop")
   expect_identical(provenance$mode_status, "fit_unavailable")
 
   covariance_columns <- grep("^se_|^se_robust_", names(fit$summary), value = TRUE)
@@ -30,7 +35,7 @@ test_that("joint LN R2 removes every analytic covariance and Wald field", {
   expect_true(all(unlist(fit$summary[grep(
     "^wald_failure_",
     names(fit$summary)
-  )]) == "dispersion_boundary"))
+  )]) == "competitive_hard_stop_candidate"))
   expect_equal(dim(fit$random_effect), c(1L, length(unique(result$fx$id))))
   expect_true(all(is.na(as.matrix(fit$random_effect))))
   expect_true(all(!fit$lrt_details$gate_converged))
@@ -73,6 +78,7 @@ test_that("legacy incomplete resolver records fail closed", {
     "selected_candidate_certificate_inconsistent"
   )
   expect_identical(dominated_resolution$resolution$prospective_route, "R2")
+  expect_false(dominated_resolution$resolution$selected_root_certified)
   expect_true(all(vapply(
     dominated_resolution$resolution$candidate_resolutions,
     function(record) {
@@ -92,6 +98,7 @@ test_that("legacy incomplete resolver records fail closed", {
     "selected_candidate_certificate_inconsistent"
   )
   expect_identical(competing_resolution$resolution$prospective_route, "R2")
+  expect_false(competing_resolution$resolution$selected_root_certified)
   expect_true(all(vapply(
     competing_resolution$resolution$candidate_resolutions,
     function(record) {

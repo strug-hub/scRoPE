@@ -1,3 +1,17 @@
+# scRoPE 0.2.5.9000 (development)
+
+- Joint-LN can now use one bounded review to recognize an additional optimizer
+  endpoint as the same numerical solution. Model-based and donor-robust Wald
+  inference then continues from the unchanged certified fit. Boundary,
+  distinct, hard-stop, or unresolved solutions still withhold inference.
+
+- Added plain-language per-gene fields for the estimator, inference status,
+  numerical resolution, and inference source. The original strict decision and
+  technical route codes remain in provenance for reproducibility.
+
+This development build is intended for calibration simulations and is not a
+public release.
+
 # scRoPE 0.2.5 (2026-08-24)
 
 - Improved diagnostics when joint-LN optimization finds more than one plausible

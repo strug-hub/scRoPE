@@ -1,8 +1,8 @@
 # Joint-LN availability runtime harness
 
 `run_joint_ln_availability_runtime.R` is a bounded, synthetic software timing
-harness for the shadow-only candidate classifier and one-state-evaluation basin
-probe. It exercises the fast, immediate-veto, and narrow-review paths.
+harness for the calibration-candidate classifier and one-state-evaluation basin
+probe. It exercises the enabled fast, immediate-veto, and narrow-review paths.
 
 It does not fit real data, estimate inferential calibration, or measure the
 whole joint-LN optimizer. Total optimizer/polish evaluation counts remain
