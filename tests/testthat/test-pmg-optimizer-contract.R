@@ -18,6 +18,17 @@ test_that("PGMM honors backend-specific optimizer codes and the BOBYQA x0 interf
   stopifnot(!env$pmg_optimizer_converged(list(raw = 0)))
   stopifnot(!env$pmg_optimizer_converged(fixture("unknown", 0)))
 
+  # Completed gene fits use raw_fit; exact field access must fail closed.
+  for (code in c(0L, 1L, NA_integer_)) {
+    expect_identical(env$pmg_optimizer_converged(list(
+      optimizer = "nlminb", raw_fit = list(convergence = code))), isTRUE(code == 0L))
+  }
+  expect_false(env$pmg_optimizer_converged(list(
+    optimizer = "nlminb", raw_fitting = list(convergence = 0L))))
+
+  expect_false(env$pmg_optimizer_converged(list(
+    optimizer_backend = "nlminb", raw_fit = list(convergence = 0L))))
+
   # Requiring x0 catches the old par= argument mismatch. The objective must
   # never be evaluated; this checks interface plumbing, not optimization.
   observed <- new.env(parent = emptyenv())

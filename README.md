@@ -362,6 +362,32 @@ scientific interest, when residual overdispersion is strong, or when the number
 of donors is modest and the data are sparse, highly unbalanced, or strongly
 heterogeneous.
 
+The PGMM main unconstrained fit uses `nlminb` with `iter.max = 500L` and
+`eval.max = 500L`. Override these with, for example,
+`pgmm_control = list(iter.max = 150L, eval.max = 200L)` to reproduce the earlier
+limits. The control applies to the main fit only; constrained/profile fits keep
+their existing controls. It does not add retries or change starts, tolerances,
+objective scaling, or acceptance rules. Existing recovery after an optimizer
+error remains available, so this argument is not a total work cap. The 500/500
+choice is a development default and does not guarantee convergence.
+
+PGMM reports `optimizer_success` separately from its composite convergence code.
+When optimization is unsuccessful or its native status is missing, model and
+robust Wald statistics, p-values, and standard errors are unavailable. A retained
+`logFC_*` or dispersion in that case describes the failed endpoint for diagnosis;
+it is not an accepted estimate. Full endpoint and covariance values remain in
+`diagnostics$raw` when diagnostics are requested. Model and sandwich covariance
+availability are checked independently: failure of one does not automatically
+suppress an otherwise valid test based on the other. `model_wald_*` fields
+report the model-Wald statistic, success, and failure reason alongside the
+existing robust `wald_*` fields.
+
+Effective main limits are retained in `provenance$optimizer`, including when
+`keep_diagnostics = FALSE`. Per-fit diagnostics record the actual backend,
+status, controls, native iterations/evaluations and attempted optimizer calls.
+Information conditioning and a scaled Newton correction describe the endpoint;
+they do not move it or introduce a new acceptance threshold.
+
 Adjusted Score and likelihood-ratio tests can be added to either PGMM example
 using the same `additional_tests` and `lrt_details` arguments shown above.
 

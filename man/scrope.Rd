@@ -30,7 +30,8 @@ scrope(
   keep_diagnostics = TRUE,
   model = c("LN", "HL", "PGMM"),
   ln_estimator = c("legacy_post_pml", "joint_ln"),
-  ln_operational_fallback = c("none", "legacy_post_pml")
+  ln_operational_fallback = c("none", "legacy_post_pml"),
+  pgmm_control = NULL
 )
 }
 \arguments{
@@ -121,6 +122,13 @@ and diagnostics when the legacy fit passes its numerical checks; it never
 exposes covariance or inferential output. This option requires
 `model = "LN"`, `ln_estimator = "joint_ln"`, and
 `allow_per_gene_switch = FALSE`.}
+
+\item{pgmm_control}{PGMM main unconstrained `nlminb` budget: a named list
+with positive integer `iter.max` and/or `eval.max`. Missing entries default
+to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
+the earlier optimizer limits. This does not change tolerances, starts,
+constrained/profile fit controls, or retry policy, and is not a total
+fitting-work cap. It applies only to `model = "PGMM"`.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,

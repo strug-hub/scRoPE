@@ -10,6 +10,7 @@ failure_codes <- list(
     invalid_coefficient_transform = "invalid_coefficient_transform"
   ),
   wald = list(
+    optimizer_not_converged = "optimizer_not_converged",
     missing_godambe = "missing_godambe",
     missing_blocks = "missing_blocks",
     singular_S = "singular_S",

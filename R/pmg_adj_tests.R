@@ -23,6 +23,7 @@ pmg_robust_wald <- function(unconstrained,
                             cond_limit = 1e8) {
   beta_hat <- unconstrained$theta$beta
   cov_beta <- unconstrained$robust_cov
+  optimizer_converged <- pmg_optimizer_converged(unconstrained)
 
   if (is.null(beta_hat) || is.null(cov_beta)) {
     return(list(
@@ -32,13 +33,28 @@ pmg_robust_wald <- function(unconstrained,
       ridge = NA_real_,
       method = NA_character_,
       success = FALSE,
-      failure_reason = normalise_failure("missing_godambe", "wald")
+      failure_reason = normalise_failure(
+        if (optimizer_converged) "missing_godambe" else "optimizer_not_converged",
+        "wald"
+      )
     ))
   }
 
   delta <- matrix(as.numeric(L %*% beta_hat - b), ncol = 1)
   cov_psi <- L %*% cov_beta %*% t(L)
   cov_psi <- 0.5 * (cov_psi + t(cov_psi))
+
+  if (!optimizer_converged) {
+    return(list(
+      stat = NA_real_,
+      delta = delta,
+      variance = cov_psi,
+      ridge = NA_real_,
+      method = NA_character_,
+      success = FALSE,
+      failure_reason = normalise_failure("optimizer_not_converged", "wald")
+    ))
+  }
 
   cov_inv_info <- invert_with_ridge(
     cov_psi,

@@ -1,5 +1,5 @@
 test_that("PGMM callers preserve raw status and covariance failures independently", {
-  run_case <- function(caller, backend, raw_code, covariance) {
+  run_case <- function(caller, backend, raw_code, covariance, newton_error = FALSE) {
     env <- new.env(parent = baseenv())
     for (name in c("pmg_optimizer_converged", "pmg_run_bobyqa", "pmg_initial_beta",
                    "pmg_vector_norms", "pmg_reduced_mapping",
@@ -17,7 +17,7 @@ test_that("PGMM callers preserve raw status and covariance failures independentl
     expected_start <- if (caller == "unconstrained") c(0, 0, 1) else c(0, 1)
     make_raw <- function(par) list(
       par = par, convergence = raw_code, message = "mock termination detail",
-      iterations = 11L, evaluations = setNames(c(13L, 7L), c("function", "gradient")),
+      iterations = 11L, iter = 11L, evaluations = setNames(c(13L, 7L), c("function", "gradient")),
       sentinel = "raw return must survive unchanged"
     )
     check_arguments <- function(start, lower, upper) {
@@ -67,12 +67,15 @@ test_that("PGMM callers preserve raw status and covariance failures independentl
       stopifnot(identical(L, matrix(c(0, 1), nrow = 1L)), identical(b, 0))
       list(beta_star = c(0, 0), null_basis = matrix(c(1, 0), ncol = 1L))
     }
-    env$pmg_reduced_newton_diagnostics <- function(H_red, g_red, theta_red) list(
+    env$pmg_reduced_newton_diagnostics <- function(H_red, g_red, theta_red) {
+      if (newton_error) stop("Mock diagnostic failure")
+      list(
       H_red_positive_definite = TRUE, H_red_rcond = 1,
-      newton_step_red = rep(0, length(theta_red)),
+      newton_step_red = rep(0.25, length(theta_red)),
       newton_step_red_max_abs = 0, max_abs_newton_step_scaled = 0,
       gradient_quadratic_lr_bound = 0
-    )
+      )
+    }
     ctx <- list(nb = 2L, intcol = 1L, moffset = 0, min = 0.01, max = 10, k = 3L)
     posv <- list(mct = 1)
     result <- if (caller == "unconstrained") {
@@ -90,6 +93,11 @@ test_that("PGMM callers preserve raw status and covariance failures independentl
               identical(result$raw_fit, observed$expected_raw),
               identical(result$diagnostics$raw_convergence, raw_code),
               identical(result$diagnostics$raw_message, "mock termination detail"),
+              identical(result$diagnostics$optimizer_calls,
+                        c(nlminb = observed$nlminb_calls, bobyqa = observed$bobyqa_calls)),
+              identical(result$diagnostics$optimizer_success,
+                        (backend == "nlminb" && raw_code == 0L) ||
+                        (backend == "bobyqa" && raw_code %in% 1:4)),
               identical(result$convergence, expected_convergence),
               identical(result$diagnostics$retry_used, backend == "bobyqa"),
               identical(result$diagnostics$use_average_objective, FALSE),
@@ -97,6 +105,20 @@ test_that("PGMM callers preserve raw status and covariance failures independentl
               observed$objective_stub_calls == 1L,
               identical(dim(result$naive_cov), c(2L, 2L)),
               identical(dim(result$robust_cov), c(2L, 2L)))
+    expect_identical(result$diagnostics$optimizer_iterations, 11L)
+    expect_identical(result$diagnostics$optimizer_evaluations,
+                     setNames(c(13L, 7L), c("function", "gradient")))
+    expect_identical(result$diagnostics$optimizer_control,
+                     if (backend == "nlminb") list(iter.max = 150L, eval.max = 200L) else NULL)
+    expect_identical(result$diagnostics$model_covariance_finite, covariance != "naive_failure")
+    # Constrained sandwich uses the same reduced-information inverse as model covariance.
+    expect_identical(result$diagnostics$sandwich_covariance_finite,
+                     covariance != "robust_failure" &&
+                     !(caller == "constrained" && covariance == "naive_failure"))
+    if (caller == "unconstrained") {
+      if (newton_error) expect_true(all(is.na(result$diagnostics$newton_step)))
+      else expect_equal(result$diagnostics$newton_step, rep(0.25, 3L))
+    }
     if (backend == "nlminb") {
       # A returned nonzero code with retry=FALSE must not activate fallback.
       stopifnot(observed$nlminb_calls == 1L, observed$bobyqa_calls == 0L)
@@ -131,6 +153,10 @@ test_that("PGMM callers preserve raw status and covariance failures independentl
         }
       }
     }
+  }
+  # A diagnostic failure must not alter an accepted or rejected optimizer result.
+  for (code in c(0L, 1L)) {
+    run_case("unconstrained", "nlminb", code, "present", newton_error = TRUE)
   }
   results <- do.call(rbind, rows)
   expect_equal(nrow(results), 54L)

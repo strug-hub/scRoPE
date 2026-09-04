@@ -37,6 +37,26 @@ pmg_find_within_subject_predictors <- function(pred,
   labels[non_intercept[bad_cols]]
 }
 
+# Coefficient-level Wald availability is separate from the composite fit code:
+# a missing sandwich covariance must not hide a valid model-based Wald result.
+pmg_coefficient_wald <- function(beta, variance, optimizer_converged) {
+  valid_var <- is.finite(variance) & variance > 0
+  stat <- beta^2 / variance
+  finite_stat <- is.finite(stat)
+  success <- optimizer_converged & valid_var & finite_stat
+  failure <- rep(NA_character_, length(stat))
+  failure[!valid_var] <- normalise_failure("singular_cov", "wald")
+  failure[valid_var & !finite_stat] <- normalise_failure("undefined_stat", "wald")
+  failure[!optimizer_converged] <- normalise_failure("optimizer_not_converged", "wald")
+  stat[!success] <- NA_real_
+  list(
+    stat = stat,
+    p_value = pchisq(stat, 1, lower.tail = FALSE),
+    success = success,
+    failure_reason = failure
+  )
+}
+
 scrope_pmg_internal <- function(
     count,
     id,
@@ -60,7 +80,9 @@ scrope_pmg_internal <- function(
     lrt_contrasts = NULL,
     lrt_include_scale = FALSE,
     lrt_details = FALSE,
-    keep_diagnostics = TRUE) {
+    keep_diagnostics = TRUE,
+    pgmm_control = NULL) {
+  pgmm_control <- pmg_resolve_control(pgmm_control)
 
   if (output_re) {
     warning(
@@ -252,7 +274,7 @@ scrope_pmg_internal <- function(
 
   gene_results <- foreach(gene_idx = gid) %dorng% {
     posv <- call_posindy(count, gene_idx - 1, nind)
-    fit <- fit_gene_pmg_unconstrained(gene_idx, posv, ctx)
+    fit <- fit_gene_pmg_unconstrained(gene_idx, posv, ctx, control = pgmm_control)
 
     if ((want_score || want_lrt) && length(contrast_payload) > 0L) {
       adj_res <- pmg_adjusted_contrasts(
@@ -312,6 +334,7 @@ scrope_pmg_internal <- function(
   robust_var_mat <- t(vapply(gene_results, function(gr) diag(gr$robust_cov), numeric(nb)))
   conv_vec <- vapply(gene_results, function(gr) gr$convergence, integer(1))
   optimizer_vec <- vapply(gene_results, function(gr) gr$optimizer, character(1))
+  optimizer_success_vec <- vapply(gene_results, pmg_optimizer_converged, logical(1))
   loglik_vec <- vapply(gene_results, function(gr) gr$loglik, numeric(1))
   algorithm_vec <- rep("PGMM", length(gene_results))
 
@@ -328,6 +351,7 @@ scrope_pmg_internal <- function(
   re_all$convergence <- conv_vec
   re_all$algorithm <- algorithm_vec
   re_all$optimizer <- optimizer_vec
+  re_all$optimizer_success <- optimizer_success_vec
   re_all$loglik <- loglik_vec
   re_all$gene_id <- gid
   re_all$gene <- gname
@@ -335,32 +359,31 @@ scrope_pmg_internal <- function(
   for (j in seq_len(nb)) {
     coef_label <- coef_names[j]
 
-    stat_naive <- (re_all[[beta_names[j]]]^2) / re_all[[naive_var_names[j]]]
-    p_naive_j <- pchisq(stat_naive, 1, lower.tail = FALSE)
-    re_all[[paste0("p_naive_", coef_label)]] <- p_naive_j
-
-    var_robust <- re_all[[robust_var_names[j]]]
-    stat_robust <- (re_all[[beta_names[j]]]^2) / var_robust
-    valid_var <- is.finite(var_robust) & var_robust > 0
-    stat_robust[!valid_var] <- NA_real_
-    p_robust_j <- pchisq(stat_robust, 1, lower.tail = FALSE)
-
-    success_vec <- rep(NA, length(stat_robust))
-    success_vec[valid_var & is.finite(stat_robust)] <- TRUE
-    success_vec[!(valid_var & is.finite(stat_robust))] <- FALSE
-
-    failure_vec <- rep(NA_character_, length(stat_robust))
-    failure_vec[!valid_var] <- normalise_failure("singular_cov", "wald")
-    failure_vec[valid_var & !is.finite(stat_robust)] <- normalise_failure("undefined_stat", "wald")
-
-    re_all[[paste0("p_robust_", coef_label)]] <- p_robust_j
-    re_all[[paste0("wald_stat_", coef_label)]] <- stat_robust
-    re_all[[paste0("wald_success_", coef_label)]] <- success_vec
-    re_all[[paste0("wald_failure_", coef_label)]] <- failure_vec
+    model_wald <- pmg_coefficient_wald(
+      beta = re_all[[beta_names[j]]],
+      variance = re_all[[naive_var_names[j]]],
+      optimizer_converged = optimizer_success_vec
+    )
+    robust_wald <- pmg_coefficient_wald(
+      beta = re_all[[beta_names[j]]],
+      variance = re_all[[robust_var_names[j]]],
+      optimizer_converged = optimizer_success_vec
+    )
+    re_all[[paste0("p_naive_", coef_label)]] <- model_wald$p_value
+    re_all[[paste0("model_wald_stat_", coef_label)]] <- model_wald$stat
+    re_all[[paste0("model_wald_success_", coef_label)]] <- model_wald$success
+    re_all[[paste0("model_wald_failure_", coef_label)]] <- model_wald$failure_reason
+    re_all[[paste0("p_robust_", coef_label)]] <- robust_wald$p_value
+    re_all[[paste0("wald_stat_", coef_label)]] <- robust_wald$stat
+    re_all[[paste0("wald_success_", coef_label)]] <- robust_wald$success
+    re_all[[paste0("wald_failure_", coef_label)]] <- robust_wald$failure_reason
   }
 
   naive_var_cols <- naive_var_names
   robust_var_cols <- robust_var_names
+  # Covariances from an unaccepted endpoint remain in diagnostics$raw only.
+  re_all[!optimizer_success_vec, naive_var_cols] <- NA_real_
+  re_all[!optimizer_success_vec, robust_var_cols] <- NA_real_
   re_all[naive_var_cols] <- sqrt(re_all[naive_var_cols])
   re_all[robust_var_cols] <- sqrt(re_all[robust_var_cols])
 
@@ -473,6 +496,7 @@ scrope_pmg_internal <- function(
 
   status_blocks <- list(
     collect_status_rows("wald_success_", "wald_failure_", "wald", "wald"),
+    collect_status_rows("model_wald_success_", "model_wald_failure_", "wald_model", "wald"),
     collect_status_rows("lrt_success_", "lrt_failure_", "lrt", "lrt"),
     collect_status_rows("score_success_", "score_failure_", "score", "score")
   )

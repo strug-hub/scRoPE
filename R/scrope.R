@@ -144,6 +144,13 @@ scrope_psock_library_paths <- function() {
 #' They do not alter coefficients, dispersions, covariance, tests, or
 #' convergence.
 #'
+#' @param pgmm_control PGMM main unconstrained `nlminb` budget: a named list
+#'   with positive integer `iter.max` and/or `eval.max`. Missing entries default
+#'   to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
+#'   the earlier optimizer limits. This does not change tolerances, starts,
+#'   constrained/profile fit controls, or retry policy, and is not a total
+#'   fitting-work cap. It applies only to `model = "PGMM"`.
+#'
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, optional
 #'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
@@ -184,13 +191,18 @@ scrope <- function(
     keep_diagnostics = TRUE,
     model = c("LN", "HL", "PGMM"),
     ln_estimator = c("legacy_post_pml", "joint_ln"),
-    ln_operational_fallback = c("none", "legacy_post_pml")) {
+    ln_operational_fallback = c("none", "legacy_post_pml"),
+    pgmm_control = NULL) {
   cutoff_cell_missing <- missing(cutoff_cell)
   kappa_missing <- missing(kappa)
   ln_estimator_missing <- missing(ln_estimator)
   ln_estimator <- match.arg(ln_estimator)
   ln_operational_fallback <- match.arg(ln_operational_fallback)
   model <- match.arg(model)
+  if (!identical(model, "PGMM") && !is.null(pgmm_control)) {
+    stop("pgmm_control applies only to model='PGMM'.")
+  }
+  if (identical(model, "PGMM")) pgmm_control <- pmg_resolve_control(pgmm_control)
   if (length(opt) != 1L || is.na(opt) || !opt %in% c("lbfgs", "trust")) {
     stop("opt must be 'lbfgs' or 'trust'.")
   }
@@ -281,7 +293,8 @@ scrope <- function(
       lrt_contrasts = lrt_contrasts,
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
-      keep_diagnostics = keep_diagnostics
+      keep_diagnostics = keep_diagnostics,
+      pgmm_control = pgmm_control
     )
     pgmm_result$provenance <- list(
       schema_version = 2L,
@@ -289,6 +302,12 @@ scrope <- function(
       requested_model = "PGMM",
       effective_model = "PGMM",
       estimator = "pgmm_exact_marginal",
+      optimizer = list(
+        primary_backend = "nlminb",
+        main_control = pgmm_control,
+        scope = "main_unconstrained_fit",
+        retry_requested = FALSE
+      ),
       model_covariance = "pgmm_observed_information",
       robust_covariance = "pgmm_donor_sandwich",
       test_capabilities = data.frame(

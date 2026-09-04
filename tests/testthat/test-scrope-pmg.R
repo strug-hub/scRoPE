@@ -10,6 +10,7 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
+    pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
     cpc = 0,
     mincp = 1,
@@ -93,6 +94,7 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predic
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
+    pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
     cpc = 0,
     mincp = 1
@@ -124,6 +126,7 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for subject-level pre
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
+    pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
     cpc = 0,
     mincp = 1

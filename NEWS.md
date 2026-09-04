@@ -1,10 +1,26 @@
-# scRoPE (development)
+# scRoPE 0.2.5.9001 (development)
 
 - Fixed the PGMM BOBYQA fallback argument to use `x0`. Optimizer acceptance
   now respects each backend's return codes: `nlminb` code 0 and BOBYQA codes
   1 through 4. Budget stops and missing or malformed statuses do not count
   as convergence. Existing fallback triggers and objective ordering remain
   unchanged.
+
+- Public PGMM main fits now use explicit `nlminb` limits of 500 iterations
+  and 500 objective evaluations. `pgmm_control` permits bounded overrides,
+  including the earlier 150/200 limits. Tolerances, starts, constrained-fit
+  controls, and retry policy are unchanged. These limits are a development
+  choice, not a guarantee of convergence or statistical calibration.
+
+- PGMM model and robust Wald statistics, p-values, and standard errors are
+  unavailable when the native optimizer has not converged. New independent
+  optimizer and model-Wald status fields distinguish optimizer failure from
+  covariance failure. Failed endpoints and covariance remain in raw diagnostics.
+
+- PGMM diagnostics retain selected optimizer controls, native iterations and
+  evaluations, attempted optimizer calls, covariance availability, information
+  conditioning, and a scaled Newton correction. The correction is diagnostic
+  only and never updates or certifies an endpoint.
 
 # scRoPE 0.2.5.9000 (development)
 
