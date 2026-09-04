@@ -1,3 +1,30 @@
+# Optimizer return codes are backend-specific. NLopt codes 5 and 6 are
+# budget stops even though they are positive return values.
+pmg_optimizer_converged <- function(fit) {
+  if (!is.list(fit) || !is.list(fit$raw)) {
+    return(FALSE)
+  }
+  code <- fit$raw$convergence
+  if (!is.numeric(code) || is.complex(code) || length(code) != 1L || !is.finite(code) ||
+      code != trunc(code)) {
+    return(FALSE)
+  }
+  if (identical(fit$optimizer, "nlminb")) {
+    return(isTRUE(code == 0))
+  }
+  if (identical(fit$optimizer, "bobyqa")) {
+    return(code %in% c(1L, 2L, 3L, 4L))
+  }
+  FALSE
+}
+
+# Keep nloptr's x0 interface explicit; inject only a mock in contract tests.
+pmg_run_bobyqa <- function(start, objective, lower, upper,
+                           optimizer = nloptr::bobyqa) {
+  ref <- optimizer(x0 = start, fn = objective, lower = lower, upper = upper)
+  list(par = ref$par, optimizer = "bobyqa", raw = ref)
+}
+
 pmg_initial_beta <- function(posv, ctx) {
   start <- rep(0, ctx$nb)
   start[ctx$intcol] <- log(posv$mct) - ctx$moffset
@@ -156,13 +183,12 @@ fit_gene_pmg_unconstrained <- function(gene_index,
 
     run_bobyqa <- function(start_value) {
       tryCatch({
-        ref <- bobyqa(
-          par = start_value,
-          fn = obj_fn,
+        pmg_run_bobyqa(
+          start = start_value,
+          objective = obj_fn,
           lower = lower,
           upper = upper
         )
-        list(par = ref$par, optimizer = "bobyqa", raw = ref)
       }, error = function(e) NULL)
     }
 
@@ -174,18 +200,13 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       )
     }
 
-    raw_converged <- function(fit_try) {
-      conv <- fit_try$raw$convergence
-      is.null(conv) || isTRUE(conv == 0L)
-    }
-
     fits <- list()
     retry_used_actual <- FALSE
     first_fit <- run_nlminb(start_list[[1L]], control_list[[1L]])
     if (!is.null(first_fit)) {
       fits[[length(fits) + 1L]] <- first_fit
     }
-    if (is.null(first_fit) || (isTRUE(retry) && !raw_converged(first_fit))) {
+    if (is.null(first_fit) || (isTRUE(retry) && !pmg_optimizer_converged(first_fit))) {
       retry_used_actual <- TRUE
       for (start_value in start_list) {
         for (control_value in control_list) {
@@ -196,7 +217,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
         }
       }
       has_converged_gradient_fit <- any(vapply(fits, function(fit_try) {
-        identical(fit_try$optimizer, "nlminb") && raw_converged(fit_try)
+        identical(fit_try$optimizer, "nlminb") && pmg_optimizer_converged(fit_try)
       }, logical(1)))
       if (isTRUE(retry) && length(start_list) && !has_converged_gradient_fit) {
         fit_try <- run_bobyqa(start_list[[1L]])
@@ -232,8 +253,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       )
     }, numeric(1))
     fit_convergence_rank <- vapply(fits, function(fit_try) {
-      conv <- fit_try$raw$convergence
-      if (is.null(conv) || isTRUE(conv == 0L)) 0L else 1L
+      if (pmg_optimizer_converged(fit_try)) 0L else 1L
     }, integer(1))
     fit <- fits[[order(fit_objective, fit_convergence_rank)[[1L]]]]
 
@@ -275,8 +295,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
     )
 
     convergence <- 1L
-    conv_raw <- fit$raw$convergence
-    if (!is.null(conv_raw) && conv_raw != 0) {
+    if (!pmg_optimizer_converged(fit)) {
       convergence <- -50L
     }
     if (all(is.na(naive_cov_full))) {
@@ -529,13 +548,12 @@ fit_gene_pmg_constrained <- function(gene_index,
 
     run_bobyqa <- function(start_value) {
       tryCatch({
-        ref <- bobyqa(
-          par = start_value,
-          fn = obj_fn,
+        pmg_run_bobyqa(
+          start = start_value,
+          objective = obj_fn,
           lower = lower_theta,
           upper = upper_theta
         )
-        list(par = ref$par, optimizer = "bobyqa", raw = ref)
       }, error = function(e) NULL)
     }
 
@@ -547,18 +565,13 @@ fit_gene_pmg_constrained <- function(gene_index,
       )
     }
 
-    raw_converged <- function(fit_try) {
-      conv <- fit_try$raw$convergence
-      is.null(conv) || isTRUE(conv == 0L)
-    }
-
     fits <- list()
     retry_used_actual <- FALSE
     first_fit <- run_nlminb(start_list[[1L]], control_list[[1L]])
     if (!is.null(first_fit)) {
       fits[[length(fits) + 1L]] <- first_fit
     }
-    if (is.null(first_fit) || (isTRUE(retry) && !raw_converged(first_fit))) {
+    if (is.null(first_fit) || (isTRUE(retry) && !pmg_optimizer_converged(first_fit))) {
       retry_used_actual <- TRUE
       for (start_value in start_list) {
         for (control_value in control_list) {
@@ -569,7 +582,7 @@ fit_gene_pmg_constrained <- function(gene_index,
         }
       }
       has_converged_gradient_fit <- any(vapply(fits, function(fit_try) {
-        identical(fit_try$optimizer, "nlminb") && raw_converged(fit_try)
+        identical(fit_try$optimizer, "nlminb") && pmg_optimizer_converged(fit_try)
       }, logical(1)))
       if (isTRUE(retry) && length(start_list) && !has_converged_gradient_fit) {
         fit_try <- run_bobyqa(start_list[[1L]])
@@ -619,8 +632,7 @@ fit_gene_pmg_constrained <- function(gene_index,
       NA_real_
     }
     fit_convergence_rank <- vapply(fits, function(fit_try) {
-      conv <- fit_try$raw$convergence
-      if (is.null(conv) || isTRUE(conv == 0L)) 0L else 1L
+      if (pmg_optimizer_converged(fit_try)) 0L else 1L
     }, integer(1))
     fit <- fits[[order(fit_objective, fit_convergence_rank)[[1L]]]]
 
@@ -700,8 +712,7 @@ fit_gene_pmg_constrained <- function(gene_index,
     }
 
     convergence <- 1L
-    conv_raw <- fit$raw$convergence
-    if (!is.null(conv_raw) && conv_raw != 0) {
+    if (!pmg_optimizer_converged(fit)) {
       convergence <- -50L
     }
     if (all(is.na(naive_cov_beta))) {

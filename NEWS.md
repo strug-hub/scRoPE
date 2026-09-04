@@ -1,3 +1,11 @@
+# scRoPE (development)
+
+- Fixed the PGMM BOBYQA fallback argument to use `x0`. Optimizer acceptance
+  now respects each backend's return codes: `nlminb` code 0 and BOBYQA codes
+  1 through 4. Budget stops and missing or malformed statuses do not count
+  as convergence. Existing fallback triggers and objective ordering remain
+  unchanged.
+
 # scRoPE 0.2.5.9000 (development)
 
 - Joint-LN can now use one bounded review to recognize an additional optimizer
