@@ -40,7 +40,7 @@ test_that("top-level HL dispatch exactly matches the compatibility wrapper", {
   expect_true(all(is.finite(residual$residuals)))
 })
 
-test_that("adding the route selector preserves the default legacy LN call", {
+test_that("adding the route selector preserves the default joint LN call", {
   fx <- ln_joint_test_fixture()
   args <- list(
     count = fx$count,
@@ -59,14 +59,16 @@ test_that("adding the route selector preserves the default legacy LN call", {
   set.seed(20260723)
   explicit <- do.call(scrope, c(args, list(
     model = "LN",
-    ln_estimator = "legacy_post_pml"
+    ln_estimator = "joint_ln"
   )))
 
-  expect_identical(implicit, explicit)
+  expect_identical(implicit$summary, explicit$summary)
+  expect_identical(implicit$overdispersion, explicit$overdispersion)
+  expect_identical(implicit$availability, explicit$availability)
   expect_identical(implicit$provenance$route, "LN")
   expect_identical(
     implicit$provenance$inference_policy,
-    "legacy_compatibility_output"
+    "joint_ln_same_basin_wald_calibration_candidate"
   )
 })
 
@@ -144,14 +146,14 @@ test_that("HL dispatch rejects LN-only routing controls", {
   )
 
   expect_error(
-    do.call(scrope, c(base, list(ln_estimator = "joint_ln"))),
-    "ln_estimator applies only"
+    do.call(scrope, c(base, list(ln_estimator = "legacy_post_pml"))),
+    "retired"
   )
   expect_error(
     do.call(scrope, c(base, list(
       ln_operational_fallback = "legacy_post_pml"
     ))),
-    "applies only to model='LN'"
+    "retired"
   )
   expect_error(
     do.call(scrope, c(base, list(allow_per_gene_switch = TRUE))),
@@ -211,30 +213,21 @@ test_that("PGMM dispatch rejects LN-only controls and warns for no-op outputs", 
   expect_null(fit$random_effect)
 })
 
-test_that("skipped legacy optional tests warn and record the fit-specific reason", {
-  fx <- ln_joint_test_fixture()
-  expect_warning(
-    fit <- scrope(
-      count = fx$count,
-      id = fx$id,
-      pred = fx$pred,
-      offset = fx$offset,
-      verbose = FALSE,
-      cpc = 0,
-      mincp = 1,
-      ncore = 1L,
-      opt = "trust",
-      additional_tests = c("score", "lrt"),
-      lrt_details = TRUE,
-      keep_diagnostics = FALSE
-    ),
-    "require opt='lbfgs'"
-  )
+test_that("optional tests cannot reactivate retired legacy dispatch", {
+  for (opt in c("lbfgs", "trust")) {
+    expect_error(scrope(ln_estimator = "legacy_post_pml", opt = opt,
+                        additional_tests = c("score", "lrt")), "retired")
+  }
+})
 
-  capabilities <- fit$provenance$test_capabilities
-  expect_identical(
-    capabilities$status[capabilities$test %in% c("score", "lrt")],
-    rep("not_computed_opt_requires_lbfgs", 2L)
+test_that("shared default estimator is inert for explicit non-LN routes", {
+  local_mocked_bindings(
+    hl_fo_public_scrope_hl = function(...) list(route = "HL"),
+    scrope_pmg_internal = function(...) list(route = "PGMM"),
+    .package = "scRoPE"
   )
-  expect_null(fit$lrt_details)
+  for (model in c("HL", "PGMM")) {
+    expect_identical(scrope(NULL, NULL, model = model),
+                     scrope(NULL, NULL, model = model, ln_estimator = "joint_ln"))
+  }
 })

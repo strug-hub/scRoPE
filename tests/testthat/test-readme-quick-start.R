@@ -1,4 +1,4 @@
-test_that("README quick-start LN example completes with adjusted tests", {
+test_that("README quick-start PGMM example completes with adjusted tests", {
   data(sample_data)
 
   design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
@@ -8,6 +8,7 @@ test_that("README quick-start LN example completes with adjusted tests", {
       sample_data$count,
       sample_data$sid,
       pred = design,
+      model = "PGMM",
       ncore = 1,
       additional_tests = c("score", "lrt"),
       lrt_details = TRUE
@@ -28,7 +29,7 @@ test_that("README quick-start LN example completes with adjusted tests", {
   ) %in% names(fit$summary)))
 })
 
-test_that("README joint-LN opt-in exposes Wald and calibration-pending tests", {
+test_that("README explicit joint-LN exposes Wald and calibration-pending tests", {
   data(sample_data)
   design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
 

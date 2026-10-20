@@ -677,30 +677,7 @@ test_that("audit-only Score diagnostics do not change joint Wald or public Score
   ))
 })
 
-test_that("joint-LN Score diagnostics leave legacy post-PML behavior unchanged", {
-  fx <- .ln_score_focused_case()$tested$fx
-  args <- list(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1L,
-    output_re = TRUE
-  )
-  legacy_default <- suppressWarnings(do.call(scrope, args))
-  legacy_explicit <- suppressWarnings(do.call(
-    scrope,
-    c(args, list(ln_estimator = "legacy_post_pml"))
-  ))
-
-  expect_equal(legacy_default$summary, legacy_explicit$summary, tolerance = 0)
-  expect_equal(legacy_default$overdispersion,
-               legacy_explicit$overdispersion, tolerance = 0)
-  expect_equal(legacy_default$random_effect,
-               legacy_explicit$random_effect, tolerance = 0)
-  expect_identical(legacy_default$provenance$per_gene$route, "R1")
-  expect_identical(legacy_explicit$provenance$per_gene$route, "R1")
+test_that("requesting Score does not restore the retired legacy estimator", {
+  expect_error(scrope(ln_estimator = "legacy_post_pml",
+                      additional_tests = "score"), "retired")
 })

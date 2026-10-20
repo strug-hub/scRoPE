@@ -33,17 +33,16 @@ scrope_psock_library_paths <- function() {
 #' @param ncore Number of cores for parallel processing.
 #' @param fmaxsize Maximum future.globals size (in bytes) when using parallel execution.
 #' @param cutoff_cell Threshold (cells per subject × phi) below which legacy LN
-#'   refinement is triggered. Non-default values are unavailable outside the
-#'   legacy LN route.
-#' @param kappa Kappa threshold for adaptive legacy LN refinement. This argument
-#'   is unavailable outside the legacy LN route when set to a non-default value.
-#' @param allow_per_gene_switch Logical; allow legacy per-gene LN/HL switching.
-#'   Defaults to `FALSE` so one requested route is used for every gene. This is
-#'   unavailable for `model = "HL"`, `model = "PGMM"`, and joint-LN.
-#' @param use_betas Which fixed-effect anchor to use in LN variance-refinement
-#'   starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
-#'   `"final_betas"` uses the LN optimizer coefficients. The non-default option
-#'   is unavailable for PGMM and ignored with a warning by first-order HL.
+#'   refinement was triggered. Retained for compatibility and ignored by joint-LN;
+#'   non-default values are rejected by HL and PGMM.
+#' @param kappa Retired legacy LN refinement threshold. Ignored by joint-LN;
+#'   non-default values are rejected by HL and PGMM.
+#' @param allow_per_gene_switch Retained compatibility argument; must be `FALSE`.
+#'   One requested route is used for every gene.
+#' @param use_betas Retired legacy LN variance-refinement anchor, retained for
+#'   compatibility and ignored by joint-LN. Accepts `"betae"` or `"final_betas"`.
+#'   The non-default option is unavailable for PGMM and ignored with a warning
+#'   by first-order HL.
 #' @param output_re Logical; return subject-level random effects. PGMM does not
 #'   currently support this output and warns before returning `NULL`.
 #' @param additional_tests Optional character vector selecting extra
@@ -72,38 +71,28 @@ scrope_psock_library_paths <- function() {
 #'   PGMM supports subject- and cell-level fixed effects but omits separate
 #'   cell-level overdispersion, so robust results are preferred for cell-level
 #'   predictors. No route is silently changed to another route.
-#' @param ln_estimator LN estimator. `"legacy_post_pml"` is the default and
-#'   preserves the released post-PML behavior. `"joint_ln"` is opt-in and
-#'   estimates coefficients and dispersions together. It returns model-based
-#'   and donor-robust Wald inference from the certified selected root for genes
-#'   that pass its numerical checks, including a bounded same-basin review in
-#'   the 0.2.5.9000 calibration-candidate build. Boundary, distinct-basin,
-#'   hard-stop, and unresolved cases retain missing uncertainty and test fields.
-#'   This argument applies only when `model = "LN"`.
-#' @param ln_operational_fallback Optional independent legacy fallback for
-#'   joint-LN fits. `"none"` (the default) performs no fallback fitting.
-#'   `"legacy_post_pml"` independently refits a gene when joint-LN inference is
-#'   unavailable because a dispersion estimate reached its allowed boundary.
-#'   The sidecar exposes only an operational legacy coefficient, dispersions,
-#'   and diagnostics when the legacy fit passes its numerical checks; it never
-#'   exposes covariance or inferential output. This option requires
-#'   `model = "LN"`, `ln_estimator = "joint_ln"`, and
-#'   `allow_per_gene_switch = FALSE`.
+#' @param ln_estimator LN estimator. `"joint_ln"` is the default and the only
+#'   maintained LN estimator. It jointly estimates coefficients and dispersions
+#'   and returns model-based and donor-robust Wald inference for genes passing
+#'   its numerical checks. `"legacy_post_pml"` is retired and raises an error.
+#'   This selector only controls `model = "LN"`; its default is also accepted
+#'   by the other routes as a shared-signature compatibility argument.
+#' @param ln_operational_fallback Retained compatibility argument; only `"none"`
+#'   is supported. `"legacy_post_pml"` raises an error. Unavailable joint-LN
+#'   inference is never replaced with a legacy fit.
 #'
 #' @details
-#' The public default remains `ln_estimator = "legacy_post_pml"`. The opt-in
-#' `"joint_ln"` estimator jointly estimates fixed effects and dispersions from
-#' the LN approximate marginal criterion. It reports a numerically verified
+#' The default `"joint_ln"` estimator jointly estimates fixed effects and
+#' dispersions from the LN approximate marginal criterion. It reports a numerically verified
 #' local solution; global uniqueness is not claimed.
 #'
-#' In the 0.2.5.9000 calibration-candidate build, an extra nearby uncertified
-#' endpoint may undergo one bounded same-basin review. A resolved endpoint is
+#' An extra nearby uncertified endpoint may undergo one bounded same-basin
+#' review. A resolved endpoint is
 #' not certified and never replaces the selected root. It only removes that
 #' endpoint's veto; estimates, model-based covariance, donor-robust covariance,
 #' and Wald inference remain functions of the fully certified selected root.
-#' The original strict decision is retained in per-gene provenance. This build
-#' is intended for simulation calibration and is not a calibrated public
-#' release.
+#' The original strict decision is retained in per-gene provenance. These
+#' numerical checks do not establish asymptotic calibration.
 #'
 #' Because the three routes share one function signature, non-LN routes accept
 #' explicit default values of LN-only compatibility arguments. A non-default
@@ -120,24 +109,16 @@ scrope_psock_library_paths <- function() {
 #' obtain genuine test success from a positive raw likelihood difference.
 #' Raw quantities may be retained as diagnostics when inference is unavailable.
 #'
-#' When the fallback is requested, eligible genes are independently refitted
-#' with the default legacy estimator. A successful fallback exposes only the
-#' operational coefficient and dispersions from that fit. It is judged by its
-#' own numerical checks and never overwrites the primary joint-LN result.
+#' Legacy-LN fitting and its operational fallback are retired. Historical
+#' reproduction requires the exact preserved package version recorded for the
+#' analysis (0.2.5.9005 or earlier); explicit legacy requests are never redirected
+#' to joint-LN.
 #'
-#' The separate `operational_fallback` component contains per-gene fallback
-#' status, a long coefficient table, fitted dispersions, and technical
-#' diagnostics. Use `fallback_status == "coefficient_available"` and
-#' `coefficient_available` to identify an operational point estimate.
-#' `inference_supported` is always `FALSE`; there are deliberately no fallback
-#' covariance, standard-error, test-statistic, p-value, or q-value fields.
-#'
-#' For joint-LN, `availability` gives exactly one row per analyzed gene/request.
-#' Its three states are `"inference"` for certified primary Wald inference,
-#' `"estimate_only"` for an explicitly requested successful operational
-#' coefficient with no uncertainty, and `"unavailable"`. A finite diagnostic
-#' joint-LN endpoint is never promoted to `"estimate_only"`. One consolidated
-#' availability warning is emitted when any row lacks primary inference.
+#' For joint-LN, `availability` gives exactly one row per analyzed gene/request:
+#' `"inference"` for certified primary Wald inference, or `"unavailable"`.
+#' A finite diagnostic endpoint is never promoted to an operational estimate.
+#' One consolidated availability warning is emitted when any row lacks primary
+#' inference.
 #' Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
 #' `inference_status`, `strict_inference_status`,
 #' `enabled_inference_status`, `resolution_status`, `inference_source`,
@@ -149,8 +130,7 @@ scrope_psock_library_paths <- function() {
 #' `route`, `inference_available`, and `failure_reason` fields are retained for
 #' compatibility.
 #'
-#' FDR control for joint-LN Score/Pace/LRT remains calibration-pending. The
-#' fallback cannot enter an FDR procedure because it contains no p-values.
+#' FDR control for joint-LN Score/Pace/LRT remains calibration-pending.
 #' Internal route codes and numerical checks are retained only in provenance
 #' and diagnostics.
 #'
@@ -169,13 +149,8 @@ scrope_psock_library_paths <- function() {
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, optional
 #'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-#'   and, for joint-LN, the one-row-per-gene `availability` table and, only when
-#'   requested, `operational_fallback`. The availability table applies the
-#'   precedence certified primary inference, requested successful operational
-#'   coefficient, then unavailable. The fallback component contains `per_gene`
-#'   status, long `coefficients`, `overdispersion`, and technical `diagnostics`,
-#'   all explicitly marked as inference-unsupported. Fallback values never
-#'   overwrite the primary result fields.
+#'   and, for joint-LN, the one-row-per-gene `availability` table. No legacy
+#'   operational fallback component is generated.
 #'
 #' @useDynLib scRoPE, .registration = TRUE
 #' @importFrom Rcpp evalCpp
@@ -205,14 +180,32 @@ scrope <- function(
     lrt_details = FALSE,
     keep_diagnostics = TRUE,
     model = c("LN", "HL", "PGMM"),
-    ln_estimator = c("legacy_post_pml", "joint_ln"),
-    ln_operational_fallback = c("none", "legacy_post_pml"),
+    ln_estimator = "joint_ln",
+    ln_operational_fallback = "none",
     pgmm_control = NULL) {
   cutoff_cell_missing <- missing(cutoff_cell)
   kappa_missing <- missing(kappa)
-  ln_estimator_missing <- missing(ln_estimator)
-  ln_estimator <- match.arg(ln_estimator)
-  ln_operational_fallback <- match.arg(ln_operational_fallback)
+  ln_estimator <- match.arg(ln_estimator, c("joint_ln", "legacy_post_pml"))
+  ln_operational_fallback <- match.arg(
+    ln_operational_fallback, c("none", "legacy_post_pml")
+  )
+  if (identical(ln_estimator, "legacy_post_pml")) {
+    stop(paste0(
+      "ln_estimator='legacy_post_pml' is retired. Use ",
+      "scrope(..., model='LN', ln_estimator='joint_ln') for maintained LN fits. ",
+      "To reproduce historical legacy results, use the exact preserved scRoPE ",
+      "version recorded for that analysis (0.2.5.9005 or earlier)."
+    ), call. = FALSE)
+  }
+  if (identical(ln_operational_fallback, "legacy_post_pml")) {
+    stop(paste0(
+      "ln_operational_fallback='legacy_post_pml' is retired. Use ",
+      "ln_operational_fallback='none'; unavailable joint-LN inference remains ",
+      "unavailable. To reproduce historical fallback results, use the exact ",
+      "preserved scRoPE version recorded for that analysis ",
+      "(0.2.5.9005 or earlier)."
+    ), call. = FALSE)
+  }
   model <- match.arg(model)
   if (!identical(model, "PGMM") && !is.null(pgmm_control)) {
     stop("pgmm_control applies only to model='PGMM'.")
@@ -227,12 +220,6 @@ scrope <- function(
   }
 
   if (identical(model, "HL")) {
-    if (!identical(ln_operational_fallback, "none")) {
-      stop("ln_operational_fallback applies only to model='LN'.")
-    }
-    if (!ln_estimator_missing && !identical(ln_estimator, "legacy_post_pml")) {
-      stop("ln_estimator applies only to model='LN'; do not request joint_ln for HL.")
-    }
     if (isTRUE(allow_per_gene_switch)) {
       stop("allow_per_gene_switch is unavailable for model='HL'; the requested HL route is used for every gene.")
     }
@@ -267,12 +254,6 @@ scrope <- function(
   }
 
   if (identical(model, "PGMM")) {
-    if (!identical(ln_operational_fallback, "none")) {
-      stop("ln_operational_fallback applies only to model='LN'.")
-    }
-    if (!ln_estimator_missing && !identical(ln_estimator, "legacy_post_pml")) {
-      stop("ln_estimator applies only to model='LN'; do not request joint_ln for PGMM.")
-    }
     if (isTRUE(allow_per_gene_switch)) {
       stop("allow_per_gene_switch is unavailable for model='PGMM'.")
     }
@@ -335,20 +316,6 @@ scrope <- function(
     return(pgmm_result)
   }
 
-  if (!identical(ln_operational_fallback, "none") &&
-      !identical(ln_estimator, "joint_ln")) {
-    stop(paste0(
-      "ln_operational_fallback='legacy_post_pml' requires ",
-      "ln_estimator='joint_ln'."
-    ))
-  }
-  if (!identical(ln_operational_fallback, "none") &&
-      isTRUE(allow_per_gene_switch)) {
-    stop(paste0(
-      "ln_operational_fallback='legacy_post_pml' does not support ",
-      "allow_per_gene_switch=TRUE."
-    ))
-  }
   if (identical(ln_estimator, "joint_ln") && isTRUE(allow_per_gene_switch)) {
     stop("ln_estimator='joint_ln' does not support allow_per_gene_switch=TRUE.")
   }
@@ -952,43 +919,6 @@ scrope <- function(
 
     unconstrained
     })()
-  }
-
-  fallback_eligibility <- NULL
-  fallback_results <- NULL
-  if (identical(ln_operational_fallback, "legacy_post_pml")) {
-    fallback_eligibility <- lapply(
-      gene_results,
-      ln_operational_fallback_eligibility
-    )
-    fallback_ctx <- ctx
-    fallback_ctx$ln_estimator <- "legacy_post_pml"
-    fallback_ctx$allow_per_gene_switch <- FALSE
-    fallback_ctx$output_re <- FALSE
-    fallback_results <- foreach(
-      fallback_position = seq_along(gid),
-      .options.RNG = 20260721L
-    ) %dorng% {
-      if (!isTRUE(fallback_eligibility[[fallback_position]]$eligible)) {
-        ln_operational_empty_assessment()
-      } else {
-        fallback_gene <- gid[[fallback_position]]
-        tryCatch({
-          fallback_posv <- call_posindy(count, fallback_gene - 1L, nind)
-          ln_operational_attempt_gene(
-            fallback_gene,
-            fallback_posv,
-            fallback_ctx
-          )
-        }, error = function(e) {
-          fallback_error <- ln_operational_empty_assessment("legacy_fit_error")
-          fallback_error$diagnostics <- list(
-            error_message = conditionMessage(e)
-          )
-          fallback_error
-        })
-      }
-    }
   }
 
   if (ncore > 1) {
@@ -1697,39 +1627,16 @@ scrope <- function(
     result_list$lrt_details <- NULL
   }
 
-  if (identical(ln_operational_fallback, "legacy_post_pml")) {
-    fallback_terms <- if (is.null(predn)) {
-      paste0("X", seq_len(nb))
-    } else {
-      predn
-    }
-    result_list$operational_fallback <- ln_operational_build_sidecar(
-      primary_results = gene_results,
-      eligibility = fallback_eligibility,
-      fallback_results = fallback_results,
-      gid = gid,
-      gene_names = gname[gid],
-      term_names = fallback_terms,
-      ctx = ctx
-    )
-  }
-
   if (identical(ln_estimator, "joint_ln")) {
-    operational_fallback <- if (
-        "operational_fallback" %in% names(result_list)) {
-      result_list$operational_fallback
-    } else {
-      NULL
-    }
     result_list$availability <- ln_availability_build(
       primary_results = gene_results,
       gid = gid,
       gene_names = gname[gid],
-      operational_fallback = operational_fallback
+      operational_fallback = NULL
     )
     ln_availability_warn(
       result_list$availability,
-      operational_fallback_requested = !is.null(operational_fallback)
+      operational_fallback_requested = FALSE
     )
   }
 

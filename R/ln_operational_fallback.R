@@ -288,15 +288,12 @@ ln_operational_assess_legacy_fit <- function(legacy_fit, ctx) {
 }
 
 ln_operational_attempt_gene <- function(gene_index, posv, ctx) {
-  ctx$debug_env <- new.env(parent = emptyenv())
-  tryCatch({
-    legacy_fit <- fit_gene_unconstrained(gene_index, posv, ctx)
-    ln_operational_assess_legacy_fit(legacy_fit, ctx)
-  }, error = function(e) {
-    result <- ln_operational_empty_assessment("legacy_fit_error")
-    result$diagnostics <- list(error_message = conditionMessage(e))
-    result
-  })
+  stop(paste0(
+    "The legacy-LN operational fallback is retired. Use ",
+    "ln_operational_fallback='none'. For historical reproduction, use the ",
+    "exact preserved scRoPE version recorded for the analysis ",
+    "(0.2.5.9005 or earlier)."
+  ), call. = FALSE)
 }
 
 ln_operational_build_sidecar <- function(primary_results, eligibility,

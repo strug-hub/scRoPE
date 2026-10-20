@@ -1,3 +1,5 @@
+# These pure helper checks preserve interpretation of historical sidecars.
+# Current fitting APIs never create or execute a legacy operational fallback.
 ln_operational_test_ctx <- function(O = diag(2L)) {
   list(
     nb = nrow(O),
@@ -186,82 +188,6 @@ ln_operational_expect_cross_run_identical <- function(left, right) {
   )
 }
 
-test_that("operational fallback API is opt-in and none preserves primary", {
-  fx <- ln_joint_test_fixture()
-  joint_args <- list(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln"
-  )
-
-  set.seed(20260721)
-  default_none <- expect_no_warning(do.call(scrope, joint_args))
-  set.seed(20260721)
-  explicit_none <- expect_no_warning(do.call(
-    scrope,
-    c(joint_args, list(ln_operational_fallback = "none"))
-  ))
-  ln_operational_expect_cross_run_identical(default_none, explicit_none)
-  expect_false("operational_fallback" %in% names(default_none))
-
-  set.seed(20260721)
-  enabled <- expect_no_warning(do.call(
-    scrope,
-    c(joint_args, list(ln_operational_fallback = "legacy_post_pml"))
-  ))
-  expect_identical(enabled$provenance$per_gene$route, "R0")
-  expect_false(enabled$operational_fallback$inference_supported)
-  ln_operational_expect_no_inference_payload(enabled$operational_fallback)
-  primary_enabled <- enabled
-  primary_enabled$operational_fallback <- NULL
-  ln_operational_expect_cross_run_identical(primary_enabled, default_none)
-
-  expect_error(
-    do.call(scrope, c(
-      joint_args,
-      list(ln_operational_fallback = "unsupported")
-    )),
-    "should be one of"
-  )
-
-  legacy_args <- joint_args
-  legacy_args$ln_estimator <- "legacy_post_pml"
-  expect_error(
-    do.call(scrope, c(
-      legacy_args,
-      list(ln_operational_fallback = "legacy_post_pml")
-    )),
-    "requires ln_estimator='joint_ln'"
-  )
-
-  switching_args <- joint_args
-  switching_args$allow_per_gene_switch <- TRUE
-  expect_error(
-    do.call(scrope, c(
-      switching_args,
-      list(ln_operational_fallback = "legacy_post_pml")
-    )),
-    "does not support allow_per_gene_switch=TRUE"
-  )
-
-  pgmm_args <- joint_args
-  pgmm_args$model <- "PGMM"
-  pgmm_args$ln_estimator <- NULL
-  expect_error(
-    do.call(scrope, c(
-      pgmm_args,
-      list(ln_operational_fallback = "legacy_post_pml")
-    )),
-    "applies only to model='LN'"
-  )
-})
 
 test_that("fallback trigger preserves primary R2 boundary selection", {
   eligible <- ln_operational_fallback_eligibility(
@@ -344,50 +270,6 @@ test_that("fallback trigger preserves primary R2 boundary selection", {
   )$eligible)
 })
 
-test_that("legacy assessment returns coefficient and dispersion without covariance", {
-  fx <- ln_joint_test_fixture()
-  prep <- ln_joint_prepare_fixture(fx)
-  prep$ctx$ln_estimator <- "legacy_post_pml"
-  prep$ctx$output_re <- FALSE
-  prep$ctx$debug_env <- new.env(parent = emptyenv())
-  legacy_gene <- fit_gene_unconstrained(1L, prep$posv, prep$ctx)
-
-  legacy_gene$godambe <- NULL
-  robust_slots <- 2L * prep$ctx$nb + 2L + seq_len(prep$ctx$nb)
-  legacy_gene$vec[robust_slots] <- NA_real_
-  assessment <- ln_operational_assess_legacy_fit(legacy_gene, prep$ctx)
-  expect_true(assessment$coefficient_available)
-  expect_false(assessment$inference_supported)
-  expect_identical(
-    assessment$inference_status,
-    "unsupported_operational_coefficient_only"
-  )
-  ln_operational_expect_no_inference_payload(assessment)
-
-  public_legacy <- suppressWarnings(scrope(
-    fx$count,
-    fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    keep_diagnostics = TRUE,
-    ln_estimator = "legacy_post_pml"
-  ))
-  terms <- colnames(fx$pred)
-  expect_equal(
-    assessment$beta_public,
-    as.numeric(public_legacy$summary[1L, paste0("logFC_", terms)]),
-    tolerance = 1e-10
-  )
-  expect_equal(
-    c(assessment$subject, assessment$cell),
-    as.numeric(public_legacy$overdispersion[1L, ]),
-    tolerance = 1e-10
-  )
-})
 
 test_that("legacy assessment transforms coefficients and labels route class", {
   O <- matrix(c(1, 0.5, -0.25, 2), 2L, 2L, byrow = TRUE)
@@ -737,436 +619,46 @@ ln_operational_capture_warnings <- function(expr) {
   list(value = value, messages = messages)
 }
 
-test_that("public fallback is primary-isolated and coefficient-only", {
-  fx <- ln_joint_test_fixture()
-  original_joint <- getFromNamespace(
-    "fit_gene_joint_ln_unconstrained",
-    "scRoPE"
-  )
+test_that("none preserves primary and never invokes legacy fallback helpers", {
   local_mocked_bindings(
-    fit_gene_joint_ln_unconstrained =
-      ln_operational_force_failed_joint_primary(original_joint),
+    ln_operational_fallback_eligibility = function(...) stop("fallback invoked"),
+    ln_operational_attempt_gene = function(...) stop("fallback invoked"),
     .package = "scRoPE"
   )
-  args <- list(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    output_re = TRUE,
-    additional_tests = c("score", "lrt"),
-    lrt_details = TRUE,
-    keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln"
-  )
+  fx <- ln_joint_test_fixture()
+  args <- list(count = fx$count, id = fx$id, pred = fx$pred, offset = fx$offset,
+               verbose = FALSE, cpc = 0, mincp = 1, output_re = TRUE)
   set.seed(20260721)
-  primary_capture <- ln_operational_capture_warnings(do.call(
-    scrope,
-    c(args, list(ln_operational_fallback = "none"))
-  ))
-  primary <- primary_capture$value
-  expect_length(primary_capture$messages, 1L)
-  expect_match(
-    primary_capture$messages,
-    "Joint-LN inference was unavailable for 1 gene"
-  )
-  expect_match(
-    primary_capture$messages,
-    "operational coefficients remain unavailable for 1"
-  )
+  default <- do.call(scrope, args)
   set.seed(20260721)
-  enabled_capture <- ln_operational_capture_warnings(do.call(
-    scrope,
-    c(args, list(ln_operational_fallback = "legacy_post_pml"))
-  ))
-  enabled <- enabled_capture$value
-  expect_length(enabled_capture$messages, 1L)
-  expect_match(
-    enabled_capture$messages,
-    "Joint-LN inference was unavailable for 1 gene"
-  )
-  expect_match(
-    enabled_capture$messages,
-    "operational coefficients are available for 1"
-  )
-  expect_match(
-    enabled_capture$messages,
-    "operational coefficients remain unavailable for 0"
-  )
-  expect_match(
-    enabled_capture$messages,
-    "coefficients, dispersions, and diagnostics only"
-  )
-  expect_match(enabled_capture$messages, "provides no covariance")
-
-  primary_enabled <- enabled
-  primary_enabled$operational_fallback <- NULL
-  expect_identical(
-    primary_enabled$availability$availability,
-    "estimate_only"
-  )
-  expect_identical(primary$availability$availability, "unavailable")
-  primary_enabled$availability <- NULL
-  primary_without_availability <- primary
-  primary_without_availability$availability <- NULL
-  ln_operational_expect_cross_run_identical(
-    primary_enabled,
-    primary_without_availability
-  )
-  expect_identical(primary$provenance$per_gene$route, "R2")
-  expect_identical(primary$convergence, -70)
-  primary_inference_columns <- grep(
-    "^se_|^p_naive_|^p_robust_|^wald_stat_",
-    names(primary$summary),
-    value = TRUE
-  )
-  expect_true(all(is.na(as.matrix(
-    primary$summary[primary_inference_columns]
-  ))))
-  expect_true(all(!primary$lrt_details$success))
-  expect_true(all(!primary$lrt_details$score_success))
-  expect_true(all(
-    primary$lrt_details$failure_reason == "joint_ln_calibration_pending"
-  ))
-
-  sidecar <- enabled$operational_fallback
-  per_gene <- sidecar$per_gene
-  expect_true(per_gene$fallback_attempted)
-  expect_true(per_gene$coefficient_available)
-  expect_identical(per_gene$fallback_status, "coefficient_available")
-  expect_true(per_gene$fallback_route_class %in%
-    c("uncertified", "rescued", "boundary", "rescued_boundary"))
-  expect_identical(
-    per_gene$fallback_estimator,
-    "legacy_post_pml_operational_coefficient"
-  )
-  expect_identical(
-    per_gene$fallback_role,
-    "coefficient_dispersion_diagnostics_only"
-  )
-  expect_false(per_gene$inference_supported)
-  expect_false(sidecar$inference_supported)
-  expect_false("summary" %in% names(sidecar))
-  ln_operational_expect_no_inference_payload(sidecar)
-
-  eligibility <- sidecar$diagnostics$per_gene[[1L]]$eligibility
-  expect_true(eligibility$eligible)
-  expect_false(eligibility$primary_joint_candidate_checks[["root"]])
-  expect_false(eligibility$primary_joint_candidate_checks[["newton"]])
-  expect_false(eligibility$primary_joint_candidate_checks[["interior"]])
-  expect_true(eligibility$joint_root_or_newton_failure)
-
-  independent <- suppressWarnings(scrope(
-    fx$count,
-    fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    output_re = FALSE,
-    keep_diagnostics = TRUE,
-    ln_estimator = "legacy_post_pml"
-  ))
-  terms <- colnames(fx$pred)
-  expect_equal(
-    sidecar$coefficients$estimate,
-    as.numeric(independent$summary[paste0("logFC_", terms)]),
-    tolerance = 1e-10
-  )
-  expect_equal(
-    as.numeric(sidecar$overdispersion[c("Subject", "Cell")]),
-    as.numeric(independent$overdispersion[c("Subject", "Cell")]),
-    tolerance = 1e-10
-  )
+  explicit <- do.call(scrope, c(args, list(ln_operational_fallback = "none")))
+  ln_operational_expect_cross_run_identical(default, explicit)
+  expect_false("operational_fallback" %in% names(default))
+  expect_error(do.call(scrope, c(args, list(
+    ln_operational_fallback = "legacy_post_pml"
+  ))), "retired")
 })
 
-test_that("legacy gate failure stays attempted without inference-shaped fields", {
-  fx <- ln_joint_test_fixture()
-  original_joint <- getFromNamespace(
-    "fit_gene_joint_ln_unconstrained",
-    "scRoPE"
-  )
-  failed_assessment <- ln_operational_empty_assessment(
-    "legacy_gradient_convergence_not_accepted"
-  )
-  failed_assessment$convergence <- -10L
-  failed_assessment$algorithm <- 1L
-  failed_assessment$start_provenance <- "direct"
-  failed_assessment$route_class <- "uncertified"
+test_that("unavailable joint LN never triggers a hidden legacy fallback", {
+  original_joint <- getFromNamespace("fit_gene_joint_ln_unconstrained", "scRoPE")
   local_mocked_bindings(
     fit_gene_joint_ln_unconstrained =
       ln_operational_force_failed_joint_primary(original_joint),
-    ln_operational_attempt_gene = function(...) failed_assessment,
+    ln_operational_fallback_eligibility = function(...) stop("fallback invoked"),
+    ln_operational_attempt_gene = function(...) stop("fallback invoked"),
     .package = "scRoPE"
   )
+  fx <- ln_joint_test_fixture()
   captured <- ln_operational_capture_warnings(scrope(
-    fx$count,
-    fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln",
-    ln_operational_fallback = "legacy_post_pml"
+    fx$count, fx$id, pred = fx$pred, offset = fx$offset,
+    verbose = FALSE, cpc = 0, mincp = 1
   ))
-  expect_length(captured$messages, 1L)
-  expect_match(captured$messages, "unavailable for 1 gene")
-  expect_match(captured$messages, "coefficients are available for 0")
-  expect_match(captured$messages, "coefficients remain unavailable for 1")
-  per_gene <- captured$value$operational_fallback$per_gene
-  expect_true(per_gene$fallback_attempted)
-  expect_false(per_gene$coefficient_available)
-  expect_identical(per_gene$fallback_status, "attempted_failed")
-  expect_identical(per_gene$fallback_route_class, "uncertified")
-  expect_identical(
-    per_gene$fallback_failure_reason,
-    "legacy_gradient_convergence_not_accepted"
-  )
-  coefficients <- captured$value$operational_fallback$coefficients
-  expect_true(all(!coefficients$coefficient_available))
-  expect_true(all(is.na(coefficients$estimate)))
-  expect_true(all(!coefficients$inference_supported))
-  ln_operational_expect_no_inference_payload(
-    captured$value$operational_fallback
-  )
-})
-
-test_that("aggregate warning reports operational coefficients only", {
-  fx <- ln_joint_test_fixture()
-  count <- rbind(fx$count, fx$count)
-  rownames(count) <- c("gene1", "gene2")
-  original_joint <- getFromNamespace(
-    "fit_gene_joint_ln_unconstrained",
-    "scRoPE"
-  )
-  local_mocked_bindings(
-    fit_gene_joint_ln_unconstrained =
-      ln_operational_force_failed_joint_primary(original_joint),
-    .package = "scRoPE"
-  )
-  captured <- ln_operational_capture_warnings(scrope(
-    count,
-    fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln",
-    ln_operational_fallback = "legacy_post_pml"
-  ))
-  fallback_messages <- captured$messages[startsWith(
-    captured$messages,
-    "Joint-LN inference was unavailable for"
-  )]
-  expect_length(fallback_messages, 1L)
-  expect_match(fallback_messages, "unavailable for 2 genes")
-  expect_match(fallback_messages, "coefficients are available for 2")
-  expect_match(fallback_messages, "coefficients remain unavailable for 0")
-  expect_match(fallback_messages, "no covariance, standard errors")
-  expect_true(all(
-    captured$value$operational_fallback$per_gene$fallback_status ==
-      "coefficient_available"
-  ))
-  expect_true(all(
-    !captured$value$operational_fallback$per_gene$inference_supported
-  ))
-})
-
-test_that("joint root and Newton failures do not veto coefficient attempt", {
-  fit_capture <- ln_operational_capture_warnings(ln_joint_fit_fixture(
-    max = c(0.01, 1000),
-    ln_operational_fallback = "legacy_post_pml"
-  )$fit)
-  fit <- fit_capture$value
-  expect_length(fit_capture$messages, 1L)
-  expect_match(fit_capture$messages, "unavailable for 1 gene")
-  expect_match(fit_capture$messages, "coefficients are available for 0")
-  expect_match(fit_capture$messages, "coefficients remain unavailable for 1")
-  expect_true(fit$operational_fallback$per_gene$fallback_attempted)
-  expect_false(fit$operational_fallback$per_gene$coefficient_available)
-  expect_identical(
-    fit$operational_fallback$per_gene$fallback_status,
-    "attempted_failed"
-  )
-  expect_identical(
-    fit$operational_fallback$per_gene$fallback_failure_reason,
-    "legacy_nonconvergence"
-  )
-  eligibility <- fit$operational_fallback$diagnostics$per_gene[[1L]]$eligibility
-  expect_false(eligibility$primary_joint_candidate_checks[["root"]])
-  expect_false(eligibility$primary_joint_candidate_checks[["newton"]])
-  expect_false(eligibility$primary_joint_candidate_checks[["interior"]])
-  expect_true(eligibility$joint_root_or_newton_failure)
-  ln_operational_expect_no_inference_payload(fit$operational_fallback)
-})
-
-test_that("none skips fallback helpers and legacy optional tests are unchanged", {
-  fx <- ln_joint_test_fixture()
-  local_mocked_bindings(
-    ln_operational_fallback_eligibility = function(...) {
-      stop("fallback helper should not run")
-    },
-    .package = "scRoPE"
-  )
-  expect_no_error(scrope(
-    fx$count,
-    fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    ln_estimator = "joint_ln",
-    ln_operational_fallback = "none"
-  ))
-
-  legacy_args <- list(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    additional_tests = c("score", "lrt"),
-    lrt_details = TRUE,
-    keep_diagnostics = TRUE,
-    ln_estimator = "legacy_post_pml"
-  )
-  set.seed(20260721)
-  legacy_default <- suppressWarnings(do.call(scrope, legacy_args))
-  set.seed(20260721)
-  legacy_none <- suppressWarnings(do.call(
-    scrope,
-    c(legacy_args, list(ln_operational_fallback = "none"))
-  ))
-  expect_identical(legacy_default, legacy_none)
-})
-
-test_that("output modes and design features remain primary-only", {
-  fx <- ln_joint_test_fixture()
-  donor_factor <- factor(rep(c("a", "b"), length.out = ncol(fx$count)))
-  pred <- model.matrix(~ fx$pred[, "x"] + donor_factor)
-  pred <- pred[, c(2L, 1L, 3L), drop = FALSE]
-  colnames(pred)[[1L]] <- "scaled_x"
-  args <- list(
-    count = fx$count,
-    id = fx$id,
-    pred = pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1,
-    output_re = TRUE,
-    keep_diagnostics = FALSE,
-    ln_estimator = "joint_ln"
-  )
-  set.seed(20260721)
-  none <- do.call(scrope, c(args, list(ln_operational_fallback = "none")))
-  set.seed(20260721)
-  enabled <- do.call(scrope, c(
-    args,
-    list(ln_operational_fallback = "legacy_post_pml")
-  ))
-  enabled_primary <- enabled
-  enabled_primary$operational_fallback <- NULL
-  expect_identical(enabled_primary, none)
-  expect_null(enabled$diagnostics)
-  expect_true(is.data.frame(enabled$random_effect))
-  expect_true(is.list(enabled$operational_fallback$diagnostics))
-  expect_false(any(grepl(
-    "random_effect|conditional_residual",
-    names(enabled$operational_fallback),
-    ignore.case = TRUE
-  )))
-  ln_operational_expect_no_inference_payload(enabled$operational_fallback)
-})
-
-test_that("independent runs agree modulo run-local objective IDs", {
-  fx <- ln_joint_test_fixture()
-  count <- rbind(fx$count, fx$count)
-  rownames(count) <- c("gene1", "gene2")
-  args <- list(
-    count = count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln",
-    ln_operational_fallback = "legacy_post_pml"
-  )
-  set.seed(20260721)
-  one <- do.call(scrope, c(args, list(ncore = 1L)))
-  set.seed(20260721)
-  two <- do.call(scrope, c(args, list(ncore = 1L)))
-  ln_operational_expect_cross_run_identical(one, two)
-})
-
-test_that("controlled coefficient fallback agrees across independent runs", {
-  fx <- ln_joint_test_fixture()
-  count <- rbind(fx$count, fx$count)
-  rownames(count) <- c("gene1", "gene2")
-  original_eligibility <- getFromNamespace(
-    "ln_operational_fallback_eligibility",
-    "scRoPE"
-  )
-  local_mocked_bindings(
-    ln_operational_fallback_eligibility = function(gene_result) {
-      eligibility <- original_eligibility(gene_result)
-      eligibility$eligible <- TRUE
-      eligibility$primary_route <- "R2"
-      eligibility$primary_failure_reason <- "dispersion_boundary"
-      eligibility$boundary_only <- FALSE
-      eligibility$joint_failed_checks <- c("root", "newton", "interior")
-      eligibility$joint_root_or_newton_failure <- TRUE
-      eligibility
-    },
-    .package = "scRoPE"
-  )
-  args <- list(
-    count = count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    keep_diagnostics = TRUE,
-    ln_estimator = "joint_ln",
-    ln_operational_fallback = "legacy_post_pml"
-  )
-  set.seed(20260721)
-  one <- suppressWarnings(do.call(scrope, c(args, list(ncore = 1L))))
-  set.seed(20260721)
-  two <- suppressWarnings(do.call(scrope, c(args, list(ncore = 1L))))
-  ln_operational_expect_cross_run_identical(one, two)
-  expect_true(all(
-    one$operational_fallback$per_gene$fallback_status ==
-      "coefficient_available"
-  ))
-  expect_true(all(
-    one$operational_fallback$per_gene$coefficient_available
-  ))
-  expect_true(all(
-    !one$operational_fallback$per_gene$inference_supported
-  ))
-  ln_operational_expect_no_inference_payload(one$operational_fallback)
+  fit <- captured$value
+  expect_true(any(grepl("inference was unavailable", captured$messages)))
+  expect_identical(fit$availability$availability, "unavailable")
+  expect_false(fit$availability$inference_supported)
+  expect_false("operational_fallback" %in% names(fit))
+  inference_columns <- grep("^(se_|p_)", names(fit$summary), value = TRUE)
+  expect_gt(length(inference_columns), 0L)
+  expect_true(all(is.na(unlist(fit$summary[inference_columns]))))
 })

@@ -86,7 +86,7 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
   )))
 })
 
-test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predictors", {
+test_that("top-level scrope PGMM matches frozen legacy PMM values for cell-level predictors", {
   fx <- pmg_interior_test_fixture()
 
   current <- scrope(
@@ -99,16 +99,7 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predic
     cpc = 0,
     mincp = 1
   )
-  legacy <- nebula(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    model = "PMM",
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1
-  )
+  legacy <- pmg_frozen_legacy("cell")
 
   expect_equal(current$summary$logFC_x, legacy$summary$logFC_x, tolerance = 1e-6)
   expect_equal(current$summary$se_x, legacy$summary$se_x, tolerance = 1e-6)
@@ -118,7 +109,7 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predic
   expect_equal(current$algorithm, legacy$algorithm)
 })
 
-test_that("top-level scrope PGMM matches legacy nebula PMM for subject-level predictors", {
+test_that("top-level scrope PGMM matches frozen legacy PMM values for subject-level predictors", {
   fx <- pmg_subject_level_test_fixture()
 
   current <- scrope(
@@ -131,16 +122,7 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for subject-level pre
     cpc = 0,
     mincp = 1
   )
-  legacy <- nebula(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    model = "PMM",
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1
-  )
+  legacy <- pmg_frozen_legacy("subject")
 
   expect_equal(current$summary$logFC_z_subject, legacy$summary$logFC_z_subject, tolerance = 1e-6)
   expect_equal(current$summary$se_z_subject, legacy$summary$se_z_subject, tolerance = 1e-6)

@@ -275,7 +275,7 @@ test_that("fixed-beta donor modes are inferentially invariant and residual-align
   )
 })
 
-test_that("joint LN API rejects unsupported switching and PGMM crossover", {
+test_that("joint LN API rejects unsupported switching", {
   fx <- ln_joint_test_fixture()
   expect_error(
     scrope(
@@ -290,20 +290,6 @@ test_that("joint LN API rejects unsupported switching and PGMM crossover", {
       ln_estimator = "joint_ln"
     ),
     "does not support allow_per_gene_switch"
-  )
-  expect_error(
-    scrope(
-      fx$count,
-      fx$id,
-      pred = fx$pred,
-      offset = fx$offset,
-      verbose = FALSE,
-      cpc = 0,
-      mincp = 1,
-      model = "PGMM",
-      ln_estimator = "joint_ln"
-    ),
-    "applies only to model='LN'"
   )
 })
 

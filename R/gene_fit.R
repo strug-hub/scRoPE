@@ -7,6 +7,13 @@ fit_gene_unconstrained <- function(gene_index, posv, ctx, extra_starts = NULL) {
       extra_starts = extra_starts
     ))
   }
+  stop(paste0(
+    "Legacy-LN dispatch is retired; ctx$ln_estimator must be 'joint_ln'. ",
+    "For historical reproduction, use the exact preserved scRoPE version ",
+    "recorded for the analysis (0.2.5.9005 or earlier)."
+  ), call. = FALSE)
+  # Historical implementation retained below for source traceability only.
+  # The guard above makes this code unreachable from the maintained dispatcher.
   # Nebula reference flow (LN branch):
   # 1. Primary optimisation via lbfgs/trust on (beta, log sigma^2, log phi).
   # 2. Compute gni = (ncell / k) * cellVar and cv2p via get_cv().
@@ -928,6 +935,13 @@ fit_gene_constrained <- function(gene_index, posv, ctx, L, b) {
       b = b
     ))
   }
+  stop(paste0(
+    "Legacy-LN dispatch is retired; ctx$ln_estimator must be 'joint_ln'. ",
+    "For historical reproduction, use the exact preserved scRoPE version ",
+    "recorded for the analysis (0.2.5.9005 or earlier)."
+  ), call. = FALSE)
+  # Historical implementation retained below for source traceability only.
+  # The guard above makes this code unreachable from the maintained dispatcher.
   if (ctx$allow_per_gene_switch) {
     stop("Constrained fits do not yet support per-gene LN/HL switching.")
   }

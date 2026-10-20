@@ -1,10 +1,25 @@
-# Development (unreleased)
+# scRoPE 0.2.5.9006 — local release candidate
 
-- Reconstruct corrected-HL Pearson residuals using original-design coordinates;
-  retain JLN/PGMM and compatible historical reconstruction conventions.
-
-- Gate optional PGMM inference on accepted endpoints and map custom contrasts
-  from reported coefficient units into the internal fitting coordinates.
+- Imported the exact preserved 0.2.5.9005 scientific source into an isolated
+  development worktree. This candidate is unpublished and does not replace
+  the original source versions or outputs of historical simulations.
+- Made joint-LN the maintained `scrope()` LN default. Explicit legacy estimator
+  and operational-fallback requests are rejected with migration guidance;
+  rejected JLN fits are not silently replaced by another estimator.
+- Retired default and explicit `nebula(method = "LN")` calls with actionable
+  guidance. Explicit `nebula(method = "HL")` remains a separate historical
+  compatibility API, with no automatic method substitution.
+- Require accepted PGMM endpoints for optional inference: LRT needs accepted
+  unrestricted and constrained fits; Score needs an accepted constrained null
+  fit. Positive LR values do not override optimizer rejection.
+- Map PGMM custom contrasts from reported coefficient units to the internal
+  fitting coordinates, including nonzero null values. Retain the existing
+  sample-centered intercept interpretation.
+- Reconstruct corrected first-order HL residual means in original-design
+  coordinates. Existing JLN/PGMM centered-coordinate behavior is retained.
+- Add focused regressions and bounded comparisons against preserved .9005.
+  Joint-LN Score/Pace/LRT calibration status is unchanged. No new inferential
+  calibration or final release approval is implied by this candidate.
 
 # scRoPE 0.2.5.9005
 

@@ -427,27 +427,12 @@ test_that("availability warning is consolidated and preserves other warnings", {
   )))
 })
 
-test_that("availability stays joint-LN scoped", {
+test_that("availability is joint-LN scoped and legacy fits are retired", {
   joint <- expect_no_warning(ln_joint_fit_fixture()$fit)
   expect_identical(joint$availability$availability, "inference")
   expect_true(joint$availability$inference_supported)
-
-  fx <- ln_joint_test_fixture()
-  legacy <- scrope(
-    fx$count,
-    fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1L,
-    keep_diagnostics = FALSE,
-    ln_estimator = "legacy_post_pml"
-  )
-  expect_false("availability" %in% names(legacy))
+  expect_error(scrope(ln_estimator = "legacy_post_pml"), "retired")
 })
-
 test_that("compact descriptive provenance does not require raw diagnostics", {
   fx <- ln_joint_test_fixture()
   fit <- scrope(
