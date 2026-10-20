@@ -17,6 +17,17 @@ A list of four objects:
 data(sample_data)
 }
 \description{
-A dataset containing a count matrix, subject IDs, a data frame of predictors and scaling factors.
+A dataset containing 10 genes and 6,176 cells from 30 subject identifiers,
+with predictors X1, X2, and cc and scaling factors.
+}
+\details{
+The inspected upstream documentation does not record the original
+generation procedure or study source. Archive agreement does not uniquely
+identify the original imported NEBULA version.
+}
+\source{
+Bundled unchanged from scRoPE's initial import and byte-identical to
+the example in the preserved NEBULA 1.5.3 source archive.
+\url{https://github.com/lhe17/nebula}
 }
 \keyword{datasets}

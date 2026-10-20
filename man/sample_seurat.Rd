@@ -11,6 +11,18 @@ A Seurat object with a count assay and per-cell metadata.
 data(sample_seurat)
 }
 \description{
-A compact Seurat object for demonstrating `scToNeb()` and related helpers.
+A Seurat object containing 1,000 genes and 1,000 cells from the panc8
+pancreas example, for demonstrating \code{scToNeb()} and related helpers.
+}
+\details{
+The exact subset-selection procedure and dataset-specific
+redistribution record have not been recovered.
+}
+\source{
+Bundled unchanged from scRoPE's initial import and byte-identical to
+NEBULA 1.5.3's example. NEBULA attributes it to Satija Lab's
+\emph{panc8.SeuratData: Eight Pancreas Datasets Across Five Technologies}
+(2019; cited package version 3.0.2), distributed through
+\url{https://github.com/satijalab/seurat-data}.
 }
 \keyword{datasets}
