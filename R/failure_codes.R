@@ -76,6 +76,7 @@ failure_codes <- list(
     singular_Hpsi = "singular_Hpsi",
     singular_Hlambda = "singular_Hlambda",
     nonconverged_constrained = "nonconverged_constrained",
+    nonconverged_unconstrained = "nonconverged_unconstrained",
     constraint_not_satisfied = "constraint_not_satisfied",
     boundary_constrained = "boundary_constrained",
     nonpositive_curvature = "nonpositive_curvature",
@@ -87,6 +88,9 @@ failure_codes <- list(
     joint_ln_calibration_pending = "joint_ln_calibration_pending"
   ),
   score = list(
+    nonconverged_constrained = "nonconverged_constrained",
+    constraint_not_satisfied = "constraint_not_satisfied",
+    boundary_constrained = "boundary_constrained",
     singular_Spsi = "singular_Spsi",
     undefined_stat = "undefined_stat",
     joint_ln_calibration_pending = "joint_ln_calibration_pending"

@@ -52,7 +52,14 @@ scrope_psock_library_paths <- function() {
 #'   are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).
 #' @param lrt Logical; legacy flag for adjusted profile LRTs. Equivalent to
 #'   including `"lrt"` in `additional_tests`.
-#' @param lrt_contrasts Optional list of additional contrasts (see details).
+#' @param lrt_contrasts Optional list of additional hypotheses `L beta = b`.
+#'   Each entry may be a matrix/vector `L` (zero null) or a list containing
+#'   `L`, optional `b`, and optional `name`. Columns follow `pred` and use the
+#'   reported coefficient units. LN/PGMM coefficients have input-scale slopes
+#'   and a sample-centered intercept; corrected HL uses original-design
+#'   coordinates. Internal scaling is applied to `L`, leaving `b` unchanged.
+#'   An intercept-containing LN/PGMM contrast does not automatically define a
+#'   fixed population target.
 #' @param lrt_include_scale Logical; include the H/G scale factor in the summary.
 #' @param lrt_details Logical; return a tidy data frame with raw LRT diagnostics.
 #' @param keep_diagnostics Logical; retain per-gene diagnostic objects. For HL,
@@ -107,6 +114,11 @@ scrope_psock_library_paths <- function() {
 #' inference is returned. Otherwise, covariance, standard errors, Wald
 #' statistics, and p-values are `NA`. Adjusted Score and likelihood-ratio tests
 #' are unavailable for `"joint_ln"` pending calibration.
+#'
+#' PGMM LRT requires accepted unrestricted and constrained endpoints; Score
+#' requires an accepted constrained null endpoint. Rejected endpoints cannot
+#' obtain genuine test success from a positive raw likelihood difference.
+#' Raw quantities may be retained as diagnostics when inference is unavailable.
 #'
 #' When the fallback is requested, eligible genes are independently refitted
 #' with the default legacy estimator. A successful fallback exposes only the

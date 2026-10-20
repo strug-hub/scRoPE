@@ -127,6 +127,10 @@ scrope_pmg_internal <- function(
   nind <- ctx$nind
   k <- ctx$k
   intcol <- ctx$intcol
+  # Preserve the reported centered intercept and input-scale slopes.
+  report_scales <- sds
+  report_scales[intcol] <- 1
+  D <- diag(1 / report_scales, nrow = nb)
 
   within_subject_predictors <- pmg_find_within_subject_predictors(
     pred = ctx$pred,
@@ -183,7 +187,7 @@ scrope_pmg_internal <- function(
   coef_names <- if (is.null(predn)) paste0("X", seq_len(nb)) else predn
   contrast_defs <- list()
   add_contrast <- function(name, L, b) {
-    L <- as.matrix(L)
+    L <- if (is.null(dim(L))) matrix(L, nrow = 1L) else as.matrix(L)
     if (ncol(L) != nb) {
       stop("Each contrast L must have ncol equal to number of predictors.")
     }
@@ -243,7 +247,8 @@ scrope_pmg_internal <- function(
     }
   }
   contrast_payload <- lapply(contrast_defs, function(def) {
-    list(L = def$L, b = def$b, label = def$label)
+    # Public hypotheses use reported coefficients: beta_reported = D beta_internal.
+    list(L = def$L %*% D, b = def$b, label = def$label)
   })
   contrast_names <- names(contrast_defs)
 
@@ -286,6 +291,9 @@ scrope_pmg_internal <- function(
       )
       fit$lrt <- lapply(adj_res, function(res) {
         list(
+          contrast_reported = contrast_defs[[res$label]]$L,
+          contrast_internal = res$contrast,
+          rhs = res$rhs,
           constrained = res$constrained,
           df = res$df,
           raw = res$adj$lr,
@@ -581,6 +589,11 @@ scrope_pmg_internal <- function(
 
   if (keep_diagnostics) {
     result_list$diagnostics <- list(
+      coefficient_coordinates = list(
+        summary = "centered_intercept_input_scale_slopes",
+        raw = "internal_centered_scaled_design",
+        D = D
+      ),
       loglik = loglik_vec,
       godambe = lapply(gene_results, `[[`, "godambe"),
       raw = gene_results,
@@ -626,6 +639,7 @@ scrope_pmg_internal <- function(
           adjusted_failure_reason = res$adjusted_failure_reason,
           failure_reason = res$failure_reason,
           gate_converged = res$gate$converged,
+          gate_unconstrained_accepted = gate_value("unconstrained_accepted", NA),
           convergence_basis = gate_value("convergence_basis", NA_character_),
           gate_optimizer_converged = gate_value("optimizer_converged", NA),
           gate_raw_gradient_ok = gate_value("raw_gradient_ok", NA),
@@ -681,6 +695,7 @@ scrope_pmg_internal <- function(
         adjusted_failure_reason = character(0),
         failure_reason = character(0),
         gate_converged = logical(0),
+        gate_unconstrained_accepted = logical(0),
         convergence_basis = character(0),
         gate_optimizer_converged = logical(0),
         gate_raw_gradient_ok = logical(0),

@@ -1,3 +1,8 @@
+# Development (unreleased)
+
+- Gate optional PGMM inference on accepted endpoints and map custom contrasts
+  from reported coefficient units into the internal fitting coordinates.
+
 # scRoPE 0.2.5.9005
 
 - Corrected-HL now passes `keep_diagnostics` through its nested and Score

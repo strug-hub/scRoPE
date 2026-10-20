@@ -391,6 +391,18 @@ they do not move it or introduce a new acceptance threshold.
 Adjusted Score and likelihood-ratio tests can be added to either PGMM example
 using the same `additional_tests` and `lrt_details` arguments shown above.
 
+## Contrast coordinates and residuals
+
+For maintained LN and PGMM calls, custom `lrt_contrasts` use the same coefficient
+units as the reported `logFC_*` values, with columns ordered as in `pred`.
+The fitting design may be standardized internally; both the contrast matrix
+and its null hypothesis are mapped consistently. A nonzero slope null is in
+the original predictor units. The reported intercept for LN/PGMM is
+sample-centered; an intercept-containing contrast does not automatically have
+a fixed population target or the same interpretation as the intercept at
+unobserved zero-valued predictors. Corrected first-order HL retains its
+original-design coefficient coordinates.
+
 ## Understanding the Main Outputs
 
 For each modeled predictor, `summary` includes:

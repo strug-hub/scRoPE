@@ -504,6 +504,7 @@ pgmm_relative_profile_point <- function(ctx,
   )
 
   raw_lr <- 2 * (point$loglik_unconstrained - point$loglik_profile)
+  unconstrained_accepted <- pmg_optimizer_converged(point$unconstrained$fit)
   raw_lr_info <- pgmm_clip_raw_lr(raw_lr, tol = tol)
   wP <- raw_lr_info$wP
   lr_tol <- raw_lr_info$tol
@@ -571,7 +572,7 @@ pgmm_relative_profile_point <- function(ctx,
     wP_star_nonnegative <- is.finite(wP_star) && wP_star >= -lr_tol
     relLik_star <- if (wP_star_nonnegative) exp(-0.5 * max(wP_star, 0)) else NA_real_
 
-    robust_available <- isTRUE(acceptance$accepted) &&
+    robust_available <- unconstrained_accepted && isTRUE(acceptance$accepted) &&
       isTRUE(point$diagnostics$H_etaeta_invertible) &&
       isTRUE(point$diagnostics$Hpsi_positive) &&
       isTRUE(point$diagnostics$Jpsi_positive) &&
@@ -599,6 +600,18 @@ pgmm_relative_profile_point <- function(ctx,
     }
   }
 
+  # A raw LR is a diagnostic until its unrestricted reference fit is accepted.
+  # Keep that diagnostic, but do not expose relative-profile inference or a
+  # normalized curve based on a rejected reference endpoint.
+  if (!unconstrained_accepted) {
+    relLik <- NA_real_
+    wP_star <- NA_real_
+    relLik_star <- NA_real_
+    wP_star_nonnegative <- FALSE
+    robust_available <- FALSE
+    failure_reason <- "nonconverged_unconstrained"
+  }
+
   point$relative_profile <- list(
     raw_lr = raw_lr,
     wP = wP,
@@ -616,6 +629,7 @@ pgmm_relative_profile_point <- function(ctx,
     wP_nonnegative = wP_nonnegative,
     wP_star_nonnegative = wP_star_nonnegative,
     robust_available = robust_available,
+    unconstrained_accepted = unconstrained_accepted,
     profile_accepted = acceptance$accepted,
     optimizer_warning = acceptance$optimizer_warning,
     convergence_basis = acceptance$convergence_basis,
@@ -770,6 +784,7 @@ pgmm_relative_profile_grid <- function(ctx,
       wP_nonnegative = rel$wP_nonnegative,
       wP_star_nonnegative = rel$wP_star_nonnegative,
       robust_available = rel$robust_available,
+      unconstrained_accepted = rel$unconstrained_accepted,
       profile_accepted = rel$profile_accepted,
       optimizer_warning = rel$optimizer_warning,
       acceptance_failure_reason = rel$acceptance_failure_reason,
@@ -779,7 +794,9 @@ pgmm_relative_profile_grid <- function(ctx,
   }
 
   grid <- do.call(rbind, rows)
-  grid$relLik_std <- pgmm_profile_standardize_curve(grid$wP, tol = tol)
+  grid$relLik_std <- pgmm_profile_standardize_curve(
+    ifelse(grid$unconstrained_accepted, grid$wP, NA_real_), tol = tol
+  )
   grid$relLik_star_std <- pgmm_profile_standardize_curve(grid$wP_star, tol = tol)
 
   attr(grid, "target") <- unc$target
