@@ -30,6 +30,18 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// ln_joint_rising_normalized_cpp
+Rcpp::NumericVector ln_joint_rising_normalized_cpp(const double a, const Rcpp::NumericVector& counts);
+RcppExport SEXP _scRoPE_ln_joint_rising_normalized_cpp(SEXP aSEXP, SEXP countsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const double >::type a(aSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type counts(countsSEXP);
+    rcpp_result_gen = Rcpp::wrap(ln_joint_rising_normalized_cpp(a, counts));
+    return rcpp_result_gen;
+END_RCPP
+}
 // pmg_ll_eigen
 double pmg_ll_eigen(const Eigen::Map<Eigen::MatrixXd>& X_c, const Eigen::VectorXd& offset_c, const Eigen::VectorXd& Y_c, const Eigen::VectorXi& fid_c, const Eigen::VectorXd& cumsumy_c, const Eigen::VectorXi& posind_c, const Eigen::VectorXi& posindy_c, const int nind_c, const int k_c, const Eigen::VectorXd& beta_c, const double sigma_c);
 RcppExport SEXP _scRoPE_pmg_ll_eigen(SEXP X_cSEXP, SEXP offset_cSEXP, SEXP Y_cSEXP, SEXP fid_cSEXP, SEXP cumsumy_cSEXP, SEXP posind_cSEXP, SEXP posindy_cSEXP, SEXP nind_cSEXP, SEXP k_cSEXP, SEXP beta_cSEXP, SEXP sigma_cSEXP) {
@@ -435,6 +447,7 @@ END_RCPP
 
 static const R_CallMethodDef CallEntries[] = {
     {"_scRoPE_hl_fo_inner_eval_cpp", (DL_FUNC) &_scRoPE_hl_fo_inner_eval_cpp, 9},
+    {"_scRoPE_ln_joint_rising_normalized_cpp", (DL_FUNC) &_scRoPE_ln_joint_rising_normalized_cpp, 2},
     {"_scRoPE_pmg_ll_eigen", (DL_FUNC) &_scRoPE_pmg_ll_eigen, 11},
     {"_scRoPE_pmg_der_eigen", (DL_FUNC) &_scRoPE_pmg_der_eigen, 12},
     {"_scRoPE_pmg_hes_eigen", (DL_FUNC) &_scRoPE_pmg_hes_eigen, 12},

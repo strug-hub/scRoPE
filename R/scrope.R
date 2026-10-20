@@ -55,7 +55,10 @@ scrope_psock_library_paths <- function() {
 #' @param lrt_contrasts Optional list of additional contrasts (see details).
 #' @param lrt_include_scale Logical; include the H/G scale factor in the summary.
 #' @param lrt_details Logical; return a tidy data frame with raw LRT diagnostics.
-#' @param keep_diagnostics Logical; retain per-gene diagnostic objects.
+#' @param keep_diagnostics Logical; retain per-gene diagnostic objects. For HL,
+#'   `FALSE` also suppresses optional solver histories and cross-gene retention
+#'   of full fits; required scientific computations and public summaries remain
+#'   unchanged (see [scrope_hl()]).
 #' @param model Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 #'   `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
 #'   analyzed gene, and `"PGMM"` uses the exact Poisson-gamma mixed-model path.

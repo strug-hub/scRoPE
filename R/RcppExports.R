@@ -5,6 +5,10 @@ hl_fo_inner_eval_cpp <- function(y, X, log_offset, subject_zero, beta, tau, xi, 
     .Call(`_scRoPE_hl_fo_inner_eval_cpp`, y, X, log_offset, subject_zero, beta, tau, xi, eta_start, use_warm)
 }
 
+ln_joint_rising_normalized_cpp <- function(a, counts) {
+    .Call(`_scRoPE_ln_joint_rising_normalized_cpp`, a, counts)
+}
+
 pmg_ll_eigen <- function(X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nind_c, k_c, beta_c, sigma_c) {
     .Call(`_scRoPE_pmg_ll_eigen`, X_c, offset_c, Y_c, fid_c, cumsumy_c, posind_c, posindy_c, nind_c, k_c, beta_c, sigma_c)
 }

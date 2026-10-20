@@ -95,7 +95,10 @@ including `"lrt"` in `additional_tests`.}
 
 \item{lrt_details}{Logical; return a tidy data frame with raw LRT diagnostics.}
 
-\item{keep_diagnostics}{Logical; retain per-gene diagnostic objects.}
+\item{keep_diagnostics}{Logical; retain per-gene diagnostic objects. For HL,
+\code{FALSE} also suppresses optional solver histories and cross-gene retention
+of full fits; required scientific computations and public summaries remain
+unchanged (see \code{\link[=scrope_hl]{scrope_hl()}}).}
 
 \item{model}{Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every

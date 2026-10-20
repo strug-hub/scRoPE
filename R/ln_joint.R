@@ -2053,24 +2053,66 @@ ln_joint_full_natural <- function(theta_reduced, map) {
   c(map$compose(zeta), dispersion)
 }
 
-ln_joint_objective <- function(theta_reduced, gene_index, posv, ctx, map) {
+# Normalized log-gamma ratios retain all constants in the working objective.
+# The native evaluator has bounded work per count, including donor totals,
+# and accepts real totals without changing the existing count preparation.
+ln_joint_rising_normalized <- function(a, counts) {
+  sum(ln_joint_rising_normalized_cpp(a, counts))
+}
+
+ln_joint_objective_components <- function(theta_reduced, gene_index, posv,
+                                           ctx, map) {
   full <- ln_joint_full_natural(theta_reduced, map)
-  ptmg_ll(
-    full,
-    X = ctx$pred,
-    offset = ctx$offset,
-    Y = posv$Y,
-    n_one = posv$n_onetwo,
-    ytwo = posv$ytwo,
-    fam = ctx$id,
-    fid = ctx$fid,
-    cumsumy = ctx$cumsumy[gene_index, ],
-    posind = ctx$posind[[gene_index]],
-    posindy = posv$posindy,
-    nb = ctx$nb,
-    nind = ctx$nind,
-    k = ctx$k
+  beta <- full[seq_len(ctx$nb)]
+  sigma2 <- full[ctx$nb + 1L]
+  gamma <- full[ctx$nb + 2L]
+  alpha <- 1 / expm1(sigma2)
+  lambda <- alpha * exp(-sigma2 / 2)
+  eta <- ctx$offset + as.numeric(ctx$pred %*% beta)
+  mu <- exp(eta)
+  y <- numeric(ctx$nind)
+  y[posv$posindy + 1L] <- posv$Y
+  totals <- as.numeric(ctx$cumsumy[gene_index, ])
+  subject <- rep.int(seq_len(ctx$k), diff(ctx$fid))
+  sums <- as.numeric(rowsum(mu, subject, reorder = FALSE))
+  fitted <- ((totals + alpha) / (sums + lambda))[subject] * mu
+  cell_terms <- cbind(
+    positive_linear = y * eta,
+    cell_mean = fitted,
+    cell_log = -(gamma + y) * log1p(fitted / gamma),
+    cell_gamma = ln_joint_rising_normalized_cpp(gamma, y)
   )
+  # Use R's sum accumulator for each donor contribution. Sequential
+  # accumulation via rowsum loses accuracy when large cell terms cancel.
+  cell_terms <- t(vapply(seq_len(ctx$k), function(j) {
+    cells <- seq.int(ctx$fid[j], ctx$fid[j + 1L] - 1L)
+    c(
+      positive_linear = sum(cell_terms[cells, 1L]),
+      cell_mean = sum(cell_terms[cells, 2L]),
+      cell_log = sum(cell_terms[cells, 3L]),
+      cell_gamma = sum(cell_terms[cells, 4L])
+    )
+  }, numeric(4L)))
+  # These are regrouped components of the SAME full objective, not separate
+  # likelihoods: the log(alpha), log(lambda), and log(gamma) constants have
+  # been combined before evaluation. Share this form with donorwise audits.
+  out <- -cbind(
+    positive_linear = cell_terms[, "positive_linear"],
+    donor_log_total = -(totals + alpha) * log1p(sums / lambda),
+    donor_scale = totals * sigma2 / 2,
+    donor_gamma = ln_joint_rising_normalized_cpp(alpha, totals),
+    cell_mean = cell_terms[, "cell_mean"],
+    cell_log = cell_terms[, "cell_log"],
+    cell_gamma = cell_terms[, "cell_gamma"]
+  )
+  rownames(out) <- paste0("donor_", seq_len(ctx$k))
+  out
+}
+
+ln_joint_objective <- function(theta_reduced, gene_index, posv, ctx, map) {
+  sum(rowSums(ln_joint_objective_components(
+    theta_reduced, gene_index, posv, ctx, map
+  )))
 }
 
 ln_joint_gradient <- function(theta_reduced, gene_index, posv, ctx, map) {
@@ -2114,6 +2156,11 @@ ln_joint_derivative_state <- function(theta_reduced_log, gene_index, posv, ctx, 
     ctx$nind,
     ctx$k,
     correct_posindy = TRUE
+  )
+  # Only replace the scalar; all analytical derivatives and gates are retained.
+  raw$value <- ln_joint_objective(
+    c(zeta, exp(theta_reduced_log[free_dim + seq_len(2L)])),
+    gene_index, posv, ctx, map
   )
   T <- map$derivative_map
   A_full <- 0.5 * (raw$hessian + t(raw$hessian))
@@ -3519,53 +3566,7 @@ ln_joint_donor_objective_components <- function(theta_reduced_log, gene_index,
     if (free_dim) theta_reduced_log[seq_len(free_dim)] else numeric(0),
     exp(theta_reduced_log[free_dim + seq_len(2L)])
   )
-  full <- ln_joint_full_natural(theta_reduced, map)
-  beta <- full[seq_len(ctx$nb)]
-  sigma2 <- full[ctx$nb + 1L]
-  gamma <- full[ctx$nb + 2L]
-  exp_sigma2 <- exp(sigma2)
-  alpha <- 1 / (exp_sigma2 - 1)
-  lambda <- 1 / (sqrt(exp_sigma2) * (exp_sigma2 - 1))
-  components <- lapply(seq_len(ctx$k), function(subject) {
-    first_zero <- ctx$fid[subject] - 1L
-    last_zero <- ctx$fid[subject + 1L] - 2L
-    cell_index <- seq.int(first_zero + 1L, last_zero + 1L)
-    positive <- which(
-      posv$posindy >= first_zero & posv$posindy <= last_zero
-    )
-    donor_y <- posv$Y[positive]
-    donor_posindy <- posv$posindy[positive] - first_zero
-    donor_sum <- sum(donor_y)
-    donor_n <- length(cell_index)
-    eta <- as.numeric(
-      ctx$offset[cell_index] +
-        ctx$pred[cell_index, , drop = FALSE] %*% beta
-    )
-    mu <- exp(eta)
-    sum_mu <- sum(mu)
-    total <- sum_mu + lambda
-    donor_weight <- (donor_sum + alpha) / total
-    log_cell_total <- log(donor_weight * mu + gamma)
-    fn_components <- c(
-      positive_linear = if (length(positive))
-        sum(eta[donor_posindy + 1L] * donor_y) else 0,
-      donor_log_total = -(donor_sum + alpha) * log(total),
-      alpha_log_lambda = alpha * log(lambda),
-      cell_gamma_normalizer = donor_n * gamma * log(gamma),
-      donor_mean_term = donor_weight * sum_mu,
-      cell_log_normalizer = -gamma * sum(log_cell_total),
-      positive_cell_log = if (length(positive))
-        -sum(donor_y * log_cell_total[donor_posindy + 1L]) else 0,
-      donor_lgamma = if (donor_sum > 0)
-        lgamma(donor_sum + alpha) - lgamma(alpha) else 0,
-      cell_lgamma = if (length(positive))
-        sum(lgamma(donor_y + gamma) - lgamma(gamma)) else 0
-    )
-    -fn_components
-  })
-  out <- do.call(rbind, components)
-  rownames(out) <- paste0("donor_", seq_len(ctx$k))
-  out
+  ln_joint_objective_components(theta_reduced, gene_index, posv, ctx, map)
 }
 
 ln_joint_donor_objective_values <- function(theta_reduced_log, gene_index,
@@ -4135,6 +4136,118 @@ ln_joint_polish <- function(theta_reduced, gene_index, posv, ctx, map,
   )
 }
 
+# Extend one required unrestricted trajectory; the old endpoint is history,
+# never an additional active competitor. Optimizer status is not a certificate.
+ln_joint_recover_candidate <- function(candidate, gene_index, posv, ctx, map,
+                                        lower, upper, objective_instance) {
+  if (!is.null(candidate$recovery) || !identical(map$constrained, FALSE) ||
+      !isTRUE(candidate$required) || !isTRUE(candidate$core) ||
+      !identical(candidate$start_provenance, "direct") ||
+      !identical(candidate$certified, FALSE) ||
+      !isTRUE(candidate$finite_endpoint)) return(candidate)
+  in_bounds <- function(theta) {
+    ln_joint_real_vector(theta, length = length(lower), finite = TRUE) &&
+      all(theta >= lower & theta <= upper)
+  }
+  if (is.null(objective_instance) ||
+      !identical(candidate$objective_instance, objective_instance) ||
+      !identical(candidate$bounds,
+                 list(lower = as.numeric(ctx$min), upper = as.numeric(ctx$max))) ||
+      !identical(candidate$probe_map, ln_joint_probe_map_record(map, ctx$nb)) ||
+      !identical(lower, c(rep(-100, map$free_dim), ctx$min)) ||
+      !identical(upper, c(rep(100, map$free_dim), ctx$max)) ||
+      !in_bounds(candidate$theta_reduced)) return(candidate)
+  integrity <- ln_joint_candidate_integrity(
+    candidate, allow_nonfinite_failure_metrics = TRUE
+  )
+  recoverable <- c("root", "newton", "curvature", "condition")
+  if (!isTRUE(integrity$valid) || !length(integrity$failed_checks) ||
+      !all(integrity$failed_checks %in% recoverable)) return(candidate)
+
+  # Keep compact certificates and native optimizer returns, not duplicate
+  # donor-level derivative arrays. Every attempted path is recorded once.
+  compact <- function(x) x[setdiff(names(x), "state")]
+  history <- list(
+    attempted = TRUE, adopted = FALSE, status = "started",
+    original = compact(candidate),
+    control = list(ftol_abs = ctx$eps, ftol_rel = 0,
+                   xtol_rel = 1e-6, maxeval = 1000L),
+    polishing_max_iter = 25L,
+    objective_allowance = 1e-12 * (1 + abs(candidate$objective)),
+    warnings = character(0)
+  )
+  objective <- function(theta) ln_joint_objective(theta, gene_index, posv, ctx, map)
+  gradient <- function(theta) ln_joint_gradient(theta, gene_index, posv, ctx, map)
+  stage <- "optimizer"
+  recovered <- tryCatch(withCallingHandlers({
+    ans <- lbfgs(
+      candidate$theta_reduced,
+      function(theta) list(objective = objective(theta), gradient = gradient(theta)),
+      lower = lower, upper = upper, control = history$control
+    )
+    history$optimizer <- ans
+    if (!in_bounds(ans$par)) {
+      history$status <- "unusable_optimizer_endpoint"
+      NULL
+    } else {
+      optimizer_objective <- objective(ans$par)
+      if (!ln_joint_real_vector(optimizer_objective, length = 1L, finite = TRUE)) {
+        history$status <- "nonfinite_optimizer_objective"
+        NULL
+      } else {
+        stage <- "polish"
+        polish <- ln_joint_polish(
+          ans$par, gene_index, posv, ctx, map, lower, upper, max_iter = 25L
+        )
+        history$polish <- polish
+        if (!in_bounds(polish$theta_reduced) ||
+            !ln_joint_real_vector(polish$objective, length = 1L, finite = TRUE)) {
+          history$status <- "unusable_polished_endpoint"
+          NULL
+        } else {
+          stage <- "certificate"
+          fresh <- ln_joint_candidate_state(
+            polish$theta_reduced, polish$objective, optimizer = ans,
+            label = candidate$label, start_provenance = candidate$start_provenance,
+            required = candidate$required, core = candidate$core,
+            gene_index = gene_index, posv = posv, ctx = ctx, map = map,
+            objective_instance = objective_instance
+          )
+          history$certificate <- compact(fresh)
+          checks <- ln_joint_complete_candidate_checks(fresh$checks)
+          if (!isTRUE(fresh$certified) || !isTRUE(checks$valid) ||
+              !all(checks$values)) {
+            history$status <- "certificate_failed"
+            NULL
+          } else if (fresh$objective > candidate$objective + history$objective_allowance) {
+            history$status <- "objective_increase"
+            NULL
+          } else {
+            fresh$start <- candidate$start
+            fresh$optimizer_endpoint <- ans$par
+            fresh$optimizer_objective <- optimizer_objective
+            fresh$polished <- !isTRUE(all.equal(
+              fresh$theta_reduced, ans$par, tolerance = 0, check.attributes = FALSE
+            ))
+            history$status <- "adopted"
+            history$adopted <- TRUE
+            fresh
+          }
+        }
+      }
+    }
+  }, warning = function(w) {
+    history$warnings <<- c(history$warnings, conditionMessage(w))
+  }), error = function(e) {
+    history$status <<- paste0(stage, "_error")
+    history$error <<- conditionMessage(e)
+    NULL
+  })
+  result <- if (isTRUE(history$adopted)) recovered else candidate
+  result$recovery <- history
+  result
+}
+
 ln_joint_clamp <- function(x, lower, upper) {
   gap <- 1e-6 * (upper - lower)
   pmin(pmax(x, lower + gap), upper - gap)
@@ -4368,6 +4481,7 @@ ln_joint_candidate_records <- function(candidates, candidate_resolutions = NULL)
       optimizer_endpoint = x$optimizer_endpoint,
       optimizer_objective = x$optimizer_objective,
       polished = isTRUE(x$polished),
+      recovery = x$recovery,
       theta_reduced = x$theta_reduced,
       theta_reduced_log = x$theta_reduced_log,
       theta_full_log = x$theta_full_log,
@@ -5012,7 +5126,9 @@ ln_joint_fit_engine <- function(
     candidate$optimizer_endpoint <- optimizer_endpoint
     candidate$optimizer_objective <- optimizer_objective
     candidate$polished <- polished
-    candidate
+    ln_joint_recover_candidate(
+      candidate, gene_index, posv, ctx, map, lower, upper, objective_instance
+    )
   }
 
   candidates <- Map(function(start, label) {

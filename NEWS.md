@@ -1,3 +1,36 @@
+# scRoPE 0.2.5.9005
+
+- Corrected-HL now passes `keep_diagnostics` through its nested and Score
+  solvers. With `FALSE`, optional iteration/evaluation histories are not
+  built, duplicate candidate records are compact, and full per-gene fits
+  and test objects are not accumulated across genes. Required warm starts,
+  objectives, derivatives, certification, covariance and test calculations
+  are unchanged. The default `TRUE` retains the existing detailed output.
+  Public summaries, status/reason fields and requested random effects remain
+  available under either setting. Retained-object reductions do not establish
+  a representative runtime or peak-memory improvement.
+
+# scRoPE 0.2.5.9004
+
+- Required unrestricted joint-LN core starts can receive one bounded L-BFGS
+  recovery from their own failed interior endpoint, followed by ordinary
+  polishing and a new complete certificate. Recovery is accepted only within
+  the existing objective allowance. Original failures and recovery decisions
+  remain in candidate diagnostics; required-start resolution and all inference
+  gates are unchanged. Boundary, constrained, optional and PQL starts bypass
+  recovery. This development candidate awaits full-fit validation.
+
+# scRoPE 0.2.5.9002 (development)
+
+- Joint-LN evaluates the same working objective with stable scalar arithmetic
+  during optimization, polishing, certification, and donorwise audits. This
+  reduces cancellation near stationary points while preserving derivatives,
+  scientific certification thresholds, bounds, and inference restrictions.
+
+- Normalized gamma ratios avoid storage proportional to the largest count.
+  This development implementation requires independent review and subsequent
+  cohort validation before scientific adoption.
+
 # scRoPE 0.2.5.9001 (development)
 
 - Fixed the PGMM BOBYQA fallback argument to use `x0`. Optimizer acceptance

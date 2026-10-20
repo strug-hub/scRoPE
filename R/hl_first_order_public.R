@@ -159,15 +159,15 @@ hl_fo_public_scrope_hl <- function(
     hl_fo_public_contrasts(p, ctx$intcol, predictor_names, lrt_contrasts)
   } else list()
 
-  gene_fits <- vector("list", length(gids))
+  gene_fits <- if (keep_diagnostics) vector("list", length(gids)) else NULL
   summary_rows <- vector("list", length(gids))
   overdispersion <- matrix(NA_real_, length(gids), 2L,
                            dimnames = list(NULL, c("Subject", "Cell")))
   convergence <- rep(-25, length(gids))
   algorithm <- rep(2, length(gids))
   random_effect <- if (output_re) matrix(NA_real_, length(gids), ctx$k) else NULL
-  test_objects <- vector("list", length(gids))
-  coefficient_wald <- vector("list", length(gids))
+  test_objects <- if (keep_diagnostics) vector("list", length(gids)) else NULL
+  coefficient_wald <- if (keep_diagnostics) vector("list", length(gids)) else NULL
 
   for (gg in seq_along(gids)) {
     gene_id <- gids[gg]
@@ -179,14 +179,15 @@ hl_fo_public_scrope_hl <- function(
       data,
       active = c("tau", "xi"),
       guard_min = min,
-      guard_max = max
+      guard_max = max,
+      keep_diagnostics = keep_diagnostics
     )
     fit$gene_id <- gene_id
     fit$gene <- gene_name
     fit$design_transform <- ctx$design_transform
-    gene_fits[[gg]] <- fit
-    test_objects[[gg]] <- list()
-    coefficient_wald[[gg]] <- list()
+    if (keep_diagnostics) gene_fits[[gg]] <- fit
+    if (keep_diagnostics) test_objects[[gg]] <- list()
+    if (keep_diagnostics) coefficient_wald[[gg]] <- list()
 
     if (!isTRUE(fit$point_success)) {
       summary_rows[[gg]] <- hl_fo_public_failure_row(
@@ -235,7 +236,7 @@ hl_fo_public_scrope_hl <- function(
       row[[paste0("wald_success_", nm)]] <- isTRUE(wald$success)
       row[[paste0("wald_failure_", nm)]] <- if (isTRUE(wald$success)) NA_character_ else
         wald$status
-      coefficient_wald[[gg]][[nm]] <- wald
+      if (keep_diagnostics) coefficient_wald[[gg]][[nm]] <- wald
     }
 
     for (label in names(contrasts)) {
@@ -265,7 +266,8 @@ hl_fo_public_scrope_hl <- function(
         if (exists("hl_fo_score_test", mode = "function")) {
           score <- hl_fo_score_test(
             data = data, R = R_internal, rhs = def$rhs,
-            unrestricted_fit = fit, guard_min = min, guard_max = max
+            unrestricted_fit = fit, guard_min = min, guard_max = max,
+            keep_diagnostics = keep_diagnostics
           )
         } else {
           score <- list(success = FALSE, statistic = NA_real_, p_value = NA_real_,
@@ -291,7 +293,7 @@ hl_fo_public_scrope_hl <- function(
         row[[paste0("hl_lrt_failure_", label)]] <- "objective_ratio_unsupported"
         if (lrt_include_scale) row[[paste0("hl_lrt_scale_", label)]] <- NA_real_
       }
-      test_objects[[gg]][[label]] <- list(
+      if (keep_diagnostics) test_objects[[gg]][[label]] <- list(
         wald = wald, score = score, objective_ratio = objective_ratio,
         contrast_report = def,
         contrast_internal = list(R = def$R %*% ctx$M_X, rhs = def$rhs)
