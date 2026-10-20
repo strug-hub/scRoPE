@@ -3,26 +3,27 @@
 \docType{data}
 \name{sample_seurat}
 \alias{sample_seurat}
-\title{Example Seurat object for scRoPE workflows}
+\title{Matching synthetic Seurat teaching object}
 \format{
-A Seurat object with a count assay and per-cell metadata.
+A Seurat object with an RNA count assay and per-cell metadata.
+}
+\source{
+Constructed from the package's synthetic \code{sample_data} using
+\code{make_synthetic_seurat()} in the installed examples generator.
 }
 \usage{
 data(sample_seurat)
 }
 \description{
-A Seurat object containing 1,000 genes and 1,000 cells from the panc8
-pancreas example, for demonstrating \code{scToNeb()} and related helpers.
+A Seurat object containing exactly the counts and cells in \code{sample_data}:
+eight genes and 1,200 cells. No real human data are included.
 }
 \details{
-The exact subset-selection procedure and dataset-specific
-redistribution record have not been recovered.
-}
-\source{
-Bundled unchanged from scRoPE's initial import and byte-identical to
-NEBULA 1.5.3's example. NEBULA attributes it to Satija Lab's
-\emph{panc8.SeuratData: Eight Pancreas Datasets Across Five Technologies}
-(2019; cited package version 3.0.2), distributed through
-\url{https://github.com/satijalab/seurat-data}.
+The RNA assay contains the reference count matrix. Metadata include
+X1, X2, cc and offset, with replicate equal to sid. Compatibility labels
+celltype (equal to cc) and tech (synthetic_control/synthetic_treatment)
+are artificial, not measured cell types or sequencing technologies.
+Use \code{scToNeb(sample_seurat, assay="RNA", id="replicate",
+pred=c("X1", "X2", "cc"), offset="offset")} for the matching inputs.
 }
 \keyword{datasets}

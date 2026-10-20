@@ -7,3 +7,4 @@
 ^\.github$
 ^\.git$
 ^LICENSE$
+^data-raw$

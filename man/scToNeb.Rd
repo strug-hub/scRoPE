@@ -38,6 +38,7 @@ library(Seurat)
 library(scRoPE)
 
 data("sample_seurat")
-re <- scToNeb(obj = sample_seurat, assay = "RNA", id = "replicate", pred = c("celltype", "tech"))
+re <- scToNeb(sample_seurat, assay = "RNA", id = "replicate",
+              pred = c("X1", "X2", "cc"), offset = "offset")
 }
 }

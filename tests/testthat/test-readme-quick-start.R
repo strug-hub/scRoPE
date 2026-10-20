@@ -1,24 +1,111 @@
-test_that("README quick-start PGMM example completes with adjusted tests", {
+test_that("README PGMM example reports adjusted-test availability and fallbacks", {
   data(sample_data)
 
   design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
+  warnings <- character(0)
 
-  expect_no_warning(
-    fit <- scrope(
+  fit <- withCallingHandlers(
+    scrope(
       sample_data$count,
       sample_data$sid,
       pred = design,
+      offset = sample_data$offset,
       model = "PGMM",
       ncore = 1,
       additional_tests = c("score", "lrt"),
       lrt_details = TRUE
-    )
+    ),
+    warning = function(w) {
+      warnings <<- c(warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
   )
 
   expect_equal(nrow(fit$summary), nrow(sample_data$count))
   expect_equal(nrow(fit$lrt_details), nrow(sample_data$count) * 3L)
-  expect_false(any(fit$lrt_details$fallback))
-  expect_true(all(fit$lrt_details$method %in% c("lrt", "lrt_ridge")))
+  details <- fit$lrt_details
+  expected_keys <- outer(rownames(sample_data$count),
+                         c("X1", "X2", "cccontrol"), paste, sep = "/")
+  expect_setequal(paste(details$gene, details$contrast, sep = "/"),
+                  as.vector(expected_keys))
+  expect_false(anyDuplicated(details[c("gene", "contrast")]) > 0L)
+  expect_identical(details$success, details$adjusted_available)
+  accepted <- details$adjusted_available
+  # This frozen, unselected teaching realization documents one curvature
+  # rejection. Keep its fallback branch covered rather than permitting an
+  # all-success result to bypass the fallback assertions below.
+  expect_identical(sum(accepted), 23L)
+  expect_identical(sum(details$fallback), 1L)
+  curvature_rejection <- details[
+    details$gene == "G08" & details$contrast == "X2", , drop = FALSE
+  ]
+  expect_identical(nrow(curvature_rejection), 1L)
+  expect_false(curvature_rejection$adjusted_available)
+  expect_false(curvature_rejection$success)
+  expect_false(curvature_rejection$gate_profiled_curvature_positive)
+  expect_identical(curvature_rejection$adjusted_failure_reason,
+                   "nonpositive_curvature")
+  expect_identical(curvature_rejection$failure_reason, "nonpositive_curvature")
+  expect_identical(curvature_rejection$method, "wald")
+  expect_true(curvature_rejection$fallback)
+  expect_true(all(details$method[accepted] %in% c("lrt", "lrt_ridge")))
+  expect_false(any(details$fallback[accepted]))
+  expect_true(all(is.finite(details$stat[accepted])))
+  expect_true(all(details$p_value[accepted] >= 0 &
+                    details$p_value[accepted] <= 1))
+  expect_true(all(is.na(details$adjusted_failure_reason[accepted])))
+  expect_true(all(!is.na(details$adjusted_failure_reason[!accepted]) &
+                    nzchar(details$adjusted_failure_reason[!accepted])))
+  expect_true(all(details$score_success))
+  expect_true(all(is.finite(details$score_stat)))
+
+  # All requests remain in the output. A failed adjusted LRT can carry an
+  # explicitly labeled Wald fallback; that value is not an accepted LRT.
+  for (i in seq_len(nrow(details))) {
+    detail <- details[i, ]
+    row <- fit$summary[fit$summary$gene == detail$gene, , drop = FALSE]
+    name <- detail$contrast
+    expect_identical(row[[paste0("lrt_method_", name)]], detail$method)
+    expect_identical(row[[paste0("lrt_success_", name)]], detail$success)
+    expect_equal(row[[paste0("lrt_adj_", name)]], detail$stat)
+    expect_equal(row[[paste0("p_lrt_adj_", name)]], detail$p_value)
+    expect_identical(row[[paste0("score_success_", name)]],
+                     detail$score_success)
+    if (!detail$adjusted_available) {
+      expect_identical(row[[paste0("lrt_adjusted_failure_", name)]],
+                       detail$adjusted_failure_reason)
+      if (detail$fallback) {
+        expect_true(detail$method %in% c("wald", "wald_ridge"))
+        expect_true(is.finite(detail$stat))
+        expect_true(is.finite(detail$p_value))
+        if (detail$method == "wald") {
+          expected_wald <- (row[[paste0("logFC_", name)]] /
+                              row[[paste0("se_robust_", name)]])^2
+          expect_equal(detail$stat, expected_wald, tolerance = 1e-8)
+          expect_equal(detail$p_value,
+                       pchisq(expected_wald, df = 1L, lower.tail = FALSE),
+                       tolerance = 1e-8)
+        }
+      } else {
+        expect_true(is.na(detail$stat))
+        expect_true(is.na(detail$p_value))
+      }
+    }
+  }
+
+  # Assert the complete warning stream rather than suppressing numerical
+  # failures or treating a disclosed fallback as a data-generation failure.
+  expected_warnings <- character(0)
+  n_fallback <- sum(details$method %in% c("wald", "wald_ridge", "lrt_fail", "lrt_raw"))
+  n_ridge <- sum(details$method %in% c("lrt_ridge", "wald_ridge"))
+  if (n_fallback > 0L) expected_warnings <- c(expected_warnings, sprintf(
+    "Adjusted LRT fell back or was gated out for %d gene-contrast(s); see lrt_method_* columns.",
+    n_fallback
+  ))
+  if (n_ridge > 0L) expected_warnings <- c(expected_warnings, sprintf(
+    "Adjusted LRT applied ridge regularisation for %d gene-contrast(s).", n_ridge
+  ))
+  expect_identical(warnings, expected_warnings)
   expect_true(all(c(
     "score_adj_X1",
     "lrt_adj_X1",
@@ -37,6 +124,7 @@ test_that("README explicit joint-LN exposes Wald and calibration-pending tests",
     sample_data$count,
     sample_data$sid,
     pred = design,
+    offset = sample_data$offset,
     ncore = 1,
     verbose = FALSE,
     additional_tests = c("score", "lrt"),
@@ -72,6 +160,7 @@ test_that("README PGMM examples support subject- and cell-level predictors", {
       sample_data$count,
       sample_data$sid,
       pred = design_subject,
+      offset = sample_data$offset,
       model = "PGMM",
       ncore = 1
     )
@@ -83,6 +172,7 @@ test_that("README PGMM examples support subject- and cell-level predictors", {
       sample_data$count,
       sample_data$sid,
       pred = design_cell,
+      offset = sample_data$offset,
       model = "PGMM",
       ncore = 1
     ),

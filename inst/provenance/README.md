@@ -68,22 +68,34 @@ The source archive and the Git tree are distinct artifacts, not identical
 byte streams. No old repository contents or history were merged into the
 public package merely to establish this provenance.
 
-The two example files have remained byte-identical since scRoPE's initial
-import and match the comparison archive:
+Before the synthetic-example replacement in this local 0.3.0 preparation, the
+two inherited example files were byte-identical to scRoPE's initial import and
+the comparison archive. These are HISTORICAL hashes, not the maintained data:
 
 | File | SHA-256 |
 | --- | --- |
 | data/sample_data.rda | `e7ff93ea0010078cbbcd374e8630b2600ad8cb2f0af6044c3221418e3208cb82` |
 | data/sample_seurat.rda | `0ab12b1fdd041b775e2ee5aebfa92fed80335ed0ac0918ef42d3b0626c22d559` |
 
-`sample_data` contains 10 genes and 6,176 cells from 30 subject identifiers.
+The historical `sample_data` contains 10 genes and 6,176 cells from 30 subject identifiers.
 The inspected upstream documentation does not record its generation procedure
 or study source; it must not be described as synthetic without further evidence.
-`sample_seurat` contains 1,000 genes and 1,000 cells. NEBULA attributes this
+The historical `sample_seurat` contains 1,000 genes and 1,000 cells. NEBULA attributes this
 example to Satija Lab's *panc8.SeuratData: Eight Pancreas Datasets Across Five
 Technologies* (2019; cited package version 3.0.2), distributed through
 [SeuratData](https://github.com/satijalab/seurat-data). The exact subset-selection
 procedure and dataset-specific redistribution record have not been recovered.
+
+
+The maintained package now contains original, reproducibly generated teaching
+examples: eight genes and 1,200 cells across 30 synthetic donors. Both objects
+come from the same reference count matrix. The frozen parameters and pure
+generator are in `inst/examples`; source regeneration and plotting scripts are
+in `data-raw`. They use seed 20261020, with no seed search or gene selection.
+Neither object contains the inherited NEBULA/pancreas data. The exact old files
+remain available in historical source commits and preservation archives; no
+historical result or source hash is relabeled. This replacement resolves the
+maintained example-data generation gap, not the inherited code-license issue.
 
 Licensing records remain inconsistent. Upstream commit `e17fb830` declares
 GPL-3 in DESCRIPTION but contains GPL Version 2 text in LICENSE. That LICENSE
