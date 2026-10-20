@@ -46,6 +46,49 @@ The proposed Linux CI workflow has not run merely because its file is present.
 The revised paper workflows are maintained separately and are not defined by
 this package release preparation.
 
+## Synthetic teaching examples
+
+The bundled objects are generated data: **30 donors, 40 cells each, eight
+genes**, with 20 control and 10 treated donors. `X2` is donor-level treatment;
+`X1` is a cell-level continuous predictor and `cc` is an artificial cell
+category. `sample_data` and `sample_seurat` contain the same reference counts
+and cell order. They are separate from the paper simulations and HLCA analyses.
+
+![Synthetic multi-donor study design](man/figures/synthetic-design.svg)
+
+The reference uses gamma donor effects and conditional negative-binomial
+counts. A paired illustration substitutes lognormal donor effects with the
+same mean and variance, shared by both treatment groups. This is a modest
+working-distribution misspecification. The gamma reference belongs to the
+working family, but JLN still approximates its likelihood at 40 cells per donor.
+The [frozen design](data-raw/SYNTHETIC_DESIGN.md) specifies the parameterization,
+seed, draw order, target and display plan before outcomes were examined.
+
+![Every generating treatment coefficient and both uncertainty estimates](man/figures/synthetic-intervals.svg)
+
+Model and donor-robust intervals use **the same fitted coefficient** within each
+gene and scenario. All 16 fits provided inference in this fixed run. Robust
+adjustment changes uncertainty; it does not move an estimate toward its
+known generating coefficient or correct bias.
+
+![Robust-to-model standard error ratios for all genes in both scenarios](man/figures/synthetic-se-ratio.svg)
+
+Here robust/model SE ratios range from 0.82–1.23 in the reference and 0.84–1.27
+in the misspecified scenario. Six intervals widen and two narrow in each;
+the observed adjustments are similar across scenarios. **This example does
+not demonstrate a calibration or power advantage.** A wider interval is not
+inherently better, and inclusion of a generating coefficient in one draw is
+not estimated coverage. Intervals are nominal, pointwise 95% Wald intervals;
+p-values test `X2 = 0` without multiplicity adjustment. Thirty independent
+donors and an approximate working likelihood leave finite-sample limitations.
+
+The [complete result table](inst/examples/illustration_results.csv) includes
+all genes, estimates, generating coefficients, both SEs, intervals, zero-null
+p-values and availability. Nothing was selected by significance. See
+[regeneration instructions and runtime versions](inst/examples/README.md).
+The original inherited fixtures remain in historical sources, with their
+[provenance recorded separately](inst/provenance/README.md).
+
 ## Quick start
 
 The default `scrope()` call uses the scalable LN approximation to the
@@ -68,25 +111,40 @@ fit <- scrope(
   sample_data$count,
   sample_data$sid,
   pred = design,
+  offset = sample_data$offset,
   ncore = 1
 )
 ```
 
-A compact view of the default robust Wald results for `X1` is:
+A compact view of the default robust Wald results for donor treatment `X2` is:
 
 ```r
 head(fit$summary[, c(
   "gene",
-  "logFC_X1",
-  "se_robust_X1",
-  "p_robust_X1"
+  "logFC_X2",
+  "se_robust_X2",
+  "p_robust_X2"
 )])
 ```
 
-Here, `logFC_X1` is the estimated coefficient, `se_robust_X1` is its robust
-standard error, and `p_robust_X1` is the robust Wald p-value. The complete
+Here, `logFC_X2` is the estimated coefficient, `se_robust_X2` is its robust
+standard error, and `p_robust_X2` is the robust Wald p-value. The complete
 `fit$summary` also contains model-based results and results for the other
 predictors.
+
+The matching Seurat example supplies identical fitting inputs:
+
+```r
+data(sample_seurat)
+converted <- scToNeb(
+  sample_seurat, assay = "RNA", id = "replicate",
+  pred = c("X1", "X2", "cc"), offset = "offset"
+)
+stopifnot(identical(converted$count, sample_data$count))
+```
+
+Its `celltype` and `tech` compatibility columns are artificial labels; use the
+explicit `X1`, `X2`, `cc` and `offset` metadata for this design.
 
 ## Joint-LN estimation and availability
 
@@ -97,6 +155,7 @@ fit_joint <- scrope(
   sample_data$count,
   sample_data$sid,
   pred = design,
+  offset = sample_data$offset,
   ncore = 1,
   ln_estimator = "joint_ln"
 )
@@ -186,6 +245,7 @@ fit_tests <- scrope(
   sample_data$count,
   sample_data$sid,
   pred = design,
+  offset = sample_data$offset,
   model = "PGMM",
   ncore = 1,
   additional_tests = c("score", "lrt"),
@@ -200,6 +260,15 @@ head(fit_tests$summary[, c(
   "lrt_method_X1"
 )])
 ```
+
+On this fixed synthetic example, 23 of the 24 PGMM adjusted LRTs are available.
+For G08 / X2, the constrained fit passes optimization but its profiled curvature
+is nonpositive. The call warns and records `lrt_method_X2 = "wald"`; that finite
+fallback p-value is a Wald result, **not an adjusted LRT**. All 24 adjusted
+Scores are available. Check `lrt_details` and method/availability fields before
+interpreting or selecting optional tests; do not drop gated contrasts from a
+planned denominator. These are example-specific outcomes, not failure-rate or
+calibration estimates.
 
 The robust Wald test is the primary default because it is directly available
 after the unconstrained fit. Score and LRT inference require constrained fits
@@ -243,6 +312,7 @@ fit_hl <- scrope(
   sample_data$count,
   sample_data$sid,
   pred = design,
+  offset = sample_data$offset,
   model = "HL",
   ncore = 1
 )
@@ -276,6 +346,7 @@ fit_pmg_subject <- scrope(
   sample_data$count,
   sample_data$sid,
   pred = design_subject,
+  offset = sample_data$offset,
   model = "PGMM",
   ncore = 1
 )
@@ -295,6 +366,7 @@ fit_pmg_cell <- scrope(
   sample_data$count,
   sample_data$sid,
   pred = design_cell,
+  offset = sample_data$offset,
   model = "PGMM",
   ncore = 1
 )

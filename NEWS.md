@@ -11,6 +11,12 @@
   restore example-data attribution. Record conflicting license metadata and
   missing data-generation details without changing license terms.
 
+- Replace inherited teaching fixtures with paired, reproducibly generated
+  synthetic multi-donor examples and a matching Seurat object. Supply generator,
+  fixed seed/parameters, conversion tests and illustrative README figures.
+  Historical objects and scientific results retain their original sources.
+  These examples do not establish calibration, power or code-license clearance.
+
 The changes below first formed the unpublished .9006 review candidate and are
 carried into this release preparation. The remaining version entries describe
 source development history; they do not imply GitHub releases or tags.
