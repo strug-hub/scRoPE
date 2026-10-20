@@ -403,6 +403,14 @@ a fixed population target or the same interpretation as the intercept at
 unobserved zero-valued predictors. Corrected first-order HL retains its
 original-design coefficient coordinates.
 
+`nbresidual()` recognizes corrected first-order HL output and reconstructs its
+means using the original design coordinates. Supply the original `pred`,
+positive `offset`, and matching cell/donor ordering. JLN and PGMM retain their
+centered-intercept convention. Objects without estimator provenance retain
+the historical reconstruction convention; the function cannot infer an
+unrecorded historical fitting route. Conditional residuals require the
+corresponding retained donor predictions.
+
 ## Understanding the Main Outputs
 
 For each modeled predictor, `summary` includes:

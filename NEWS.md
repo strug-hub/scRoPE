@@ -1,5 +1,8 @@
 # Development (unreleased)
 
+- Reconstruct corrected-HL Pearson residuals using original-design coordinates;
+  retain JLN/PGMM and compatible historical reconstruction conventions.
+
 - Gate optional PGMM inference on accepted endpoints and map custom contrasts
   from reported coefficient units into the internal fitting coordinates.
 
