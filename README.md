@@ -1,6 +1,6 @@
 # scRoPE
 
-**0.2.5.9006 — local release candidate, not a published release.** This
+**0.3.0 — local release preparation, not a published or approved release.** This
 checkout starts from the preserved 0.2.5.9005 source used for the newer
 simulation campaigns. Historical results retain their original versions;
 this candidate does not replace or relabel those runs.
@@ -34,11 +34,17 @@ output directory:
 
 ```sh
 R CMD build /path/to/this/source
-R CMD check --no-manual scRoPE_0.2.5.9006.tar.gz
+R CMD check --no-manual scRoPE_0.3.0.tar.gz
 ```
 
 The examples below assume that this local candidate has been loaded. Check
 `packageVersion("scRoPE")` before comparing outputs with another version.
+
+The installed-package smoke and mandatory two-worker gates are documented in
+[tests/validation/README-workable-version-smoke.md](tests/validation/README-workable-version-smoke.md).
+The proposed Linux CI workflow has not run merely because its file is present.
+The revised paper workflows are maintained separately and are not defined by
+this package release preparation.
 
 ## Quick start
 
@@ -417,7 +423,11 @@ outputs.
 
 ## Attribution
 
-scRoPE is derived from the `nebula` package (GPL-2).
+scRoPE incorporates code derived from NEBULA (He et al., 2021,
+[doi:10.1038/s42003-021-02146-6](https://doi.org/10.1038/s42003-021-02146-6)).
+Source and example-data attribution, historical source hashes, and unresolved
+license provenance are recorded in [the provenance note](inst/provenance/README.md).
+This local preparation does not change the package license.
 
 Upstream source:
 

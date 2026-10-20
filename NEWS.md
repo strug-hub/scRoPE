@@ -1,3 +1,20 @@
+# scRoPE 0.3.0 — unreleased local preparation
+
+- Integrate the preserved .9005 baseline and the reviewed .9006 candidate as
+  present-day local commits. The version is a proposed release target, not an
+  approved or published release; no historical campaign is relabeled.
+- Update the installed-package smoke for JLN schema 3 and HL/PGMM schema 2,
+  default/explicit JLN parity, and actionable legacy-request rejection.
+- Add a mandatory installed-package two-worker gate and a proposed Linux CI
+  workflow. A skipped parallel test does not satisfy that gate.
+- Document source hashes, recover the NEBULA 1.5.3 development ancestry, and
+  restore example-data attribution. Record conflicting license metadata and
+  missing data-generation details without changing license terms.
+
+The changes below first formed the unpublished .9006 review candidate and are
+carried into this release preparation. The remaining version entries describe
+source development history; they do not imply GitHub releases or tags.
+
 # scRoPE 0.2.5.9006 — local release candidate
 
 - Imported the exact preserved 0.2.5.9005 scientific source into an isolated

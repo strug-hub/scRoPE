@@ -34,7 +34,7 @@ command after installing the exact source archive with its tests:
 
 ```sh
 mkdir -p /tmp/scrope-rc-library
-R CMD INSTALL --install-tests --library=/tmp/scrope-rc-library scRoPE_0.2.5.9006.tar.gz
+R CMD INSTALL --install-tests --library=/tmp/scrope-rc-library scRoPE_0.3.0.tar.gz
 Rscript /tmp/scrope-rc-library/scRoPE/tests/validation/run_workable_version_smoke.R \
   /tmp/scrope-workable-smoke.rds /tmp/scrope-rc-library/scRoPE
 Rscript /tmp/scrope-rc-library/scRoPE/tests/validation/run_installed_parallel_gate.R \
