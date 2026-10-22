@@ -4,10 +4,11 @@ toy24_helpers <- function() {
   e <- new.env(parent = globalenv())
   sys.source(file.path(directory, "generate.R"), e)
   sys.source(file.path(directory, "extract_results.R"), e)
+  sys.source(file.path(dirname(directory), "verify_regeneration.R"), e)
   list(functions = e, directory = directory)
 }
 
-test_that("toy data regenerate exactly and preserve the declared design and RNG", {
+test_that("toy regeneration preserves counts, design, RNG and bounded latents", {
   data(toy_data)
   e <- toy24_helpers()$functions
   original_kind <- RNGkind()
@@ -21,11 +22,14 @@ test_that("toy data regenerate exactly and preserve the declared design and RNG"
   RNGkind("L'Ecuyer-CMRG", "Inversion", "Rejection")
   set.seed(31)
   caller_seed <- .Random.seed
-  expect_identical(e$generate_toy24(), toy_data)
+  generated <- e$generate_toy24()
+  expect_true(e$verify_toy24_regeneration(generated, toy_data))
   expect_identical(.Random.seed, caller_seed)
   expect_identical(RNGkind(), c("L'Ecuyer-CMRG", "Inversion", "Rejection"))
   rm(".Random.seed", envir = .GlobalEnv)
-  expect_identical(e$generate_toy24(), toy_data)
+  replay <- e$generate_toy24()
+  expect_true(e$verify_toy24_regeneration(replay, toy_data))
+  expect_identical(generated, replay)
   expect_false(exists(".Random.seed", .GlobalEnv, inherits = FALSE))
 
   expect_identical(dim(toy_data$count), c(24L, 8000L))
@@ -52,6 +56,35 @@ test_that("toy data regenerate exactly and preserve the declared design and RNG"
   }
 })
 
+test_that("toy verification rejects changed counts, states and material latents", {
+  data(toy_data)
+  verify <- toy24_helpers()$functions$verify_toy24_regeneration
+  changed <- toy_data
+  changed$donor_truth$intercept_multiplier[1] <-
+    changed$donor_truth$intercept_multiplier[1] + 4 * .Machine$double.eps
+  expect_true(verify(changed, toy_data))
+  changed$donor_truth$donor_slope[801] <- toy_data$donor_truth$donor_slope[801] + 1e-8
+  expect_error(verify(changed, toy_data), "donor_slope.*continuous difference")
+  changed <- toy_data
+  changed$count[1, 1] <- changed$count[1, 1] + 1L
+  expect_error(verify(changed, toy_data), "count.*exactly")
+  changed <- toy_data
+  changed$seed <- changed$seed + 1L
+  expect_error(verify(changed, toy_data), "seed.*exactly")
+  changed <- toy_data
+  changed$streams[[1]][2] <- changed$streams[[1]][2] + 1L
+  expect_error(verify(changed, toy_data), "streams.*exactly")
+  changed <- toy_data
+  changed$rng[2] <- "Box-Muller"
+  expect_error(verify(changed, toy_data), "rng.*exactly")
+  changed <- toy_data
+  changed$gene_metadata$truth[1] <- 1e-15
+  expect_error(verify(changed, toy_data), "truth.*exactly")
+  changed <- toy_data
+  changed$donor_truth$donor_slope[1] <- Inf
+  expect_error(verify(changed, toy_data), "finite doubles")
+})
+
 test_that("the installed quick start reproduces the complete reviewed inference", {
   data(toy_data)
   h <- toy24_helpers()
@@ -64,7 +97,8 @@ test_that("the installed quick start reproduces the complete reviewed inference"
   expect_identical(r$reason, expected$reason)
   # Numerical solvers/BLAS can differ across platforms. 1e-6 in the coefficient
   # or SE is tiny compared with the smallest SE (~0.02); never test p<.05 as a
-  # proxy for numerical agreement. Data themselves must be exactly identical.
+  # proxy for numerical agreement. The fit uses the unchanged bundled counts
+  # and design; cross-environment regeneration checks are separate above.
   for (nm in c("estimate", "model_se", "robust_se", "model_p_zero", "robust_p_zero"))
     expect_lte(max(abs(r[[nm]] - expected[[nm]])), 1e-6)
   for (method in c("model", "robust")) {

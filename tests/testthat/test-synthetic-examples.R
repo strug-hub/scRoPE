@@ -40,10 +40,11 @@ synthetic_example_test_functions <- function() {
   functions <- new.env(parent = globalenv())
   sys.source(file.path(directory, "synthetic_parameters.R"), envir = functions)
   sys.source(file.path(directory, "generate_synthetic.R"), envir = functions)
+  sys.source(file.path(directory, "verify_regeneration.R"), envir = functions)
   functions
 }
 
-test_that("the frozen generator exactly reproduces the bundled count example", {
+test_that("the generator preserves exact counts and bounded continuous values", {
   data(sample_data)
   functions <- synthetic_example_test_functions()
   parameters <- functions$synthetic_example_parameters()
@@ -54,7 +55,7 @@ test_that("the frozen generator exactly reproduces the bundled count example", {
   expect_identical(parameters$design_version, "synthetic-teaching-v1")
   expect_identical(generated$parameters, parameters)
   expect_identical(generated, replay)
-  expect_identical(generated$reference, sample_data)
+  expect_true(functions$verify_synthetic_regeneration(generated$reference, sample_data))
   expect_identical(generated$truth$gene, parameters$genes)
   expect_identical(generated$truth$beta_X2, parameters$beta_X2)
   expect_identical(generated$truth$phi, parameters$phi)
@@ -66,6 +67,36 @@ test_that("the frozen generator exactly reproduces the bundled count example", {
                    dim(generated$reference$count))
   expect_identical(dimnames(generated$misspecified$count),
                    dimnames(generated$reference$count))
+})
+
+test_that("synthetic verification allows only bounded continuous differences", {
+  data(sample_data)
+  verify <- synthetic_example_test_functions()$verify_synthetic_regeneration
+  changed <- sample_data
+  changed$pred$X1[1] <- changed$pred$X1[1] +
+    4 * .Machine$double.eps * max(1, abs(changed$pred$X1[1]))
+  changed$offset[1] <- changed$offset[1] + 4 * .Machine$double.eps
+  expect_true(verify(changed, sample_data))
+  changed$pred$X1[1] <- sample_data$pred$X1[1] +
+    128 * .Machine$double.eps * max(1, abs(sample_data$pred$X1[1]))
+  expect_error(verify(changed, sample_data), "64-epsilon scaled bound")
+  changed$pred$X1[1] <- sample_data$pred$X1[1] + 1e-8
+  expect_error(verify(changed, sample_data), "continuous difference")
+  changed <- sample_data
+  changed$count[1, 1] <- changed$count[1, 1] + 1
+  expect_error(verify(changed, sample_data), "sample_data\\$count:")
+  changed <- sample_data
+  changed$pred$X2[1] <- 1 - changed$pred$X2[1]
+  expect_error(verify(changed, sample_data), "X2.*exactly")
+  changed <- sample_data
+  names(changed$offset) <- seq_along(changed$offset)
+  expect_error(verify(changed, sample_data), "offset.*attributes")
+  changed <- sample_data
+  changed$pred$X1 <- as.integer(changed$pred$X1)
+  expect_error(verify(changed, sample_data), "X1.*type")
+  changed <- sample_data
+  changed$offset[1] <- NA_real_
+  expect_error(verify(changed, sample_data), "finite doubles")
 })
 
 test_that("the generator preserves RNG settings and seed with Inversion", {

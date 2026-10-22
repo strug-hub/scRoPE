@@ -27,10 +27,20 @@ To regenerate the data without fitting or writing files:
 ```r
 e <- new.env()
 sys.source(system.file("examples", "toy24", "generate.R", package = "scRoPE"), e)
+sys.source(system.file("examples", "verify_regeneration.R", package = "scRoPE"), e)
 regenerated <- e$generate_toy24()
 data(toy_data)
-stopifnot(identical(regenerated, toy_data))
+e$verify_toy24_regeneration(regenerated, toy_data)
 ```
+
+The verifier requires exact counts, design metadata, identifiers, RNG settings
+and stored streams, including their types and attributes. Only the continuous
+donor intercept multipliers and slopes allow last-bit numerical differences:
+each absolute difference must be at most
+`64 * .Machine$double.eps * max(1, abs(actual), abs(expected))`.
+Continuous values can differ at that scale across R versions and numerical
+environments even when counts and streams agree. The bundled object retains
+the reviewed reference unchanged; same-environment replay remains exact.
 
 The generator restores `RNGkind()` and `.Random.seed`. Base R cannot restore
 a caller's hidden Box–Muller normal cache; the declared Inversion generator

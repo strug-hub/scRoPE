@@ -29,7 +29,10 @@ Installed users can generate the same inputs without fitting:
     e <- new.env()
     sys.source(system.file("examples", "synthetic_parameters.R", package="scRoPE"), e)
     sys.source(system.file("examples", "generate_synthetic.R", package="scRoPE"), e)
+    sys.source(system.file("examples", "verify_regeneration.R", package="scRoPE"), e)
     examples <- e$generate_synthetic_examples()
+    data(sample_data)
+    e$verify_synthetic_regeneration(examples$reference, sample_data)
     sample_data <- examples$reference
     sample_seurat <- e$make_synthetic_seurat(sample_data)
 
@@ -37,6 +40,12 @@ The generated list also holds the paired misspecified scenario, coefficients,
 conditional means and donor effects. The generator restores RNGkind and
 .Random.seed; a caller's hidden Box-Muller cache cannot be restored by base R.
 The declared Inversion generator is unaffected by that limitation.
+
+The verifier requires exact counts, donor IDs, categorical/discrete predictors,
+types and attributes. Only continuous `X1` and offsets permit last-bit
+differences between numerical environments, bounded per value by
+`64 * .Machine$double.eps * max(1, abs(actual), abs(expected))`.
+The bundled fixtures remain unchanged; replay within one environment is exact.
 
 ## Recorded environment and interpretation
 
