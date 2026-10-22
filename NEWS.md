@@ -5,6 +5,12 @@
   Historical sources and their original license records are unchanged.
 
 
+- Add the reviewed 24-gene omitted-donor-slope `toy_data` quick start, with
+  exact regeneration, complete reference results and an all-gene interval plot.
+  Keep existing `sample_data` and `sample_seurat` interfaces unchanged.
+  Shorten the README and retain advanced methods/migration in a linked guide.
+  This illustration does not establish calibration or non-null target equality.
+
 - Integrate the preserved .9005 baseline and the reviewed .9006 candidate as
   present-day local commits. The version is a proposed release target, not an
   approved or published release; no historical campaign is relabeled.

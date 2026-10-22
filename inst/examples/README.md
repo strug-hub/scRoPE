@@ -1,4 +1,7 @@
-# Reproducing the synthetic teaching examples
+# Additional synthetic and Seurat teaching examples
+
+For the main 24-gene quick start, see [toy24/README.md](toy24/README.md).
+The objects and paired illustration below remain separate compatibility examples.
 
 These examples were designed for this unpublished local 0.3.0 preparation.
 They contain no NEBULA/pancreas/HLCA observations or paper simulation results.

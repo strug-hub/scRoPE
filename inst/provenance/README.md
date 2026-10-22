@@ -95,6 +95,9 @@ in `data-raw`. They use seed 20261020, with no seed search or gene selection.
 Neither object contains the inherited NEBULA/pancreas data. The exact old files
 remain available in historical source commits and preservation archives; no
 historical result or source hash is relabeled. This replacement resolves the maintained example-data generation gap.
+The separate 24-gene `toy_data` quick start is documented in
+[its design notes](../examples/toy24/README.md); neither teaching design
+contains historical biological observations.
 
 ## Historical licensing records
 

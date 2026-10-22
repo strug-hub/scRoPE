@@ -1,5 +1,10 @@
 # Teaching-example source scripts
 
+The main 24-gene quick start is documented in
+[../inst/examples/toy24/README.md](../inst/examples/toy24/README.md).
+`rebuild_toy24.R` regenerates its data without fitting. The scripts below
+continue to maintain the separate original synthetic/Seurat examples.
+
 Read SYNTHETIC_DESIGN.md before regenerating. Its parameters and seed were
 frozen in a separate commit before outcomes were inspected. The pure generator
 and parameters are installed under inst/examples so users can inspect and

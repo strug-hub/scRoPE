@@ -89,6 +89,15 @@ p-values and availability. Nothing was selected by significance. See
 The original inherited fixtures remain in historical sources, with their
 [provenance recorded separately](inst/provenance/README.md).
 
+## 24-gene quick start
+
+The new `toy_data` contains 24 genes and 200 donors with 40 cells each.
+It includes null and non-null genes with and without omitted donor slopes;
+model-based and robust intervals share the same fitted coefficient.
+[Run, regenerate or plot all genes](inst/examples/toy24/README.md).
+The fixed example illustrates uncertainty differences, not calibration or
+bias correction. The original synthetic/Seurat examples remain below.
+
 ## Quick start
 
 The default `scrope()` call uses the scalable LN approximation to the
