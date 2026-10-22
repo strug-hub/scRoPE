@@ -183,7 +183,7 @@ test_that("Pace ratio audit retains certified same-objective endpoint contracts"
     )
     expect_true(is.na(ratio$failure_reason), info = name)
     expect_false(ratio$public_available, info = name)
-    expect_identical(ratio$public_status, "joint_ln_calibration_pending")
+    expect_identical(ratio$public_status, "diagnostic_only")
     expect_true(ratio$no_numerical_repair, info = name)
     expect_identical(ratio$df, as.integer(r))
     expect_identical(ratio$theoretical_df, as.integer(r))
@@ -491,7 +491,7 @@ test_that("Pace ratio is invariant to equivalent constraints and bases", {
     expect_false(alternative$public_available)
     expect_identical(
       alternative$public_status,
-      "joint_ln_calibration_pending"
+      "diagnostic_only"
     )
   }
   for (field in fields) {
@@ -852,12 +852,12 @@ test_that("Pace ratio audit fails closed for endpoint and matrix corruption", {
     reported_objective_result
   )) {
     expect_false(result$public_available)
-    expect_identical(result$public_status, "joint_ln_calibration_pending")
+    expect_identical(result$public_status, "diagnostic_only")
     expect_true(is.na(result$statistic))
   }
 })
 
-test_that("audit-only Pace ratio leaves public Score LRT and Wald fields unchanged", {
+test_that("Pace diagnostics retain broader hypotheses while public Wald stays unchanged", {
   case <- .ln_ratio_focused_case()
   baseline <- case$base$fit
   tested <- case$tested$fit
@@ -888,7 +888,7 @@ test_that("audit-only Pace ratio leaves public Score LRT and Wald fields unchang
     expect_true(is.finite(entry$raw$wP), info = name)
     expect_true(all(is.na(c(entry$raw$wU, entry$raw$qP,
                             entry$raw$wP_adjusted))), info = name)
-    expect_identical(entry$raw$method, "unavailable_joint_ln")
+    expect_identical(entry$raw$method, "joint_ln_pace_adjusted_ratio")
     expect_false(entry$raw$success, info = name)
     expect_false(entry$raw$adjusted_available, info = name)
     expect_true(is.na(entry$stat), info = name)
@@ -897,10 +897,10 @@ test_that("audit-only Pace ratio leaves public Score LRT and Wald fields unchang
     expect_true(all(is.na(c(entry$wU, entry$qP))), info = name)
     expect_false(entry$success, info = name)
     expect_false(entry$score_success, info = name)
-    expect_identical(entry$failure_reason, "joint_ln_calibration_pending")
+    expect_identical(entry$failure_reason, "joint_ln_optional_scope_unsupported")
     expect_identical(entry$score_failure,
-                     "joint_ln_calibration_pending")
-    expect_identical(entry$method, "unavailable_joint_ln")
+                     "joint_ln_optional_scope_unsupported")
+    expect_identical(entry$method, "joint_ln_pace_adjusted_ratio")
   }
 
   helper_text <- tolower(paste(

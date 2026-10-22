@@ -88,7 +88,7 @@ test_that("joint-LN robust Score diagnostics retain certified null state contrac
     expect_true(score$diagnostic_available, info = name)
     expect_true(is.na(score$failure_reason), info = name)
     expect_false(score$public_available, info = name)
-    expect_identical(score$public_status, "joint_ln_calibration_pending")
+    expect_identical(score$public_status, "diagnostic_only")
     expect_identical(score$df, as.integer(r))
     expect_true(is.finite(score$statistic) && score$statistic >= 0, info = name)
     expect_length(score$U_eff, r)
@@ -259,7 +259,7 @@ test_that("efficient-score projection and variability identities reconstruct ind
   }
 })
 
-test_that("audit-only Score path does not calculate ratio or public inference", {
+test_that("native Score diagnostics do not calculate ratio or public tails", {
   case <- .ln_score_focused_case()
   forbidden <- c(
     "wP", "qP", "pace", "multiplier", "compute_profile_lrt",
@@ -276,7 +276,7 @@ test_that("audit-only Score path does not calculate ratio or public inference", 
       info = token
     )
   }
-  for (name in names(case$raw_tests)) {
+  for (name in names(case$definitions)) {
     entry <- case$raw_tests[[name]]
     expect_null(entry$raw, info = name)
     expect_true(is.na(entry$stat), info = name)
@@ -287,9 +287,9 @@ test_that("audit-only Score path does not calculate ratio or public inference", 
     expect_true(is.na(entry$score_pval), info = name)
     expect_identical(
       entry$score_failure,
-      "joint_ln_calibration_pending"
+      "joint_ln_optional_scope_unsupported"
     )
-    expect_identical(entry$score_test$method, "unavailable_joint_ln")
+    expect_identical(entry$score_test$method, "joint_ln_robust_score")
     expect_true(is.na(entry$score_test$stat), info = name)
     expect_true(is.na(entry$score_test$pval), info = name)
   }
@@ -359,7 +359,7 @@ test_that("alternative null and interest bases leave the robust Score unchanged"
     expect_equal(candidate$statistic, reference$statistic, tolerance = 1e-9)
     expect_identical(candidate$df, reference$df)
     expect_false(candidate$public_available)
-    expect_identical(candidate$public_status, "joint_ln_calibration_pending")
+    expect_identical(candidate$public_status, "diagnostic_only")
   }
 })
 
@@ -391,7 +391,7 @@ test_that("rank-deficient tested variability is explicitly unavailable without r
   expect_false(score$diagnostic_available)
   expect_true(is.na(score$statistic))
   expect_false(score$public_available)
-  expect_identical(score$public_status, "joint_ln_calibration_pending")
+  expect_identical(score$public_status, "diagnostic_only")
   expect_match(score$failure_reason, "J_eff|variability|rank|singular",
                ignore.case = TRUE)
   expect_true(is.list(score$diagnostics$J_eff))
@@ -569,7 +569,7 @@ test_that("boundary, non-R0, and uncertified constrained fits stay unavailable",
   expect_true(is.na(boundary_score$statistic))
   expect_false(boundary_score$public_available)
   expect_identical(boundary_score$public_status,
-                   "joint_ln_calibration_pending")
+                   "diagnostic_only")
   boundary_score_success <- grep(
     "^score_success_",
     names(boundary$summary),
@@ -615,10 +615,10 @@ test_that("boundary, non-R0, and uncertified constrained fits stay unavailable",
   expect_true(is.na(uncertified_score$statistic))
   expect_false(uncertified_score$public_available)
   expect_identical(uncertified_score$public_status,
-                   "joint_ln_calibration_pending")
+                   "diagnostic_only")
 })
 
-test_that("audit-only Score diagnostics do not change joint Wald or public Score fields", {
+test_that("optional Score leaves primary joint Wald unchanged and gates broader hypotheses", {
   case <- .ln_score_focused_case()
   baseline <- case$base$fit
   tested <- case$tested$fit
@@ -658,9 +658,10 @@ test_that("audit-only Score diagnostics do not change joint Wald or public Score
     value = TRUE
   )
   score_failure_columns <- grep(
-    "^score_failure_",
+    "^score_failure_(?!stage_)",
     names(tested$summary),
-    value = TRUE
+    value = TRUE,
+    perl = TRUE
   )
   expected_score_columns <- length(raw_tested$lrt)
   expect_gt(expected_score_columns, 0L)
@@ -668,13 +669,29 @@ test_that("audit-only Score diagnostics do not change joint Wald or public Score
   expect_length(score_stat_columns, expected_score_columns)
   expect_length(score_p_columns, expected_score_columns)
   expect_length(score_failure_columns, expected_score_columns)
-  expect_true(all(!unlist(tested$summary[score_success_columns])))
-  expect_true(all(is.na(unlist(tested$summary[score_stat_columns]))))
-  expect_true(all(is.na(unlist(tested$summary[score_p_columns]))))
-  expect_true(all(
-    unlist(tested$summary[score_failure_columns]) ==
-      "joint_ln_calibration_pending"
-  ))
+  for (name in names(raw_tested$lrt)) {
+    entry <- raw_tested$lrt[[name]]
+    expect_identical(tested$summary[[paste0("score_success_", name)]],
+                     entry$score_success, info = name)
+    expect_equal(tested$summary[[paste0("score_adj_", name)]],
+                 entry$score_stat, tolerance = 0, info = name)
+    expect_equal(tested$summary[[paste0("p_score_adj_", name)]],
+                 entry$score_pval, tolerance = 0, info = name)
+    if (name %in% names(case$definitions)) {
+      expect_false(entry$score_success, info = name)
+      expect_true(is.na(entry$score_stat), info = name)
+      expect_true(is.na(entry$score_pval), info = name)
+      expect_identical(entry$score_failure,
+                       "joint_ln_optional_scope_unsupported", info = name)
+    } else {
+      expect_true(entry$score_success, info = name)
+      expected <- entry$constrained$ln_joint$score_diagnostic$statistic
+      expect_equal(entry$score_stat, expected, tolerance = 0, info = name)
+      expect_equal(entry$score_pval,
+                   pchisq(expected, df = 1L, lower.tail = FALSE),
+                   tolerance = 1e-14, info = name)
+    }
+  }
 })
 
 test_that("requesting Score does not restore the retired legacy estimator", {

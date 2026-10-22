@@ -687,7 +687,7 @@ test_that("strict-only comparator covariance never leaks through an enabled veto
   ln_isolation_expect_withheld(fit)
 })
 
-test_that("enabled same-basin Wald leaves Score Pace and LRT pending", {
+test_that("same-basin primary acceptance does not change constrained resolution policy", {
   fit <- ln_isolation_fit_with_candidate(
     "same_basin_shadow",
     additional_tests = c("score", "lrt")
@@ -705,22 +705,19 @@ test_that("enabled same-basin Wald leaves Score Pace and LRT pending", {
   expect_true(all(is.finite(as.matrix(fit$summary[model_and_robust]))))
   expect_identical(
     capabilities$status[capabilities$test %in% c("score", "lrt")],
-    rep("joint_ln_calibration_pending", 2L)
+    rep("experimental_asymptotic_when_requested_and_eligible", 2L)
   )
   expect_identical(
     fit$provenance$pace_status,
-    "joint_ln_calibration_pending"
+    "experimental_asymptotic_opt_in"
   )
-  expect_true(all(!fit$lrt_details$success))
-  expect_true(all(!fit$lrt_details$score_success))
-  expect_true(all(
-    fit$lrt_details$failure_reason == "joint_ln_calibration_pending"
-  ))
-  expect_true(all(
-    fit$lrt_details$score_failure == "joint_ln_calibration_pending"
-  ))
-  expect_true(all(is.na(fit$lrt_details$stat)))
-  expect_true(all(is.na(fit$lrt_details$p_value)))
+  expect_true(all(fit$lrt_details$success))
+  expect_true(all(fit$lrt_details$score_success))
+  expect_true(all(is.na(fit$lrt_details$failure_reason)))
+  expect_true(all(is.na(fit$lrt_details$score_failure_reason)))
+  expect_true(all(is.finite(fit$lrt_details$stat)))
+  expect_true(all(is.finite(fit$lrt_details$p_value)))
+  expect_true(all(fit$lrt_details$method == "joint_ln_pace_adjusted_ratio"))
   constrained <- Filter(
     Negate(is.null),
     lapply(fit$diagnostics$raw[[1L]]$lrt, `[[`, "constrained")

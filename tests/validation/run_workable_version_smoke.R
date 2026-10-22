@@ -144,11 +144,32 @@ for (fit in list(default, joint)) {
     all(c("contrast", "p_value", "score_p_value", "success", "score_success") %in%
           names(fit$lrt_details)),
     identical(fit$provenance$test_capabilities$public_available,
-              c(TRUE, FALSE, FALSE)),
-    all(is.na(fit$lrt_details$p_value)),
-    all(is.na(fit$lrt_details$score_p_value)),
-    all(!fit$lrt_details$success), all(!fit$lrt_details$score_success)
+              c(TRUE, TRUE, TRUE)),
+    is.data.frame(fit$test_status),
+    is.null(fit$diagnostics)
   )
+  # Existing additional_tests opts into experimental asymptotic tails only.
+  # Check accepted and rejected rows separately, never replacing failure by p=1.
+  details <- fit$lrt_details
+  stopifnot(any(details$success), any(details$score_success))
+  for (test in c("score", "lrt")) {
+    success <- if (test == "score") details$score_success else details$success
+    stat <- if (test == "score") details$score_stat else details$stat
+    p_value <- if (test == "score") details$score_p_value else details$p_value
+    failure <- if (test == "score") details$score_failure_reason else details$failure_reason
+    stopifnot(
+      all(is.finite(stat[success])),
+      isTRUE(all.equal(p_value[success],
+                      pchisq(stat[success], 1L, lower.tail = FALSE),
+                      tolerance = 1e-12)),
+      all(is.na(stat[!success])), all(is.na(p_value[!success])),
+      all(!is.na(failure[!success]) & nzchar(failure[!success]))
+    )
+  }
+  stopifnot(all(details$method[details$success] ==
+                  "joint_ln_pace_adjusted_ratio"))
+  optional <- subset(fit$test_status, test %in% c("score", "lrt"))
+  stopifnot(all(optional$status[optional$success] == "experimental_asymptotic"))
 }
 hl <- results$routes$hl$fit
 stopifnot(is.data.frame(hl$hl_adj_details), nrow(hl$hl_adj_details) > 0L)

@@ -46,11 +46,14 @@ scrope_psock_library_paths <- function() {
 #' @param output_re Logical; return subject-level random effects. PGMM does not
 #'   currently support this output and warns before returning `NULL`.
 #' @param additional_tests Optional character vector selecting extra
-#'   contrast-level diagnostics to compute, in addition to the default
+#'   contrast-level tests/diagnostics to compute, in addition to the default
 #'   adjusted Wald columns (`se_robust_*`, `p_robust_*`). Supported values
 #'   are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).
-#' @param lrt Logical; legacy flag for adjusted profile LRTs. Equivalent to
-#'   including `"lrt"` in `additional_tests`.
+#'   For joint-LN, these opt in to experimental asymptotic robust Score and
+#'   Pace-adjusted working-objective-ratio tests for eligible scalar zero nulls.
+#' @param lrt Logical; alias for including `"lrt"` in `additional_tests`.
+#'   Joint-LN uses a Pace-adjusted working-objective ratio, not an ordinary
+#'   exact-likelihood LRT.
 #' @param lrt_contrasts Optional list of additional hypotheses `L beta = b`.
 #'   Each entry may be a matrix/vector `L` (zero null) or a list containing
 #'   `L`, optional `b`, and optional `name`. Columns follow `pred` and use the
@@ -59,8 +62,15 @@ scrope_psock_library_paths <- function() {
 #'   coordinates. Internal scaling is applied to `L`, leaving `b` unchanged.
 #'   An intercept-containing LN/PGMM contrast does not automatically define a
 #'   fixed population target.
-#' @param lrt_include_scale Logical; include the H/G scale factor in the summary.
-#' @param lrt_details Logical; return a tidy data frame with raw LRT diagnostics.
+#'   Public joint-LN optional tests require one row selecting exactly one
+#'   non-intercept coefficient with a finite nonzero weight and `b` exactly zero.
+#'   Broader hypotheses retain internal diagnostics but no public optional tail.
+#' @param lrt_include_scale Logical; include the test's adjustment factor in
+#'   the summary (`wU / qP` for the joint-LN Pace ratio).
+#' @param lrt_details Logical; return a tidy data frame when LRT is requested.
+#'   If neither optional test was requested, `TRUE` or a non-`NULL`
+#'   `lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
+#'   does not additionally request LRT or its details table.
 #' @param keep_diagnostics Logical; retain per-gene diagnostic objects. For HL,
 #'   `FALSE` also suppresses optional solver histories and cross-gene retention
 #'   of full fits; required scientific computations and public summaries remain
@@ -101,8 +111,38 @@ scrope_psock_library_paths <- function() {
 #'
 #' For genes passing the joint-LN numerical checks, model-based and robust Wald
 #' inference is returned. Otherwise, covariance, standard errors, Wald
-#' statistics, and p-values are `NA`. Adjusted Score and likelihood-ratio tests
-#' are unavailable for `"joint_ln"` pending calibration.
+#' statistics, and p-values are `NA`.
+#'
+#' Joint-LN optional Score and Pace-adjusted ratio tests are experimental and
+#' asymptotic. Their initial public scope is a scalar zero-null single
+#' non-intercept coefficient, including cell- and subject-level predictors.
+#' A rescaled single-coefficient selector is allowed; nonzero nulls,
+#' mixed-coefficient, intercept-containing and multiple-row hypotheses remain
+#' diagnostic-only with reason `joint_ln_optional_scope_unsupported`.
+#' Both public tests require accepted unrestricted primary and constrained
+#' joint-LN roots. Score additionally requires its native donor-variability
+#' checks; Pace also requires matching objective provenance and its stricter
+#' effective-curvature and ratio checks. Failed tests retain `NA` and exact
+#' reasons without numerical repair or fallback.
+#'
+#' For an eligible accepted request, Score uses `wU` and Pace uses
+#' `wP * wU / qP`, with upper-tail chi-square(1) p-values. Summary methods are
+#' `joint_ln_robust_score` and `joint_ln_pace_adjusted_ratio`; their
+#' `score_status_*` / `lrt_status_*` fields are `experimental_asymptotic`.
+#' Per-test success means numerical availability, not guaranteed calibration.
+#' `test_status` remains available with `keep_diagnostics = FALSE`.
+#' Internal helpers retain `public_available = FALSE` and
+#' `public_status = "diagnostic_only"`; the public wrapper applies scope and
+#' acceptance rules before creating a tail. Raw `wP` is not a public
+#' ordinary likelihood-ratio test, and `p_naive_*` remains model-based Wald.
+#'
+#' Retained scalar-zero simulations show materially different calibration for
+#' cell- and subject-level predictors: cell-level 5% rejection is near nominal
+#' across the studied settings, while subject-level rejection is inflated,
+#' especially under strong hidden variation. Rates conditional on available
+#' results do not establish unconditional calibration. Numerical checks do not
+#' establish population regularity or target identification. See the installed
+#' `guides/methods-and-migration.md` for settings, rates, uncertainty and scope.
 #'
 #' PGMM LRT requires accepted unrestricted and constrained endpoints; Score
 #' requires an accepted constrained null endpoint. Rejected endpoints cannot
@@ -130,7 +170,7 @@ scrope_psock_library_paths <- function() {
 #' `route`, `inference_available`, and `failure_reason` fields are retained for
 #' compatibility.
 #'
-#' FDR control for joint-LN Score/Pace/LRT remains calibration-pending.
+#' Family-level FDR control is not established by this experimental exposure.
 #' Internal route codes and numerical checks are retained only in provenance
 #' and diagnostics.
 #'
@@ -149,8 +189,8 @@ scrope_psock_library_paths <- function() {
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, optional
 #'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-#'   and, for joint-LN, the one-row-per-gene `availability` table. No legacy
-#'   operational fallback component is generated.
+#'   and, for joint-LN, the one-row-per-gene `availability` table and per-test
+#'   `test_status`. No legacy operational fallback component is generated.
 #'
 #' @useDynLib scRoPE, .registration = TRUE
 #' @importFrom Rcpp evalCpp
@@ -637,7 +677,7 @@ scrope <- function(
         cache <- vector("list", length(lrt_names))
         names(cache) <- lrt_names
         neg_detected <- FALSE
-        joint_ln_pending <- identical(ctx$ln_estimator, "joint_ln")
+        joint_ln_route <- identical(ctx$ln_estimator, "joint_ln")
         empty_score_result <- function(L, msg = NULL, reason = NULL) {
           d0 <- nrow(L)
           if (!is.null(msg)) {
@@ -664,7 +704,7 @@ scrope <- function(
           )
         }
         empty_ridge <- list(Hpsi = NA_real_, Gpsi = NA_real_, wald = NA_real_)
-        joint_pending_lrt <- function(unconstrained_fit, constrained_fit) {
+        joint_lrt_details <- function(unconstrained_fit, constrained_fit) {
           diagnostics <- constrained_fit$diagnostics
           if (is.null(diagnostics)) diagnostics <- list()
           gate <- constrained_fit$lrt_gate
@@ -722,7 +762,7 @@ scrope <- function(
             fallback = FALSE,
             success = FALSE,
             adjusted_available = FALSE,
-            adjusted_failure_reason = "joint_ln_calibration_pending",
+            adjusted_failure_reason = NA_character_,
             gate = list(
               converged = isTRUE(unconstrained_fit$inference_available) &&
                 isTRUE(constrained_fit$inference_available),
@@ -751,30 +791,38 @@ scrope <- function(
               nuisance_hessian_invertible = hessian_ok,
               interior = isTRUE(gate$interior),
               nuisance_interior = isTRUE(gate$nuisance_interior),
-              profiled_curvature_positive = hessian_ok,
+              profiled_curvature_positive = NA,
               profiled_variability_positive = NA,
-              scale_positive = FALSE
+              scale_positive = NA
             ),
-            failure_reason = normalise_failure(
-              "joint_ln_calibration_pending",
-              "lrt"
-            )
+            failure_reason = NA_character_
           )
         }
 
         for (idx_nm in seq_along(lrt_names)) {
           nm <- lrt_names[idx_nm]
           def <- lrt_defs[[nm]]
-          L_fit <- if (joint_ln_pending) {
+          L_fit <- if (joint_ln_route) {
             def$L %*% ctx$coef_internal_to_public
           } else {
             def$L
           }
           constrained_fit <- fit_gene_constrained(i, posv, ctx, L_fit, def$b)
+          joint_public <- if (joint_ln_route) {
+            ln_joint_public_optional_tests(
+              current_unconstrained, constrained_fit, def$L, def$b,
+              intcol, ctx$coef_internal_to_public
+            )
+          } else {
+            NULL
+          }
           lrt_res <- NULL
           if (want_lrt) {
-            if (joint_ln_pending) {
-              lrt_res <- joint_pending_lrt(current_unconstrained, constrained_fit)
+            if (joint_ln_route) {
+              lrt_res <- utils::modifyList(
+                joint_lrt_details(current_unconstrained, constrained_fit),
+                joint_public$lrt
+              )
             } else {
               ln_gate <- ln_lrt_gate_override(constrained_fit, def$L, def$b)
               lrt_res <- compute_profile_lrt(
@@ -792,13 +840,8 @@ scrope <- function(
           gene_label <- if (!is.null(gname) && length(gname) >= i) gname[i] else paste0("gene_", i)
           score_res <- empty_score_result(def$L)
           if (want_score) {
-            if (joint_ln_pending) {
-              score_res$method <- "unavailable_joint_ln"
-              score_res$success <- FALSE
-              score_res$failure_reason <- normalise_failure(
-                "joint_ln_calibration_pending",
-                "score"
-              )
+            if (joint_ln_route) {
+              score_res <- joint_public$score
             } else {
               score_res <- tryCatch(
                 compute_adj_score(constrained_fit, def$L),
@@ -819,7 +862,9 @@ scrope <- function(
           }
           stat_adj <- if (!is.null(lrt_res)) lrt_res$wP_adjusted else NA_real_
           df <- def$df
-          pval <- if (!is.null(lrt_res) && !is.na(stat_adj)) {
+          pval <- if (joint_ln_route && !is.null(lrt_res)) {
+            lrt_res$pval
+          } else if (!is.null(lrt_res) && !is.na(stat_adj)) {
             pchisq(max(stat_adj, 0), df = df, lower.tail = FALSE)
           } else {
             NA_real_
@@ -837,6 +882,8 @@ scrope <- function(
             wU = if (!is.null(lrt_res)) lrt_res$wU else NA_real_,
             qP = if (!is.null(lrt_res)) lrt_res$qP else NA_real_,
             method = if (!is.null(lrt_res)) lrt_res$method else NA_character_,
+            status = if (joint_ln_route && want_lrt) lrt_res$status else NA_character_,
+            failure_stage = if (joint_ln_route && want_lrt) lrt_res$failure_stage else NA_character_,
             ridge = if (!is.null(lrt_res)) lrt_res$ridge else empty_ridge,
             fallback = if (!is.null(lrt_res)) lrt_res$fallback else NA,
             score_stat = score_res$stat,
@@ -844,6 +891,9 @@ scrope <- function(
             score_ridge = score_res$ridge,
             score_success = score_res$success,
             score_failure = score_res$failure_reason,
+            score_method = if (want_score) score_res$method else NA_character_,
+            score_status = if (joint_ln_route && want_score) score_res$status else NA_character_,
+            score_failure_stage = if (joint_ln_route && want_score) score_res$failure_stage else NA_character_,
             score_test = if (want_score) score_res else NULL
           )
         }
@@ -1075,18 +1125,34 @@ scrope <- function(
     do.call(rbind, lapply(success_cols, function(success_col) {
       lab <- sub(paste0("^", success_prefix), "", success_col)
       failure_col <- paste0(failure_prefix, lab)
+      joint_optional <- identical(ln_estimator, "joint_ln") &&
+        test_label %in% c("score", "lrt")
       failure_vals <- if (failure_col %in% names(summary_df)) {
-        normalise_failure(summary_df[[failure_col]], norm_type)
+        if (joint_optional) summary_df[[failure_col]] else
+          normalise_failure(summary_df[[failure_col]], norm_type)
       } else {
         rep(NA_character_, nrow(summary_df))
       }
+      metadata_column <- function(field, default) {
+        column <- paste0(test_label, "_", field, "_", lab)
+        if (column %in% names(summary_df)) summary_df[[column]] else
+          rep(default, nrow(summary_df))
+      }
+      success_vals <- as.logical(summary_df[[success_col]])
       data.frame(
         gene_id = summary_df$gene_id,
         gene = summary_df$gene,
         contrast = lab,
         test = test_label,
-        success = as.logical(summary_df[[success_col]]),
+        success = success_vals,
         failure_reason = failure_vals,
+        method = metadata_column("method", if (test_label == "wald") {
+          "robust_wald"
+        } else NA_character_),
+        status = if (joint_optional) metadata_column("status", "unavailable") else
+          ifelse(success_vals, "available", "unavailable"),
+        inference = if (joint_optional) "experimental_asymptotic" else "asymptotic",
+        failure_stage = metadata_column("failure_stage", NA_character_),
         stringsAsFactors = FALSE
       )
     }))
@@ -1145,10 +1211,21 @@ scrope <- function(
         failure_norm <- rep(NA_character_, length(failure_raw))
         idx_fail <- !is.na(failure_raw) & nzchar(failure_raw)
         if (any(idx_fail)) {
-          failure_norm[idx_fail] <- normalise_failure(failure_raw[idx_fail], "lrt")
+          failure_norm[idx_fail] <- if (identical(ln_estimator, "joint_ln")) {
+            failure_raw[idx_fail]
+          } else normalise_failure(failure_raw[idx_fail], "lrt")
         }
         summary_df[[paste0("lrt_success_", key)]] <- success_vec
         summary_df[[paste0("lrt_failure_", key)]] <- failure_norm
+        if (identical(ln_estimator, "joint_ln")) {
+          for (field in c("status", "failure_stage")) {
+            summary_df[[paste0("lrt_", field, "_", key)]] <-
+              vapply(gene_results, function(gr) {
+                value <- gr$lrt[[nm]][[field]]
+                if (is.null(value)) NA_character_ else value
+              }, character(1))
+          }
+        }
       }
       if (want_score) {
         score_stats_vec <- vapply(gene_results, function(gr) {
@@ -1188,9 +1265,20 @@ scrope <- function(
         score_failure_norm <- rep(NA_character_, length(score_failure_raw))
         idx_score <- !is.na(score_failure_raw) & nzchar(score_failure_raw)
         if (any(idx_score)) {
-          score_failure_norm[idx_score] <- normalise_failure(score_failure_raw[idx_score], "score")
+          score_failure_norm[idx_score] <- if (identical(ln_estimator, "joint_ln")) {
+            score_failure_raw[idx_score]
+          } else normalise_failure(score_failure_raw[idx_score], "score")
         }
         summary_df[[paste0("score_failure_", key)]] <- score_failure_norm
+        if (identical(ln_estimator, "joint_ln")) {
+          for (field in c("method", "status", "failure_stage")) {
+            summary_df[[paste0("score_", field, "_", key)]] <-
+              vapply(gene_results, function(gr) {
+                value <- gr$lrt[[nm]][[paste0("score_", field)]]
+                if (is.null(value)) NA_character_ else value
+              }, character(1))
+          }
+        }
       }
     }
   }
@@ -1211,6 +1299,10 @@ scrope <- function(
       test = character(0),
       success = logical(0),
       failure_reason = character(0),
+      method = character(0),
+      status = character(0),
+      inference = character(0),
+      failure_stage = character(0),
       stringsAsFactors = FALSE
     )
   }
@@ -1280,6 +1372,7 @@ scrope <- function(
   }
 
   if (identical(ln_estimator, "joint_ln")) {
+    result_list$test_status <- test_status_df
     joint_status <- lapply(gene_results, ln_joint_status_record)
     per_gene_provenance <- data.frame(
       gene_id = gid,
@@ -1442,14 +1535,20 @@ scrope <- function(
   if (identical(ln_estimator, "joint_ln")) {
     result_list$provenance$inference_policy <-
       "joint_ln_same_basin_wald_calibration_candidate"
-    result_list$provenance$pace_status <- "joint_ln_calibration_pending"
+    result_list$provenance$pace_status <- "experimental_asymptotic_opt_in"
     result_list$provenance$test_capabilities <- data.frame(
       test = c("wald", "score", "lrt"),
-      public_available = c(TRUE, FALSE, FALSE),
+      public_available = rep(TRUE, 3L),
+      requested = c(TRUE, want_score, want_lrt),
       status = c(
         "available_when_inference_status_available",
-        "joint_ln_calibration_pending",
-        "joint_ln_calibration_pending"
+        "experimental_asymptotic_when_requested_and_eligible",
+        "experimental_asymptotic_when_requested_and_eligible"
+      ),
+      scope = c(
+        "coefficient_wise",
+        "scalar_zero_null_single_nonintercept",
+        "scalar_zero_null_single_nonintercept"
       ),
       stringsAsFactors = FALSE
     )
@@ -1513,6 +1612,12 @@ scrope <- function(
           score_p_value = res$score_pval,
           score_ridge = res$score_ridge,
           score_success = res$score_success,
+          score_method = res$score_method,
+          score_status = res$score_status,
+          score_failure_reason = res$score_failure,
+          score_failure_stage = res$score_failure_stage,
+          status = res$status,
+          failure_stage = res$failure_stage,
           scale = res$scale,
           wP = res$wP,
           wU = res$wU,
@@ -1577,6 +1682,12 @@ scrope <- function(
       score_p_value = numeric(0),
       score_ridge = numeric(0),
       score_success = logical(0),
+      score_method = character(0),
+      score_status = character(0),
+      score_failure_reason = character(0),
+      score_failure_stage = character(0),
+      status = character(0),
+      failure_stage = character(0),
       scale = numeric(0),
       wP = numeric(0),
       wU = numeric(0),

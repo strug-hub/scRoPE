@@ -1,5 +1,14 @@
 # scRoPE 0.3.0 — unreleased local preparation
 
+- Expose JLN donor-robust Score and Pace-adjusted working-objective-ratio
+  p-values as experimental, asymptotic outputs through the existing opt-in
+  `additional_tests` argument. Initial public scope is a single non-intercept
+  coefficient tested against zero; Wald remains the default. Preserve the
+  studied accepted-primary requirement and all native per-test numerical
+  gates. Broader contrasts retain diagnostic-only results with explicit
+  reasons; unavailable tests are not replaced with Wald or legacy inference.
+  The linked methods guide distinguishes favorable cell-level calibration
+  from observed donor-level inflation in the retained validation study.
 - Apply MIT to the maintained 0.3.0 source under the maintainer's instruction,
   retaining verbatim upstream NEBULA MIT notices and separate dependency terms.
   Historical sources and their original license records are unchanged.
@@ -53,8 +62,9 @@ source development history; they do not imply GitHub releases or tags.
 - Reconstruct corrected first-order HL residual means in original-design
   coordinates. Existing JLN/PGMM centered-coordinate behavior is retained.
 - Add focused regressions and bounded comparisons against preserved .9005.
-  Joint-LN Score/Pace/LRT calibration status is unchanged. No new inferential
-  calibration or final release approval is implied by this candidate.
+  The .9006 snapshot kept Joint-LN Score/Pace/LRT calibration status unchanged;
+  the later scoped 0.3.0 exposure is described above. No new inferential
+  calibration or final release approval was implied by this snapshot.
 
 # scRoPE 0.2.5.9005
 

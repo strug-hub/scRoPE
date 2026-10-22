@@ -116,7 +116,7 @@ test_that("README PGMM example reports adjusted-test availability and fallbacks"
   ) %in% names(fit$summary)))
 })
 
-test_that("README explicit joint-LN exposes Wald and calibration-pending tests", {
+test_that("README explicit joint-LN exposes Wald and experimental optional tests", {
   data(sample_data)
   design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
 
@@ -138,16 +138,27 @@ test_that("README explicit joint-LN exposes Wald and calibration-pending tests",
   robust_success <- fit$summary$wald_success_X1
   expect_true(all(robust_success[r0]))
   expect_true(all(!robust_success[!r0]))
-  expect_true(all(is.na(fit$lrt_details$stat)))
-  expect_true(all(is.na(fit$lrt_details$p_value)))
-  expect_true(all(is.na(fit$lrt_details$score_stat)))
-  expect_true(all(is.na(fit$lrt_details$score_p_value)))
-  expect_true(all(!fit$lrt_details$success))
-  expect_true(all(!fit$lrt_details$score_success))
-  expect_true(all(fit$lrt_details$method == "unavailable_joint_ln"))
-  expect_true(all(
-    fit$lrt_details$failure_reason == "joint_ln_calibration_pending"
-  ))
+  details <- fit$lrt_details
+  expect_true(any(details$success))
+  expect_true(any(details$score_success))
+  for (test in c("lrt", "score")) {
+    success <- if (test == "lrt") details$success else details$score_success
+    statistic <- if (test == "lrt") details$stat else details$score_stat
+    p_value <- if (test == "lrt") details$p_value else details$score_p_value
+    failure <- if (test == "lrt") details$failure_reason else details$score_failure_reason
+    expect_true(all(is.finite(statistic[success])))
+    expect_equal(p_value[success],
+                 pchisq(statistic[success], df = 1L, lower.tail = FALSE),
+                 tolerance = 1e-14)
+    expect_true(all(is.na(statistic[!success])))
+    expect_true(all(is.na(p_value[!success])))
+    expect_true(all(!is.na(failure[!success]) & nzchar(failure[!success])))
+  }
+  expect_true(all(details$method[details$success] ==
+                    "joint_ln_pace_adjusted_ratio"))
+  optional_status <- subset(fit$test_status, test %in% c("score", "lrt"))
+  expect_true(all(optional_status$status[optional_status$success] ==
+                    "experimental_asymptotic"))
   expect_false(any(fit$lrt_details$fallback))
 })
 

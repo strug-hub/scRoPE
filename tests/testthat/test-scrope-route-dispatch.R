@@ -89,7 +89,7 @@ test_that("top-level routes expose honest method capabilities", {
   )
   expect_identical(
     joint$provenance$test_capabilities$public_available,
-    c(TRUE, FALSE, FALSE)
+    c(TRUE, TRUE, TRUE)
   )
   expect_identical(joint$provenance$schema_version, 3L)
   expect_identical(
@@ -106,7 +106,7 @@ test_that("top-level routes expose honest method capabilities", {
   )
   expect_identical(
     joint$provenance$pace_status,
-    "joint_ln_calibration_pending"
+    "experimental_asymptotic_opt_in"
   )
   expect_identical(
     joint$provenance$test_capabilities$status[[1L]],
@@ -114,7 +114,7 @@ test_that("top-level routes expose honest method capabilities", {
   )
   expect_identical(
     joint$provenance$test_capabilities$status[2:3],
-    rep("joint_ln_calibration_pending", 2L)
+    rep("experimental_asymptotic_when_requested_and_eligible", 2L)
   )
 
   pmg <- pmg_subject_level_test_fixture()

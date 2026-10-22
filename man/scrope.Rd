@@ -81,12 +81,15 @@ by first-order HL.}
 currently support this output and warns before returning `NULL`.}
 
 \item{additional_tests}{Optional character vector selecting extra
-contrast-level diagnostics to compute, in addition to the default
+contrast-level tests/diagnostics to compute, in addition to the default
 adjusted Wald columns (`se_robust_*`, `p_robust_*`). Supported values
-are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).}
+are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).
+For joint-LN, these opt in to experimental asymptotic robust Score and
+Pace-adjusted working-objective-ratio tests for eligible scalar zero nulls.}
 
-\item{lrt}{Logical; legacy flag for adjusted profile LRTs. Equivalent to
-including `"lrt"` in `additional_tests`.}
+\item{lrt}{Logical; alias for including `"lrt"` in `additional_tests`.
+Joint-LN uses a Pace-adjusted working-objective ratio, not an ordinary
+exact-likelihood LRT.}
 
 \item{lrt_contrasts}{Optional list of additional hypotheses `L beta = b`.
 Each entry may be a matrix/vector `L` (zero null) or a list containing
@@ -95,11 +98,18 @@ reported coefficient units. LN/PGMM coefficients have input-scale slopes
 and a sample-centered intercept; corrected HL uses original-design
 coordinates. Internal scaling is applied to `L`, leaving `b` unchanged.
 An intercept-containing LN/PGMM contrast does not automatically define a
-fixed population target.}
+fixed population target.
+Public joint-LN optional tests require one row selecting exactly one
+non-intercept coefficient with a finite nonzero weight and `b` exactly zero.
+Broader hypotheses retain internal diagnostics but no public optional tail.}
 
-\item{lrt_include_scale}{Logical; include the H/G scale factor in the summary.}
+\item{lrt_include_scale}{Logical; include the test's adjustment factor in
+the summary (`wU / qP` for the joint-LN Pace ratio).}
 
-\item{lrt_details}{Logical; return a tidy data frame with raw LRT diagnostics.}
+\item{lrt_details}{Logical; return a tidy data frame when LRT is requested.
+If neither optional test was requested, `TRUE` or a non-`NULL`
+`lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
+does not additionally request LRT or its details table.}
 
 \item{keep_diagnostics}{Logical; retain per-gene diagnostic objects. For HL,
 `FALSE` also suppresses optional solver histories and cross-gene retention
@@ -135,8 +145,8 @@ fitting-work cap. It applies only to `model = "PGMM"`.}
 A list with elements `summary`, `overdispersion`, `convergence`,
   `algorithm`, optional `random_effect`, `diagnostics`, optional
   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-  and, for joint-LN, the one-row-per-gene `availability` table. No legacy
-  operational fallback component is generated.
+  and, for joint-LN, the one-row-per-gene `availability` table and per-test
+  `test_status`. No legacy operational fallback component is generated.
 }
 \description{
 Fits sc-RoPE working-likelihood models for multi-subject single-cell data
@@ -163,8 +173,38 @@ route-specific documentation explicitly promises a warning.
 
 For genes passing the joint-LN numerical checks, model-based and robust Wald
 inference is returned. Otherwise, covariance, standard errors, Wald
-statistics, and p-values are `NA`. Adjusted Score and likelihood-ratio tests
-are unavailable for `"joint_ln"` pending calibration.
+statistics, and p-values are `NA`.
+
+Joint-LN optional Score and Pace-adjusted ratio tests are experimental and
+asymptotic. Their initial public scope is a scalar zero-null single
+non-intercept coefficient, including cell- and subject-level predictors.
+A rescaled single-coefficient selector is allowed; nonzero nulls,
+mixed-coefficient, intercept-containing and multiple-row hypotheses remain
+diagnostic-only with reason `joint_ln_optional_scope_unsupported`.
+Both public tests require accepted unrestricted primary and constrained
+joint-LN roots. Score additionally requires its native donor-variability
+checks; Pace also requires matching objective provenance and its stricter
+effective-curvature and ratio checks. Failed tests retain `NA` and exact
+reasons without numerical repair or fallback.
+
+For an eligible accepted request, Score uses `wU` and Pace uses
+`wP * wU / qP`, with upper-tail chi-square(1) p-values. Summary methods are
+`joint_ln_robust_score` and `joint_ln_pace_adjusted_ratio`; their
+`score_status_*` / `lrt_status_*` fields are `experimental_asymptotic`.
+Per-test success means numerical availability, not guaranteed calibration.
+`test_status` remains available with `keep_diagnostics = FALSE`.
+Internal helpers retain `public_available = FALSE` and
+`public_status = "diagnostic_only"`; the public wrapper applies scope and
+acceptance rules before creating a tail. Raw `wP` is not a public
+ordinary likelihood-ratio test, and `p_naive_*` remains model-based Wald.
+
+Retained scalar-zero simulations show materially different calibration for
+cell- and subject-level predictors: cell-level 5\% rejection is near nominal
+across the studied settings, while subject-level rejection is inflated,
+especially under strong hidden variation. Rates conditional on available
+results do not establish unconditional calibration. Numerical checks do not
+establish population regularity or target identification. See the installed
+`guides/methods-and-migration.md` for settings, rates, uncertainty and scope.
 
 PGMM LRT requires accepted unrestricted and constrained endpoints; Score
 requires an accepted constrained null endpoint. Rejected endpoints cannot
@@ -192,7 +232,7 @@ failure reasons, policy identity, mode, and all veto classes. Earlier
 `route`, `inference_available`, and `failure_reason` fields are retained for
 compatibility.
 
-FDR control for joint-LN Score/Pace/LRT remains calibration-pending.
+Family-level FDR control is not established by this experimental exposure.
 Internal route codes and numerical checks are retained only in provenance
 and diagnostics.
 

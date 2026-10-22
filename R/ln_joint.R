@@ -2464,7 +2464,7 @@ ln_joint_robust_score_diagnostic <- function(constrained_fit,
     diagnostic_available = FALSE,
     failure_reason = NA_character_,
     public_available = FALSE,
-    public_status = "joint_ln_calibration_pending",
+    public_status = "diagnostic_only",
     statistic = NA_real_,
     df = NA_integer_,
     theoretical_df = NA_integer_,
@@ -3237,7 +3237,7 @@ ln_joint_pace_ratio_diagnostic <- function(unrestricted_fit,
     diagnostic_available = FALSE,
     failure_reason = NA_character_,
     public_available = FALSE,
-    public_status = "joint_ln_calibration_pending",
+    public_status = "diagnostic_only",
     statistic = NA_real_,
     adjusted_ratio = NA_real_,
     df = NA_integer_,
@@ -5674,7 +5674,7 @@ fit_gene_joint_ln_constrained <- function(
       constraint_satisfied = if (!is.null(best))
         best$constraint_residual <= ln_joint_thresholds()$constraint else FALSE,
       calibration_available = FALSE,
-      calibration_status = "joint_ln_calibration_pending"
+      calibration_status = "diagnostic_only"
     ),
     ln_joint = list(
       parameterization = "beta, log(sigma2), log(gamma_nb_size)",

@@ -18,10 +18,11 @@ contributions within a Godambe framework to obtain robust uncertainty
 quantification. This protects inference against broad variance-model
 misspecification when the mean model still identifies the fixed-effect target.
 
-Robust Wald inference is returned by default. Adjusted Score and scaled
-adjusted likelihood-ratio tests are optional and depend on the selected
-estimator; they remain unavailable for the default joint-LN estimator pending
-calibration.
+Robust Wald inference is returned by default. Optional tests depend on the
+selected estimator. Joint-LN supports experimental/asymptotic robust Score
+and Pace-adjusted working-objective-ratio p-values for a single non-intercept
+coefficient tested against zero, requested with `additional_tests`.
+Broader hypotheses remain diagnostic-only; all acceptance checks still apply.
 
 ## Local candidate and dependencies
 
@@ -205,9 +206,15 @@ With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters. They
 cannot change coefficient inference.
 
-Adjusted Score, Pace scaling, and scaled adjusted likelihood-ratio tests remain
-unavailable for `joint_ln`; model-based and donor-robust Wald are the supported
-tests for this option.
+Model-based and donor-robust Wald remain the defaults for `joint_ln`.
+`additional_tests = c("score", "lrt")` requests experimental/asymptotic robust
+Score and Pace-adjusted ratio p-values for scalar zero-null single
+non-intercept coefficients. The Pace statistic is `wP * wU / qP`, not raw `wP`.
+Both tests require accepted primary and constrained fits; failures retain
+missing p-values and exact reasons. Broader contrasts remain diagnostic-only.
+Inspect `test_status` and `?scrope` for scope, status and interpretation.
+Calibration differs between cell- and donor-level predictors; numerical
+availability is not a calibration guarantee.
 Switching from the legacy estimator to `joint_ln` may change coefficients,
 standard errors, p-values, convergence statuses, and downstream results.
 
@@ -243,8 +250,9 @@ No call is silently redirected from one estimator to another.
 
 ## Optional Adjusted Score and LRT Inference
 
-The example below explicitly selects PGMM. Adjusted Score and LRT tests are
-unavailable for default or explicit joint-LN pending calibration.
+The example below explicitly selects PGMM. Default or explicit joint-LN
+also accepts the request, exposing its scoped experimental robust Score and
+Pace-adjusted ratio tests as described above and in `?scrope`.
 
 Request the adjusted Score and scaled adjusted likelihood-ratio tests through
 `additional_tests`:
@@ -334,8 +342,9 @@ execution.
 
 Test availability remains route-specific. PGMM supports optional adjusted
 Score and LRT tests; certified joint-LN exposes model-based and donor-robust
-Wald, with Score, Pace, and LRT inference calibration-pending; first-order HL
-exposes robust Wald and Score while its objective-ratio/LRT remains unsupported.
+Wald plus scoped experimental robust Score and Pace-adjusted ratio tests.
+First-order HL exposes robust Wald and Score while its objective-ratio/LRT
+remains unsupported.
 The `provenance$test_capabilities` table records these distinctions in every
 fit.
 
@@ -518,8 +527,8 @@ https://github.com/lhe17/nebula
 High-level changes in this repository include:
 
 - Added Godambe-based robust Wald inference for LN and HL NBGMM pipelines.
-  Adjusted Score and scaled adjusted likelihood-ratio tests remain
-  calibration-pending for `joint_ln`; legacy LN is retired from `scrope()`.
+  Joint-LN additionally supports scoped experimental robust Score and
+  Pace-adjusted ratio tests; legacy LN is retired from `scrope()`.
 - Implemented contrast-level testing and expanded robust diagnostics.
 - Improved HL estimation and stability, including analytic Hessians, cached
   scores, and negative-LR safeguards.
