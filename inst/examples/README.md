@@ -54,5 +54,6 @@ seeds or silently delete them. Robust/model SE ratios are descriptive, not a
 ranking of accuracy. Both intervals share one estimate, and the sandwich does
 not correct bias. No repeated simulation was run, so neither calibration nor
 power improvement is established. Historical examples remain in historical
-sources; changing maintained fixtures does not alter historical results or
-resolve the inherited code-license conflict.
+sources; changing teaching fixtures does not alter historical results or
+decide historical licensing terms. The separate maintained-source MIT change
+and retained notices are documented in [source provenance](../provenance/README.md).

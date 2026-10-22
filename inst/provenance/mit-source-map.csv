@@ -1,0 +1,31 @@
+component,current_location,upstream_pin,upstream_location,relationship_and_local_delta
+nebula,R/nebula.R:60-470,e0a0da9,R/nebula.R (complete parsed file; enumerated status/name/guard adaptations),Complete old parsed file reconstructible by explicitly enumerated status/name/guard changes; current retirement guards are local.
+nebula parallel,R/nebula.R:188-195;408-412,e0a0da9,R/nebula.R:176-183;409-413,Direct first-MIT old setup/cleanup match; later MIT parallel implementation differs.
+scToNeb,R/scToNeb.R:22-96,e0a0da9;70593f9,R/scToNeb.R:21-85;25-105,Entire original file first-MIT identical; current layer/slot calls also in latest MIT; guards/version wrapper/name messages recorded locally.
+check_conv,R/utils.R:16-44,70593f9,R/utils.R:16-47,Old statements retained inside added MIT guard and unchanged tail; behavior differs when initial conv != 1.
+opt_pml_nbm,src/optimization.cpp:1993-2242,70593f9,src/optimization.cpp:1226-1475,Exactly three /2 versus /2.0 differences; entire old file maps after those substitutions; no behavioral equivalence claimed.
+count and design preprocessing,"R/scrope.R:328-369;R/hl_context.R:16-20,57-87",70593f9,R/nebula.R:73-105,Shared conversion/check/centering structure with changed messages and variables; scrope:370-372 and hl_context:90-118 add local coordinate maps.
+offsets and IDs,R/scrope.R:493-519;R/hl_context.R:120-144,70593f9,"R/nebula.R:108-121,132-148","Shared cv_offset, grouping and fid calculations with local naming/messages."
+aggregation/filter/cell predictors,R/scrope.R:533-554;R/hl_context.R:146-167,70593f9,"R/nebula.R:144-146,157-175","Shared cumulative counts, filters and get_cell computations; statements/messages reordered and renamed."
+relocated parallel,R/scrope.R:559-575;R/scrope_pmg.R:255-278,e0a0da9,R/nebula.R:176-183,Inherited register/plan/PSOCK structure with local worker-library and explicit cleanup additions.
+convergence/covariance relocation,"R/gene_fit.R:553-558,817-822;R/fit_gene_hl.R:172-177;R/hl_fit_wrappers.R:301-306",70593f9,R/nebula.R:331-336,Four parse-verified matches after enumerated limited name/assignment/NA normalization.
+constrained convergence extension,"R/gene_fit.R:1170-1195,1218-1226",70593f9,R/nebula.R:331-336,Shared helper plus locally recorded reduced-coordinate covariance adaptation f63f1ad6.
+original likelihood wrappers,R/ptmg.R:1-142,70593f9,R/ptmg.R:1-141,Original six wrappers remain available in unchanged upstream file; current formatting/signature details compared separately from donor extension.
+native opt_pml local variant,src/optimization.cpp:1500-1805,70593f9,src/optimization.cpp:910-1223,Shared objective core with post-e17 local damping/control-flow change 5fb52442; not an old-upstream-only block.
+native HL extension,src/optimization.cpp:911-1497,70593f9,src/optimization.cpp:910-1223,Mapped reused optimizer blocks plus locally recorded donor/derivative extensions; multiple exact runs documented.
+native per-subject extension,src/optimization.cpp:2481-2906,70593f9,src/optimization.cpp:676-906,Mapped reused ptmg blocks plus local per-donor/statistical/stable-summation additions.
+local constrained/fixed-beta native wrappers,"src/optimization.cpp:1808-1990,2321-2477",70593f9,src/optimization.cpp:910-1223,Local reduced-coordinate and donor-root implementations call/use model primitives; not upstream-identical whole functions.
+pmg_ll_eigen,src/optimization.cpp:21-60,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:20-59,Byte-identical complete function body; source lines relocated.
+pmg_der_eigen,src/optimization.cpp:65-116,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:64-115,Byte-identical complete function body; source lines relocated.
+pmg_hes_eigen,src/optimization.cpp:119-189,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:118-188,Byte-identical complete function body; source lines relocated.
+ptmg_ll_eigen,src/optimization.cpp:194-256,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:193-255,Byte-identical complete function body; source lines relocated.
+ptmg_der_eigen,src/optimization.cpp:261-347,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:260-346,Byte-identical complete function body; source lines relocated.
+call_cumsumy,src/optimization.cpp:351-376,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:350-375,Byte-identical complete function body; source lines relocated.
+call_posindy,src/optimization.cpp:379-430,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:378-429,Byte-identical complete function body; source lines relocated.
+center_m,src/optimization.cpp:434-466,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:433-465,Byte-identical complete function body; source lines relocated.
+cv_offset,src/optimization.cpp:469-501,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:468-500,Byte-identical complete function body; source lines relocated.
+get_cv,src/optimization.cpp:504-522,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:503-521,Byte-identical complete function body; source lines relocated.
+get_cell,src/optimization.cpp:525-552,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:524-551,Byte-identical complete function body; source lines relocated.
+ptmg_ll_der_eigen,src/optimization.cpp:555-673,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:554-672,Byte-identical complete function body; source lines relocated.
+ptmg_ll_der_hes_eigen,src/optimization.cpp:677-907,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:676-906,Byte-identical complete function body; source lines relocated.
+pml_ll_der_eigen,src/optimization.cpp:2246-2314,70593f95342e623f721ec5919adc53868e25a2b0,src/optimization.cpp:1479-1547,Byte-identical complete function body; source lines relocated.

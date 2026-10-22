@@ -497,9 +497,10 @@ outputs.
 
 scRoPE incorporates code derived from NEBULA (He et al., 2021,
 [doi:10.1038/s42003-021-02146-6](https://doi.org/10.1038/s42003-021-02146-6)).
-Source and example-data attribution, historical source hashes, and unresolved
-license provenance are recorded in [the provenance note](inst/provenance/README.md).
-This local preparation does not change the package license.
+The maintained source is distributed under [MIT](LICENSE.md), retaining
+upstream NEBULA notices and separate dependency terms. Source attribution and
+historical license records are documented in [the provenance note](inst/provenance/README.md).
+Historical archives and their original declarations remain unchanged.
 
 Upstream source:
 

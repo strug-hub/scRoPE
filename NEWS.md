@@ -1,5 +1,10 @@
 # scRoPE 0.3.0 — unreleased local preparation
 
+- Apply MIT to the maintained 0.3.0 source under the maintainer's instruction,
+  retaining verbatim upstream NEBULA MIT notices and separate dependency terms.
+  Historical sources and their original license records are unchanged.
+
+
 - Integrate the preserved .9005 baseline and the reviewed .9006 candidate as
   present-day local commits. The version is a proposed release target, not an
   approved or published release; no historical campaign is relabeled.
@@ -8,8 +13,9 @@
 - Add a mandatory installed-package two-worker gate and a proposed Linux CI
   workflow. A skipped parallel test does not satisfy that gate.
 - Document source hashes, recover the NEBULA 1.5.3 development ancestry, and
-  restore example-data attribution. Record conflicting license metadata and
-  missing data-generation details without changing license terms.
+  restore example-data attribution. Initially record conflicting license
+  metadata and missing generation details without changing terms; the later
+  maintained-source MIT change is described above.
 
 - Replace inherited teaching fixtures with paired, reproducibly generated
   synthetic multi-donor examples and a matching Seurat object. Supply generator,

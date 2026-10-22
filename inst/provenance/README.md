@@ -94,16 +94,63 @@ generator are in `inst/examples`; source regeneration and plotting scripts are
 in `data-raw`. They use seed 20261020, with no seed search or gene selection.
 Neither object contains the inherited NEBULA/pancreas data. The exact old files
 remain available in historical source commits and preservation archives; no
-historical result or source hash is relabeled. This replacement resolves the
-maintained example-data generation gap, not the inherited code-license issue.
+historical result or source hash is relabeled. This replacement resolves the maintained example-data generation gap.
 
-Licensing records remain inconsistent. Upstream commit `e17fb830` declares
-GPL-3 in DESCRIPTION but contains GPL Version 2 text in LICENSE. That LICENSE
-was inherited unchanged. The later scRoPE commit
-`40d19b762c4d1a14f90cf730bb6d2a54bc2aef56` (2026-01-13) changed
-DESCRIPTION from GPL-3 to GPL-2 and updated README; it did not change LICENSE.
-The separate NEBULA 1.5.3 archive also declares GPL-3. This records where the
-metadata changed without deciding which license terms apply or establishing a
-separate data rights grant. Current license fields/files are left unchanged.
-Clarify the conflicting upstream and later records before publication; local
-test success does not resolve licensing provenance.
+## Historical licensing records
+
+Upstream commit `e17fb830` declares GPL-3 in DESCRIPTION but contains GPL
+Version 2 text in LICENSE. That historical LICENSE was inherited unchanged.
+The later scRoPE commit `40d19b762c4d1a14f90cf730bb6d2a54bc2aef56`
+(2026-01-13) changed DESCRIPTION from GPL-3 to GPL-2 without changing LICENSE.
+The separate NEBULA 1.5.3 archive also declares GPL-3. These are historical
+records; the maintained-source change below does not alter their declarations,
+relabel old archives, or resolve which historical terms applied to old copies.
+
+## Maintained-source MIT declaration
+
+The maintained 0.3.0 candidate now declares `MIT + file LICENSE`. Lehang
+Zhong is the existing author/maintainer and authorized this license for the
+maintained scRoPE contributions. The new 2026 notice is for those contributions;
+it does not invent historical ownership dates or an institutional rightsholder.
+Authors@R remains unchanged. The complete source notice also retains exactly
+`Copyright (c) 2026 nebula authors` for inherited material.
+
+The technical basis is the inventoried inherited code's correspondence to:
+
+- [NEBULA 1.5.8, 70593f9](https://github.com/lhe17/nebula/tree/70593f95342e623f721ec5919adc53868e25a2b0),
+  whose DESCRIPTION and full notice declare MIT.
+- [First MIT revision, e0a0da9](https://github.com/lhe17/nebula/commit/e0a0da9aaa8e1c4dbc8519de3efdf18c5d4f34a2),
+  NEBULA 1.5.7, used to trace retained earlier variants.
+
+The bounded reconciliation covered the 14 inherited R/native/text-build
+paths and 53 declarations, including retained code behind retired dispatch.
+The four differing bodies (`nebula`, `scToNeb`, `check_conv`, `opt_pml_nbm`)
+were mapped at expression/block level. Retained preprocessing, convergence,
+parallel and native extensions were traced separately from scRoPE changes.
+No substantial unexplained old-upstream-only calculation was identified in
+that inventory. Code was not replaced or numerically changed to obtain a
+license-text match. A compact [source map](mit-source-map.csv) distinguishes
+inherited expressions and local adaptations.
+
+Upstream [LICENSE and LICENSE.md](../notices/nebula/README.md) are shipped
+verbatim and remain in the installed package. The top-level MIT template
+names the known scRoPE contributor, while the complete notice preserves the
+upstream collective attribution without guessing individual rights holders.
+The earlier GPL text and source declarations remain in historical commits and
+preservation archives. MIT is applied to this maintained source; historical
+simulation sources keep their original evidence.
+
+This is a documented source-provenance and authorized maintained-source
+change, not a comprehensive ownership opinion or clearance for every binary
+distribution. No conflicting local holder or distinct per-file notice was
+identified in the inspected R/src inventory. Git authorship and matching code
+are evidence of lineage, not proof of every ownership interest.
+
+### Dependencies and generated interfaces
+
+[Dependency notices](../notices/DEPENDENCIES.md) are separate. scRoPE does
+not relicense R, Rcpp, RcppEigen/Eigen or other dependencies. Their source,
+headers, libraries and notices retain their own terms. The Rcpp-generated
+wrapper markers and dependency references remain unchanged. No dependency
+source/header subtree is vendored by this change. Binary redistribution and
+bundling must account for the terms of the actual dependencies included.

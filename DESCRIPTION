@@ -13,7 +13,7 @@ Description: Provides robust inference for negative binomial mixed models in
     (sandwich) information to provide robust Wald inference and model-specific
     adjusted tests for linear contrasts. Inferential availability depends on
     the fitted model and validated inference route.
-License: GPL-2
+License: MIT + file LICENSE
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Imports: Rcpp (>= 1.0.7), nloptr, stats, Matrix, methods, Rfast, trust,

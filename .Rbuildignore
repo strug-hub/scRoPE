@@ -6,5 +6,5 @@
 ^temp$
 ^\.github$
 ^\.git$
-^LICENSE$
 ^data-raw$
+^LICENSE\.md$
