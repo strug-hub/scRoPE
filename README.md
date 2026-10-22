@@ -1,539 +1,151 @@
 # scRoPE
 
-**0.3.0 — local release preparation, not a published or approved release.** This
-checkout starts from the preserved 0.2.5.9005 source used for the newer
-simulation campaigns. Historical results retain their original versions;
-this candidate does not replace or relabel those runs.
+### Robust uncertainty, at single-cell resolution
 
-sc-RoPE (single-cell Robust Parameter Estimation) is a framework for robust
-fixed-effect inference in multi-donor single-cell RNA-seq studies. It supports
-population-level differential expression and regression-based co-expression
-analyses while retaining cell-level observations and accounting for donor
-heterogeneity.
+**scRoPE** (single-cell Robust Parameter Estimation) analyzes multi-donor
+single-cell RNA-seq. Study differential expression
+and regression-based co-expression while retaining cell-level observations,
+modeling donor heterogeneity and adjusting for covariates.
 
-The framework combines a hierarchical working likelihood with donor-level
-score information. The working likelihood supplies fixed-effect estimates and
-observed curvature; sc-RoPE uses the variability of the donor-level score
-contributions within a Godambe framework to obtain robust uncertainty
-quantification. This protects inference against broad variance-model
-misspecification when the mean model still identifies the fixed-effect target.
+Its hierarchical working model accounts for dependence among cells from the
+same donor. Donor-level score variation then supplies sandwich (Godambe)
+uncertainty, reducing reliance on the working model's variance assumptions:
+**the same estimated effect, with model-based and donor-robust uncertainty
+side by side**.
 
-Robust Wald inference is returned by default. Optional tests depend on the
-selected estimator. Joint-LN supports experimental/asymptotic robust Score
-and Pace-adjusted working-objective-ratio p-values for a single non-intercept
-coefficient tested against zero, requested with `additional_tests`.
-Broader hypotheses remain diagnostic-only; all acceptance checks still apply.
+- **Flexible study designs:** donor- and cell-level predictors, covariate
+  adjustment and cell-specific offsets.
+- **Inference beyond one test:** model-based and donor-robust Wald results,
+  with adjusted Score and likelihood-ratio options for supported engines.
+- **Fits into an R workflow:** dense or sparse counts, Seurat and
+  SingleCellExperiment conversion, per-gene diagnostics and optional residuals.
 
-## Local candidate and dependencies
+## Installation
 
-Use this exact source for candidate validation. The GitHub package has not been
-updated by this work. R and package requirements are listed in `DESCRIPTION`;
-no dependency installation is performed automatically.
+This README describes the **0.3.0 development candidate**. Until it is published,
+install the supplied local archive; the current GitHub version may differ.
+With R ≥ 4.1, the dependencies in [DESCRIPTION](DESCRIPTION) and an
+R-compatible C++ toolchain, start a fresh R session:
 
-With those requirements already available, build and check in a separate local
-output directory:
-
-```sh
-R CMD build /path/to/this/source
-R CMD check --no-manual scRoPE_0.3.0.tar.gz
+```r
+install.packages("scRoPE_0.3.0.tar.gz", repos = NULL, type = "source")
+library(scRoPE)
 ```
 
-The examples below assume that this local candidate has been loaded. Check
-`packageVersion("scRoPE")` before comparing outputs with another version.
+From a source checkout, `R CMD build .` creates the archive.
 
-The installed-package smoke and mandatory two-worker gates are documented in
-[tests/validation/README-workable-version-smoke.md](tests/validation/README-workable-version-smoke.md).
-The proposed Linux CI workflow has not run merely because its file is present.
-The revised paper workflows are maintained separately and are not defined by
-this package release preparation.
+## Quick start: 24 genes in one fit
 
-## Synthetic teaching examples
-
-The bundled objects are generated data: **30 donors, 40 cells each, eight
-genes**, with 20 control and 10 treated donors. `X2` is donor-level treatment;
-`X1` is a cell-level continuous predictor and `cc` is an artificial cell
-category. `sample_data` and `sample_seurat` contain the same reference counts
-and cell order. They are separate from the paper simulations and HLCA analyses.
-
-![Synthetic multi-donor study design](man/figures/synthetic-design.svg)
-
-The reference uses gamma donor effects and conditional negative-binomial
-counts. A paired illustration substitutes lognormal donor effects with the
-same mean and variance, shared by both treatment groups. This is a modest
-working-distribution misspecification. The gamma reference belongs to the
-working family, but JLN still approximates its likelihood at 40 cells per donor.
-The [frozen design](data-raw/SYNTHETIC_DESIGN.md) specifies the parameterization,
-seed, draw order, target and display plan before outcomes were examined.
-
-![Every generating treatment coefficient and both uncertainty estimates](man/figures/synthetic-intervals.svg)
-
-Model and donor-robust intervals use **the same fitted coefficient** within each
-gene and scenario. All 16 fits provided inference in this fixed run. Robust
-adjustment changes uncertainty; it does not move an estimate toward its
-known generating coefficient or correct bias.
-
-![Robust-to-model standard error ratios for all genes in both scenarios](man/figures/synthetic-se-ratio.svg)
-
-Here robust/model SE ratios range from 0.82–1.23 in the reference and 0.84–1.27
-in the misspecified scenario. Six intervals widen and two narrow in each;
-the observed adjustments are similar across scenarios. **This example does
-not demonstrate a calibration or power advantage.** A wider interval is not
-inherently better, and inclusion of a generating coefficient in one draw is
-not estimated coverage. Intervals are nominal, pointwise 95% Wald intervals;
-p-values test `X2 = 0` without multiplicity adjustment. Thirty independent
-donors and an approximate working likelihood leave finite-sample limitations.
-
-The [complete result table](inst/examples/illustration_results.csv) includes
-all genes, estimates, generating coefficients, both SEs, intervals, zero-null
-p-values and availability. Nothing was selected by significance. See
-[regeneration instructions and runtime versions](inst/examples/README.md).
-The original inherited fixtures remain in historical sources, with their
-[provenance recorded separately](inst/provenance/README.md).
-
-## 24-gene quick start
-
-The new `toy_data` contains 24 genes and 200 donors with 40 cells each.
-It includes null and non-null genes with and without omitted donor slopes;
-model-based and robust intervals share the same fitted coefficient.
-[Run, regenerate or plot all genes](inst/examples/toy24/README.md).
-The fixed example illustrates uncertainty differences, not calibration or
-bias correction. The original synthetic/Seurat examples remain below.
-
-## Quick start
-
-The default `scrope()` call uses the scalable LN approximation to the
-negative-binomial gamma mixed-model (NBGMM) working likelihood. The design can
-contain both subject-level and cell-level predictors. Joint-LN (`joint_ln`)
-is now the default and the maintained LN estimator.
-
-The `model` argument explicitly selects one complete fitting route: `"LN"`,
-`"HL"`, or `"PGMM"`. sc-RoPE does not silently replace the requested route with
-another route.
+The bundled `toy_data` contains **200 donors × 40 cells**, balanced between
+two cell conditions (`x = -0.5` and `0.5`). It includes null and non-null genes,
+with and without donor-specific condition effects. The fitted model retains
+a donor random intercept and a common condition effect; the extra donor
+slopes are deliberately omitted for half the genes.
 
 ```r
 library(scRoPE)
-
-data(sample_data)
-
-design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
+data(toy_data)
 
 fit <- scrope(
-  sample_data$count,
-  sample_data$sid,
-  pred = design,
-  offset = sample_data$offset,
-  ncore = 1
-)
-```
-
-A compact view of the default robust Wald results for donor treatment `X2` is:
-
-```r
-head(fit$summary[, c(
-  "gene",
-  "logFC_X2",
-  "se_robust_X2",
-  "p_robust_X2"
-)])
-```
-
-Here, `logFC_X2` is the estimated coefficient, `se_robust_X2` is its robust
-standard error, and `p_robust_X2` is the robust Wald p-value. The complete
-`fit$summary` also contains model-based results and results for the other
-predictors.
-
-The matching Seurat example supplies identical fitting inputs:
-
-```r
-data(sample_seurat)
-converted <- scToNeb(
-  sample_seurat, assay = "RNA", id = "replicate",
-  pred = c("X1", "X2", "cc"), offset = "offset"
-)
-stopifnot(identical(converted$count, sample_data$count))
-```
-
-Its `celltype` and `tech` compatibility columns are artificial labels; use the
-explicit `X1`, `X2`, `cc` and `offset` metadata for this design.
-
-## Joint-LN estimation and availability
-
-The default and the explicit request below use the same estimator:
-
-```r
-fit_joint <- scrope(
-  sample_data$count,
-  sample_data$sid,
-  pred = design,
-  offset = sample_data$offset,
-  ncore = 1,
-  ln_estimator = "joint_ln"
+  toy_data$count, toy_data$id,
+  pred = toy_data$pred, offset = toy_data$offset,
+  model = "LN", ln_estimator = "joint_ln",
+  ln_operational_fallback = "none",
+  ncore = 1, cpc = 0, mincp = 1, verbose = FALSE
 )
 
-fit_joint$availability
+# All 24 genes: one estimate, model-based and donor-robust uncertainty.
+fit$summary[, c(
+  "gene", "logFC_x", "se_x", "se_robust_x",
+  "p_naive_x", "p_robust_x"
+)]
+fit$availability
 ```
 
-The retained joint-LN numerical policy can
-resolve an extra nearby numerical endpoint as belonging to the same solution
-basin. When that happens, model-based and donor-robust Wald inference is
-reported from the unchanged certified selected root. The original strict
-decision is retained in provenance. Boundary, distinct-basin, hard-stop, and
-unresolved cases continue to withhold inference. This behavior is for
-simulation calibration and is not yet a calibrated public release.
+`logFC_x` is the estimated natural-log contrast between conditions;
+`se_robust_x` and `p_robust_x` are its donor-robust standard error and Wald
+p-value. The corresponding model-based results are `se_x` and `p_naive_x`.
+P-values test a zero coefficient, without multiple-testing adjustment.
+Use `availability == "inference"` for certified JLN results.
 
-`fit_joint$availability` has exactly one row per analyzed gene/request, rather
-than one row per coefficient or contrast. `availability = "inference"` means
-the coefficient, covariance, robust standard error, Wald statistic, and p-value
-are all evaluated at the same certified joint-LN fit. When primary inference is
-unavailable, the affected standard errors, Wald statistics, and p-values remain
-typed `NA`; sc-RoPE does not store `p = 1` or silently substitute results from
-another estimator. Technical route and failure details remain in `provenance`
-and, when requested, `diagnostics`.
+The reviewed serial fit took **about 11 seconds** on an M3 Max MacBook
+(R 4.5.2); timing depends on hardware and software.
 
-The joint-LN estimator estimates coefficients and dispersions together. It is
-not expected to reproduce the legacy estimator exactly, and its verified
-solution is local rather than a claim of global uniqueness.
+![Model-based and donor-robust intervals for all 24 synthetic genes](man/figures/toy24-overview.png)
 
-Technical route labels are retained in `provenance` for reproducibility and
-debugging, but users do not need them to select results. Use `inference_status`,
-`resolution_status`, and `inference_source` for the primary joint-LN fit.
-`strict_inference_status`, `enabled_inference_status`, and `newly_enabled`
-record how the calibration-candidate rule differs from the original strict
-decision. The earlier `route`, `inference_available`, and `failure_reason`
-fields remain available for compatibility and expert review.
+In this fixed example, model-based tests flag **3 of 6 omitted-slope null
+genes** at `p < 0.05`; donor-robust tests flag **0 of 6**. Both use the same
+estimated effects. Diamonds mark known generating population contrasts;
+intervals are nominal 95% Wald intervals. This is an illustration, not a
+calibration experiment. [Design, interpretation and reproduction](inst/examples/toy24/README.md)
+include all genes, the fixed seed, complete results and plotting scripts.
 
-With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
-conditional PML predictions evaluated at the plug-in joint-LN parameters. They
-cannot change coefficient inference.
+## Choose a fitting engine and test
 
-Model-based and donor-robust Wald remain the defaults for `joint_ln`.
-`additional_tests = c("score", "lrt")` requests experimental/asymptotic robust
-Score and Pace-adjusted ratio p-values for scalar zero-null single
-non-intercept coefficients. The Pace statistic is `wP * wU / qP`, not raw `wP`.
-Both tests require accepted primary and constrained fits; failures retain
-missing p-values and exact reasons. Broader contrasts remain diagnostic-only.
-Inspect `test_status` and `?scrope` for scope, status and interpretation.
-Calibration differs between cell- and donor-level predictors; numerical
-availability is not a calibration guarantee.
-Switching from the legacy estimator to `joint_ln` may change coefficients,
-standard errors, p-values, convergence statuses, and downstream results.
+The **fitting engine** defines the working model. The **inference test**
+turns its fit and donor-level information into an uncertainty statement.
+JLN is the default; select another engine explicitly with `model`.
 
-### Migration from legacy LN
+| Fitting engine | When to use it | Available inference |
+|:--|:--|:--|
+| **Joint-LN (JLN)** — `scrope()` | General multi-donor association analysis, with donor heterogeneity and cell-level overdispersion | Model-based and donor-robust **Wald**; opt-in experimental robust **Score** and **Pace-adjusted ratio** |
+| **Corrected first-order HL** — `model = "HL"` | An alternative negative-binomial gamma mixed-model fit, including null-constrained Score analysis | Donor-robust **Wald**; optional robust **Score** |
+| **Exact PGMM** — `model = "PGMM"` | A simpler Poisson–gamma mixed model with an exact marginal likelihood and optional likelihood-based testing | Model-based and donor-robust **Wald**; optional adjusted **Score** and scaled adjusted **LRT** |
 
-`ln_estimator = "legacy_post_pml"` and
-`ln_operational_fallback = "legacy_post_pml"` are retired from `scrope()` and
-produce actionable errors. They are not silently translated into joint-LN.
-`ln_operational_fallback = "none"` remains accepted. A rejected joint-LN fit
-continues to report unavailable inference; the candidate does not obtain a
-coefficient or p-value from another estimator. Per-gene model switching is
-also unavailable.
+PGMM has no separate cell-level overdispersion component. Request optional
+Score with `additional_tests = "score"`; request both optional tests with
+`additional_tests = c("score", "lrt")` on JLN or PGMM. HL supports Score only.
+Successful fits and test-specific checks determine availability. See the
+[methods guide](inst/guides/methods-and-migration.md#supported-tests-and-output-fields)
+for calls, contrast support and output fields.
 
-Historical reproduction requires the exact original version and settings,
-including its source changes. The retained simulations used multiple versions
-(.9001, .9004 and .9005); a version label or the older public Git checkout alone
-is not sufficient provenance. Switching an earlier default call to this
-candidate intentionally changes its estimator and can change its results.
-
-For current results, use `availability == "inference"` for certified primary
-inference and retain `unavailable` outcomes in the planned denominator. Do not
-replace missing p-values with 1. A finite uncertified endpoint remains a
-diagnostic quantity. Historical `estimate_only` sidecars are not generated by
-the maintained workflow.
-
-The separate exported `nebula()` compatibility function also rejects its
-historical default and explicit `method = "LN"` requests. Use `scrope(...,
-model = "LN", ln_estimator = "joint_ln")` for the maintained LN workflow,
-or the exact historical package for reproduction. Explicit
-`nebula(method = "HL")` remains available as a historical compatibility API;
-it is distinct from corrected first-order HL via `scrope(model = "HL")`.
-No call is silently redirected from one estimator to another.
-
-## Optional Adjusted Score and LRT Inference
-
-The example below explicitly selects PGMM. Default or explicit joint-LN
-also accepts the request, exposing its scoped experimental robust Score and
-Pace-adjusted ratio tests as described above and in `?scrope`.
-
-Request the adjusted Score and scaled adjusted likelihood-ratio tests through
-`additional_tests`:
+**Explore JLN's optional tests** by adding the request to the quick-start fit:
 
 ```r
 fit_tests <- scrope(
-  sample_data$count,
-  sample_data$sid,
-  pred = design,
-  offset = sample_data$offset,
-  model = "PGMM",
-  ncore = 1,
+  toy_data$count, toy_data$id,
+  pred = toy_data$pred, offset = toy_data$offset,
   additional_tests = c("score", "lrt"),
-  lrt_details = TRUE
+  ncore = 1, cpc = 0, mincp = 1, verbose = FALSE
 )
-
-head(fit_tests$summary[, c(
-  "gene",
-  "p_robust_X1",
-  "p_score_adj_X1",
-  "p_lrt_adj_X1",
-  "lrt_method_X1"
-)])
+fit_tests$summary[, c(
+  "gene", "p_score_adj_x", "p_lrt_adj_x",
+  "score_success_x", "lrt_success_x"
+)]
 ```
 
-On this fixed synthetic example, 23 of the 24 PGMM adjusted LRTs are available.
-For G08 / X2, the constrained fit passes optimization but its profiled curvature
-is nonpositive. The call warns and records `lrt_method_X2 = "wald"`; that finite
-fallback p-value is a Wald result, **not an adjusted LRT**. All 24 adjusted
-Scores are available. Check `lrt_details` and method/availability fields before
-interpreting or selecting optional tests; do not drop gated contrasts from a
-planned denominator. These are example-specific outcomes, not failure-rate or
-calibration estimates.
+Wald remains the default. JLN's optional p-values use an **experimental
+asymptotic reference** for a single non-intercept coefficient tested against
+zero. `"lrt"` selects the Pace-adjusted **working-objective ratio**, not an
+ordinary likelihood-ratio test. Calibration differs between cell- and
+donor-level targets; see [scope, evidence and diagnostics](inst/guides/methods-and-migration.md#jln-experimental-score-and-pace-tests).
 
-The robust Wald test is the primary default because it is directly available
-after the unconstrained fit. Score and LRT inference require constrained fits
-for every gene and contrast, so they are more computationally intensive. The
-PGMM LRT additionally requires accepted unrestricted and constrained fits;
-a positive likelihood difference alone is insufficient. Score inference
-requires an accepted constrained null fit, independently of the unrestricted
-Wald fit. Unavailable tests retain explicit failure reasons and missing tails.
+For specialist work, the package also contains **internal scalar PGMM relative
+profile-likelihood diagnostics**. `scrope_hl()` wraps corrected HL;
+explicit `nebula(method = "HL")` retains historical model-based compatibility
+fits. These are described in the [specialist and compatibility guide](inst/guides/methods-and-migration.md#specialist-and-compatibility-interfaces).
+Legacy LN and its fallback are retired; they are never silently redirected.
 
-- `score_adj_*` and `p_score_adj_*` contain adjusted Score statistics and
-  p-values.
-- `lrt_adj_*` and `p_lrt_adj_*` contain scaled adjusted likelihood-ratio
-  statistics and p-values.
-- `lrt_method_*` records whether the reported result used the adjusted LRT,
-  ridge regularisation, or a documented fallback.
-- `lrt_details = TRUE` returns a tidy `lrt_details` data frame containing the
-  raw likelihood-ratio quantities and diagnostic information.
+## Documentation and examples
 
-## Working Likelihoods within sc-RoPE
+- `?scrope` — arguments, models and outputs; `?toy_data` — the quick-start data.
+- [Run, regenerate or plot the toy](inst/examples/toy24/README.md).
+- [Additional synthetic and Seurat examples](inst/examples/README.md).
+- [Methods, contrasts and migration](inst/guides/methods-and-migration.md).
+- [Changes](NEWS.md) · [validation](tests/validation/README-workable-version-smoke.md)
+  · [report an issue](https://github.com/strug-hub/scRoPE/issues).
 
-LN, HL, and PGMM are alternative working-likelihood routes within the same
-sc-RoPE robust-inference framework. They are not separate inferential
-frameworks: each route provides fixed-effect estimates, curvature, and
-donor-level score contributions to the Godambe adjustment.
+## Acknowledgments and citation
 
-| Working-likelihood route | Call | Variance structure | Typical use |
-|---|---|---|---|
-| NBGMM, LN approximation | `scrope()` | Donor heterogeneity and cell-level extra-Poisson variation | Default scalable association analysis |
-| NBGMM, first-order nested HL | `scrope(model = "HL")` | Donor heterogeneity and cell-level extra-Poisson variation | Explicit HL fitting or comparison with the LN approximation |
-| PGMM, exact marginal likelihood | `scrope(model = "PGMM")` | Donor heterogeneity without a separate cell-level overdispersion parameter | Simpler exact working likelihood for fixed-effect inference |
+**scRoPE manuscript: citation forthcoming.** Use `citation("scRoPE")` for
+the installed software citation.
 
-The NBGMM working likelihood is the more complete variance model. PGMM is a
-targeted simplification: it retains the donor-level gamma random effect but
-omits the cell-level gamma overdispersion component.
+scRoPE builds on the model and computational foundation described in
+[*NEBULA is a fast negative binomial mixed model for differential or co-expression analysis of large-scale multi-subject single-cell data* (2021)](https://doi.org/10.1038/s42003-021-02146-6).
+*Communications Biology*, **4**, 629.
 
-For example, the corrected first-order HL route is requested through the same
-front door:
+## License
 
-```r
-fit_hl <- scrope(
-  sample_data$count,
-  sample_data$sid,
-  pred = design,
-  offset = sample_data$offset,
-  model = "HL",
-  ncore = 1
-)
-```
-
-The existing `scrope_hl()` function remains available as a compatibility
-wrapper. The current first-order HL implementation runs sequentially; asking
-for `ncore > 1` produces a warning rather than silently claiming parallel
-execution.
-
-Test availability remains route-specific. PGMM supports optional adjusted
-Score and LRT tests; certified joint-LN exposes model-based and donor-robust
-Wald plus scoped experimental robust Score and Pace-adjusted ratio tests.
-First-order HL exposes robust Wald and Score while its objective-ratio/LRT
-remains unsupported.
-The `provenance$test_capabilities` table records these distinctions in every
-fit.
-
-## PGMM Working Likelihood
-
-The PGMM route integrates out its donor-level gamma random effect exactly. It
-can be used with both subject-level and cell-level fixed-effect predictors.
-
-### Subject-level predictor example
-
-In `sample_data`, `X2` is constant within donor:
-
-```r
-design_subject <- model.matrix(~ X2, data = sample_data$pred)
-
-fit_pmg_subject <- scrope(
-  sample_data$count,
-  sample_data$sid,
-  pred = design_subject,
-  offset = sample_data$offset,
-  model = "PGMM",
-  ncore = 1
-)
-
-head(fit_pmg_subject$summary)
-```
-
-### Cell-level predictor example
-
-`X1` and `cc` vary within donors, so the same design used in the quick start can
-also be fitted under the PGMM working likelihood:
-
-```r
-design_cell <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
-
-fit_pmg_cell <- scrope(
-  sample_data$count,
-  sample_data$sid,
-  pred = design_cell,
-  offset = sample_data$offset,
-  model = "PGMM",
-  ncore = 1
-)
-
-head(fit_pmg_cell$summary[, c(
-  "gene",
-  "logFC_X1",
-  "se_robust_X1",
-  "p_robust_X1"
-)])
-```
-
-This second call prints a short message identifying the cell-level predictors
-and recommending the robust results when cell-level overdispersion may be
-present. These predictors are supported; the message reflects that PGMM omits
-a separate cell-level overdispersion component.
-
-When donors are the independent clusters, the mean model preserves the target,
-and the number of donors is sufficiently large, the donor-level Godambe
-adjustment provides large-sample robust inference for both subject-level and
-cell-level fixed effects. In particular, it reduces sensitivity of the
-standard errors to omitted cell-level overdispersion. This adjustment does not
-make PGMM the true data-generating model, correct mean-model misspecification,
-or rescue an analysis that ignores the donor as the biological unit of
-replication.
-
-PGMM can therefore be useful when fixed-effect inference is the main target and
-the detailed decomposition of cell-level variability is secondary. Prefer an
-LN or HL NBGMM working likelihood when cell-level overdispersion is itself of
-scientific interest, when residual overdispersion is strong, or when the number
-of donors is modest and the data are sparse, highly unbalanced, or strongly
-heterogeneous.
-
-The PGMM main unconstrained fit uses `nlminb` with `iter.max = 500L` and
-`eval.max = 500L`. Override these with, for example,
-`pgmm_control = list(iter.max = 150L, eval.max = 200L)` to reproduce the earlier
-limits. The control applies to the main fit only; constrained/profile fits keep
-their existing controls. It does not add retries or change starts, tolerances,
-objective scaling, or acceptance rules. Existing recovery after an optimizer
-error remains available, so this argument is not a total work cap. The 500/500
-choice is a development default and does not guarantee convergence.
-
-PGMM reports `optimizer_success` separately from its composite convergence code.
-When optimization is unsuccessful or its native status is missing, model and
-robust Wald statistics, p-values, and standard errors are unavailable. A retained
-`logFC_*` or dispersion in that case describes the failed endpoint for diagnosis;
-it is not an accepted estimate. Full endpoint and covariance values remain in
-`diagnostics$raw` when diagnostics are requested. Model and sandwich covariance
-availability are checked independently: failure of one does not automatically
-suppress an otherwise valid test based on the other. `model_wald_*` fields
-report the model-Wald statistic, success, and failure reason alongside the
-existing robust `wald_*` fields.
-
-Effective main limits are retained in `provenance$optimizer`, including when
-`keep_diagnostics = FALSE`. Per-fit diagnostics record the actual backend,
-status, controls, native iterations/evaluations and attempted optimizer calls.
-Information conditioning and a scaled Newton correction describe the endpoint;
-they do not move it or introduce a new acceptance threshold.
-
-Adjusted Score and likelihood-ratio tests can be added to either PGMM example
-using the same `additional_tests` and `lrt_details` arguments shown above.
-
-## Contrast coordinates and residuals
-
-For maintained LN and PGMM calls, custom `lrt_contrasts` use the same coefficient
-units as the reported `logFC_*` values, with columns ordered as in `pred`.
-The fitting design may be standardized internally; both the contrast matrix
-and its null hypothesis are mapped consistently. A nonzero slope null is in
-the original predictor units. The reported intercept for LN/PGMM is
-sample-centered; an intercept-containing contrast does not automatically have
-a fixed population target or the same interpretation as the intercept at
-unobserved zero-valued predictors. Corrected first-order HL retains its
-original-design coefficient coordinates.
-
-`nbresidual()` recognizes corrected first-order HL output and reconstructs its
-means using the original design coordinates. Supply the original `pred`,
-positive `offset`, and matching cell/donor ordering. JLN and PGMM retain their
-centered-intercept convention. Objects without estimator provenance retain
-the historical reconstruction convention; the function cannot infer an
-unrecorded historical fitting route. Conditional residuals require the
-corresponding retained donor predictions.
-
-## Understanding the Main Outputs
-
-For each modeled predictor, `summary` includes:
-
-- `logFC_*`: estimated fixed-effect coefficient;
-- `se_*` and `p_naive_*`: model-based standard error and Wald p-value;
-- `se_robust_*` and `p_robust_*`: robust standard error and Wald p-value,
-  returned by default;
-- `wald_stat_*`, `wald_success_*`, and `wald_failure_*`: robust Wald statistic
-  and diagnostics;
-- optional `score_adj_*` and `p_score_adj_*`: adjusted Score results, when
-  supported by the selected estimator; and
-- optional `lrt_adj_*`, `p_lrt_adj_*`, and `lrt_method_*`:
-  scaled adjusted likelihood-ratio results and method diagnostics.
-
-The returned object also contains:
-
-- `overdispersion`: fitted working-model overdispersion parameters;
-- `convergence` and `algorithm`: per-gene fitting status;
-- `availability`: one joint-LN status row per analyzed gene/request;
-- `provenance`: estimator definition and technical information about each fit;
-- `diagnostics`: detailed per-gene fitting and robust-inference information;
-- `lrt_details`: optional tidy likelihood-ratio diagnostics;
-- `random_effect`: donor-level random effects when `output_re = TRUE`.
-
-## Advanced PGMM Profile-Likelihood Diagnostics
-
-The exact PGMM route includes internal tools for ordinary and robust relative
-profile likelihoods for scalar fixed-effect targets. These tools are intended
-primarily for methodological development, exact-likelihood simulations, and
-likelihood-paradigm analyses.
-
-The profile-likelihood infrastructure includes:
-
-- equality-constrained PGMM fitting for scalar contrasts;
-- pointwise and grid-based ordinary and robust relative profiles;
-- warm-started constrained fits with optimizer retries;
-- raw likelihood-ratio and boundary safeguards; and
-- information-scaled convergence checks for high-information profile fits.
-
-For routine association analyses, the summary-level robust Wald, adjusted
-Score, and scaled adjusted likelihood-ratio results are the main user-facing
-outputs.
-
-## Attribution
-
-scRoPE incorporates code derived from NEBULA (He et al., 2021,
-[doi:10.1038/s42003-021-02146-6](https://doi.org/10.1038/s42003-021-02146-6)).
-The maintained source is distributed under [MIT](LICENSE.md), retaining
-upstream NEBULA notices and separate dependency terms. Source attribution and
-historical license records are documented in [the provenance note](inst/provenance/README.md).
-Historical archives and their original declarations remain unchanged.
-
-Upstream source:
-
-https://github.com/lhe17/nebula
-
-High-level changes in this repository include:
-
-- Added Godambe-based robust Wald inference for LN and HL NBGMM pipelines.
-  Joint-LN additionally supports scoped experimental robust Score and
-  Pace-adjusted ratio tests; legacy LN is retired from `scrope()`.
-- Implemented contrast-level testing and expanded robust diagnostics.
-- Improved HL estimation and stability, including analytic Hessians, cached
-  scores, and negative-LR safeguards.
-- Added an exact PGMM working-likelihood route with robust Wald, adjusted Score,
-  and adjusted likelihood-ratio inference.
-- Added exact PGMM profile-likelihood diagnostics, including constrained
-  profiling, warm-started profile grids, raw-LR safeguards, and
-  information-scaled convergence checks.
+[MIT](LICENSE.md). Inherited NEBULA copyright and permission notices are
+retained. [Source provenance and third-party notices](inst/provenance/README.md#maintained-source-mit-declaration)
+document the maintained source and its dependencies.

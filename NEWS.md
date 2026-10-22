@@ -9,6 +9,8 @@
   reasons; unavailable tests are not replaced with Wald or legacy inference.
   The linked methods guide distinguishes favorable cell-level calibration
   from observed donor-level inflation in the retained validation study.
+- Refresh the README with supported fitting/test choices and acknowledgments;
+  keep technical interpretation and migration detail in the linked guide.
 - Apply MIT to the maintained 0.3.0 source under the maintainer's instruction,
   retaining verbatim upstream NEBULA MIT notices and separate dependency terms.
   Historical sources and their original license records are unchanged.
