@@ -36,6 +36,64 @@
   lapply(x, .hl_retention_science)
 }
 
+# Separate public calls prepare and fit independently. Allow rounding in
+# continuous doubles element by element (no vector-wide averaging):
+# |x - y| <= 1e-12 + 1e-12 * max(|x|, |y|). This covers sub-picounit
+# preparation/derivative noise while rejecting material output changes.
+# Structure, missing/nonfinite values and discrete fields remain exact,
+# including discrete public codes stored as doubles. Same-input checks below
+# deliberately continue to use expect_identical().
+.hl_retention_equivalent <- function(x, y, field = "") {
+  if (!identical(typeof(x), typeof(y)) ||
+      !identical(length(x), length(y)) ||
+      !identical(attributes(x), attributes(y))) return(FALSE)
+  discrete <- c("algorithm", "convergence", "y", "id", "subject",
+                "count", "evaluations", "rank", "n", "m")
+  if (field %in% discrete) return(identical(x, y))
+  if (is.list(x)) {
+    return(all(vapply(seq_along(x), function(i) {
+      name <- if (is.null(names(x))) "" else names(x)[[i]]
+      .hl_retention_equivalent(x[[i]], y[[i]], name)
+    }, logical(1))))
+  }
+  if (!is.double(x)) return(identical(x, y))
+  finite <- is.finite(x)
+  if (!identical(finite, is.finite(y)) ||
+      !identical(x[!finite], y[!finite])) return(FALSE)
+  all(abs(x[finite] - y[finite]) <=
+        1e-12 + 1e-12 * pmax(abs(x[finite]), abs(y[finite])))
+}
+
+test_that("HL cross-fit equivalence is tight and preserves discrete invariants", {
+  reference <- list(value = c(0, 1, 1e4, NA_real_, NaN, Inf, -Inf),
+                    id = 1:2, evaluations = 3L, success = TRUE,
+                    status = "ok", convergence = 0, algorithm = 1)
+  rounded <- reference
+  rounded$value[1:3] <- rounded$value[1:3] + c(4.6e-14, 4e-13, 4e-10)
+  expect_true(.hl_retention_equivalent(rounded, reference))
+  for (i in 1:3) {
+    perturbed <- reference
+    perturbed$value[[i]] <- perturbed$value[[i]] + c(1e-8, 1e-8, 1e-4)[[i]]
+    expect_false(.hl_retention_equivalent(perturbed, reference))
+  }
+  for (name in c("id", "evaluations", "success", "status",
+                 "convergence", "algorithm")) {
+    changed <- reference
+    changed[[name]] <- switch(name, id = 2:3, evaluations = 4L,
+                             success = FALSE, status = "failed",
+                             convergence = 1e-14, algorithm = 1 + 1e-14)
+    expect_false(.hl_retention_equivalent(changed, reference), info = name)
+  }
+  for (replacement in c(NA_real_, NaN, Inf, -Inf)) {
+    changed <- reference
+    changed$value[[1L]] <- replacement
+    expect_false(.hl_retention_equivalent(changed, reference))
+  }
+  expect_false(.hl_retention_equivalent(list(value = 1), list(other = 1)))
+  expect_false(.hl_retention_equivalent(matrix(1, 1, 1), 1))
+  expect_false(.hl_retention_equivalent(1L, 1))
+})
+
 .hl_retention_call <- function(name, args, keep_diagnostics, legacy = FALSE) {
   if (!legacy || identical(name, "scrope_hl")) {
     args$keep_diagnostics <- keep_diagnostics
@@ -226,7 +284,7 @@ test_that("HL output retention preserves computations and avoids gene accumulati
   expected$diagnostics <- NULL
   observed <- compact$public$result
   observed$diagnostics <- NULL
-  expect_identical(observed, expected)
+  expect_true(.hl_retention_equivalent(observed, expected))
   expect_identical(nrow(compact$public$result$summary), 3L)
   expect_identical(compact$public$result$summary$fit_status[[3L]],
                    "inner_no_finite_root")
@@ -241,16 +299,20 @@ test_that("HL output retention preserves computations and avoids gene accumulati
   expect_equal(length(full$public$fits), 5L)
   expect_equal(length(compact$public$fits), 5L)
   for (ii in seq_along(full$public$fits)) {
-    expect_identical(.hl_retention_science(compact$public$fits[[ii]]),
-                     .hl_retention_science(full$public$fits[[ii]]))
+    expect_true(.hl_retention_equivalent(
+      .hl_retention_science(compact$public$fits[[ii]]),
+      .hl_retention_science(full$public$fits[[ii]])
+    ), info = paste("public fit", ii))
     if (length(full$public$fits[[ii]]$outer_runs)) {
       run_summary <- function(run) {
         fields <- c("success", "status", "reason", "start", "evaluations",
                     "stationarity", "invalid_guard_faces")
         run[intersect(fields, names(run))]
       }
-      expect_identical(lapply(compact$public$fits[[ii]]$outer_runs, run_summary),
-                       lapply(full$public$fits[[ii]]$outer_runs, run_summary))
+      expect_true(.hl_retention_equivalent(
+        lapply(compact$public$fits[[ii]]$outer_runs, run_summary),
+        lapply(full$public$fits[[ii]]$outer_runs, run_summary)
+      ), info = paste("public outer runs", ii))
       expect_true(all(vapply(compact$public$fits[[ii]]$outer_runs,
                              function(run) length(run$trust_trace) == 0L,
                              logical(1))))
