@@ -209,6 +209,127 @@ test_that("joint-LN diagnostic keys are exact identities within one fit", {
   expect_gt(length(ln_joint_psock_key_errors(changed)), 0L)
 })
 
+test_that("Pace witnesses point to the first eligible candidate in their own fit", {
+  raw <- ln_joint_psock_serial_fixture()$diagnostics$raw
+  before <- serialize(raw, NULL)
+  audit <- ln_joint_psock_witness_audit(raw)
+  expect_length(audit$errors, 0L)
+  expect_length(audit$witnesses, 6L)
+  expect_true(all(vapply(audit$witnesses, function(x) x$checked, logical(1))))
+  expect_identical(serialize(raw, NULL), before)
+
+  owner <- raw[[1L]]
+  endpoint <- owner$lrt$x$constrained$ln_joint$pace_ratio_diagnostic$endpoints$unrestricted
+  candidate <- owner$ln_joint$candidate_records[[endpoint$certified_candidate_index]]
+  owner$ln_joint$candidate_records <- list(candidate, candidate)
+  endpoint$certified_candidate_index <- 1L
+  endpoint$candidate_objective <- as.numeric(candidate$objective)
+  valid <- ln_joint_psock_endpoint_witness(endpoint, owner)
+  expect_length(valid$errors, 0L)
+  expect_identical(valid$eligible, 1:2)
+
+  # Two numerically equivalent fits can have different first exact witnesses.
+  # Within-fit matching stays exact, including differences as small as 1e-14.
+  other_owner <- owner
+  other_owner$ln_joint$candidate_records[[1L]]$theta_full_log[[1L]] <-
+    candidate$theta_full_log[[1L]] + 1e-14
+  other_endpoint <- endpoint
+  other_endpoint$certified_candidate_index <- 2L
+  other <- ln_joint_psock_endpoint_witness(other_endpoint, other_owner)
+  expect_length(other$errors, 0L)
+  expect_identical(other$eligible, 2L)
+  minimal_raw <- function(u, e) {
+    u$lrt <- list(x = list(constrained = list(ln_joint = list(
+      pace_ratio_diagnostic = list(endpoints = list(unrestricted = e))))))
+    # Add a valid constrained owner with the same synthetic state. This tests
+    # the traversal's owner linkage without invoking another optimization.
+    c <- u
+    c$lrt <- NULL
+    c$debug$method <- "joint_ln_constrained"
+    constrained_endpoint <- e
+    constrained_endpoint$endpoint <- "constrained"
+    c$ln_joint$pace_ratio_diagnostic <- list(endpoints = list(
+      unrestricted = e, constrained = constrained_endpoint))
+    u$lrt$x$constrained <- c
+    list(u)
+  }
+  a <- ln_joint_psock_witness_audit(minimal_raw(owner, endpoint))
+  b <- ln_joint_psock_witness_audit(minimal_raw(other_owner, other_endpoint))
+  expect_length(a$errors, 0L)
+  expect_length(b$errors, 0L)
+  expect_length(ln_joint_psock_differences(a$normalized, b$normalized), 0L)
+  expect_gt(length(ln_joint_psock_differences(
+    minimal_raw(owner, endpoint), minimal_raw(other_owner, other_endpoint))), 0L)
+  expect_gt(length(ln_joint_psock_endpoint_witness(
+    endpoint, owner, "constrained")$errors), 0L)
+  for (field in c("method", "route", "inference_available")) {
+    changed <- owner
+    if (field == "method") changed$debug$method <- "wrong_method"
+    if (field == "route") changed$route <- "R2"
+    if (field == "inference_available") changed$inference_available <- FALSE
+    expect_gt(length(ln_joint_psock_endpoint_witness(endpoint, changed)$errors), 0L)
+  }
+
+  for (index in list(0L, 3L, NA_integer_, c(1L, 2L), 1, 2L)) {
+    changed <- endpoint
+    changed$certified_candidate_index <- index
+    expect_gt(length(ln_joint_psock_endpoint_witness(changed, owner)$errors), 0L)
+  }
+  # Every corruption below invalidates the *reported* first witness even if
+  # another candidate remains eligible. Neither a tolerance nor normalization
+  # is allowed to conceal it.
+  for (field in c("certified", "interior", "theta_full_log",
+                  "objective_provenance", "objective")) {
+    changed <- owner
+    changed$ln_joint$candidate_records[[1L]][[field]] <- switch(field,
+      certified = FALSE, interior = FALSE,
+      theta_full_log = candidate$theta_full_log + 1e-14,
+      objective_provenance = list(wrong = TRUE),
+      objective = candidate$objective + 1)
+    expect_gt(length(ln_joint_psock_endpoint_witness(endpoint, changed)$errors), 0L)
+    invalid <- ln_joint_psock_witness_audit(minimal_raw(changed, endpoint))
+    expect_gt(length(invalid$errors), 0L)
+    expect_identical(invalid$normalized[[1L]]$lrt$x$constrained$ln_joint$
+      pace_ratio_diagnostic$endpoints$unrestricted$certified_candidate_index, 1L)
+  }
+  for (field in c("full_log", "candidate_objective", "stored_state_objective",
+                  "state_objective", "objective_provenance", "objective_instance",
+                  "gene_index")) {
+    changed <- endpoint
+    changed[[field]] <- switch(field,
+      full_log = endpoint$full_log + 1e-14,
+      candidate_objective = endpoint$candidate_objective + 1e-12,
+      stored_state_objective = endpoint$stored_state_objective + 1e-12,
+      state_objective = endpoint$state_objective + 1,
+      objective_provenance = list(wrong = TRUE),
+      objective_instance = list(wrong = TRUE), gene_index = 2L)
+    expect_gt(length(ln_joint_psock_endpoint_witness(changed, owner)$errors), 0L)
+  }
+})
+
+test_that("PSOCK receipts preserve original synthetic pairs without private metadata", {
+  directory <- withr::local_tempdir()
+  withr::local_envvar(SCROPE_TEST_DIAGNOSTICS_DIR = directory)
+  fit <- ln_joint_psock_serial_fixture()
+  before <- serialize(fit, NULL)
+  ln_joint_save_psock_pair("optional-tests", fit)
+  expect_null(readRDS(file.path(directory, "psock-pair-optional-tests.rds"))$parallel)
+  # The receipt is already durable if any later expectation raises an error.
+  expect_error({
+    ln_joint_save_psock_pair("optional-tests", fit, fit)
+    stop("subsequent assertion failure")
+  }, "subsequent assertion failure")
+  receipt <- readRDS(file.path(directory, "psock-pair-optional-tests.rds"))
+  expect_identical(receipt$serial$raw, fit$diagnostics$raw)
+  expect_identical(receipt$parallel$raw, fit$diagnostics$raw)
+  expect_identical(serialize(fit, NULL), before)
+  expect_true(ln_joint_psock_receipt_safe(receipt))
+  expect_false(ln_joint_psock_receipt_safe(list(path = "/home/example/private")))
+  expect_false(ln_joint_psock_receipt_safe(list(path = "C:\\Users\\example\\private")))
+  expect_false(ln_joint_psock_receipt_safe(list(environment = new.env())))
+  expect_false(ln_joint_psock_receipt_safe(list(callback = function() NULL)))
+})
+
 test_that("installed joint-LN PSOCK fits use the running package", {
   package_path <- normalizePath(
     getNamespaceInfo(asNamespace("scRoPE"), "path"),
@@ -226,6 +347,7 @@ test_that("installed joint-LN PSOCK fits use the running package", {
     b = 0
   ))
   one <- ln_joint_psock_serial_fixture()
+  ln_joint_save_psock_pair("optional-tests", one)
 
   original_libraries <- .libPaths()
   on.exit(.libPaths(original_libraries), add = TRUE)
@@ -247,6 +369,8 @@ test_that("installed joint-LN PSOCK fits use the running package", {
     lrt_contrasts = contrast,
     ncore = 2L
   )$fit
+  # Persist the original, unnormalized fits before *any* comparison can fail.
+  ln_joint_save_psock_pair("optional-tests", one, two)
 
   expect_equal(one$summary, two$summary, tolerance = 1e-8)
   expect_equal(one$overdispersion, two$overdispersion, tolerance = 1e-8)
@@ -278,9 +402,14 @@ test_that("installed joint-LN PSOCK fits use the running package", {
     errors <- ln_joint_psock_key_errors(raw)
     expect_identical(length(errors), 0L, info = paste(errors, collapse = "\n"))
   }
+  one_audit <- ln_joint_psock_witness_audit(one$diagnostics$raw)
+  two_audit <- ln_joint_psock_witness_audit(two$diagnostics$raw)
+  for (audit in list(one_audit, two_audit)) {
+    expect_identical(length(audit$errors), 0L, info = paste(audit$errors, collapse = "\n"))
+  }
   differences <- ln_joint_psock_differences(
-    ln_joint_normalise_psock_objective_ids(one$diagnostics$raw),
-    ln_joint_normalise_psock_objective_ids(two$diagnostics$raw),
+    ln_joint_normalise_psock_objective_ids(one_audit$normalized),
+    ln_joint_normalise_psock_objective_ids(two_audit$normalized),
     tolerance = 1e-8
   )
   expect_identical(length(differences), 0L, info = paste(differences, collapse = "\n"))

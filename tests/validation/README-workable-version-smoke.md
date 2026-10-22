@@ -25,7 +25,18 @@ a skipped test, a warning, or an error makes this gate fail. Do not override
 resource detection to make it pass; use a host with the required allocation.
 The tests use deterministic one-gene fixtures and request `ncore = 2L` for the
 parallel fits. The saved receipt records resources, worker PIDs, DLL checksums,
-test outcomes, and the R session.
+test outcomes, R/package versions and platform, without installation paths or
+host/user names. Both regressions are attempted before reporting an aggregate
+failure, so a failure in the first does not hide the second's outcome.
+
+Each regression saves its original serial/parallel synthetic fit pair before
+assertions, alongside the gate receipt. Pace diagnostic witness indices must
+point to the first certified, interior candidate matching their own endpoint's
+exact coordinates, provenance and existing objective-agreement threshold.
+Those positions are local to a fit's candidate list: only validated positions
+are normalized in comparison copies. Original indices and candidate records
+remain in the receipts; numerical tolerances, runtime keys, statuses and all
+other integer comparisons are unchanged.
 
 Both scripts load the explicit installed package path and verify that its DLL
 is loaded from that installation. Source trees and source-loading fallbacks

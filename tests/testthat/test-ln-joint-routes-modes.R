@@ -296,7 +296,9 @@ test_that("joint LN API rejects unsupported switching", {
 test_that("joint LN single-core and multicore results agree", {
   skip_if(parallelly::availableCores() < 2L)
   one <- ln_joint_fit_fixture(ncore = 1L)$fit
+  ln_joint_save_psock_pair("default-wald", one)
   two <- ln_joint_fit_fixture(ncore = 2L)$fit
+  ln_joint_save_psock_pair("default-wald", one, two)
   expect_equal(one$summary, two$summary, tolerance = 1e-8)
   expect_equal(one$overdispersion, two$overdispersion, tolerance = 1e-8)
   expect_equal(one$convergence, two$convergence)
