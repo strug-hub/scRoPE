@@ -1,6 +1,6 @@
 # Source and example-data provenance
 
-This is an unpublished local preparation for a proposed 0.3.0 release. It does
+This is a release candidate for a proposed 0.3.0 release. It does
 not replace the historical source archives, assign results to figures, recover
 missing runtime environments, or define the revised paper simulation/HLCA
 workflows. No commit below is presented as a retrospective historical commit.
@@ -15,14 +15,9 @@ files intact. The import is a 16-file delta; its per-file content identifiers
 are in `source-0.2.5.9005.sha256` (relative to the package root at that import,
 not the subsequently repaired tree).
 
-Historical source archives have these SHA-256 identifiers:
-
-| Version | SHA-256 |
-| --- | --- |
-| 0.2.5.9001 | `5cf0a0d59b383d35d658d0a81bab51b8c8df88bdd9b35b632da9f819fe3c6377` |
-| 0.2.5.9004 | `191ae565d59412846c22517882c7257f3fb780e35badc5e7b84d8310e8013f50` |
-| 0.2.5.9005 | `763280750f8c36664f96acdbced4d371fcd6a6fbf6e54993cf6ce3954fa0f8a8` |
-| 0.2.5.9006 (unpublished review candidate) | `8c60f73bbc285f58fde406e411b72d6718285b9ea9ec36ddf458ee46629a0571` |
+Historical .9001, .9004 and .9005 source archives, together with the .9006
+review candidate and their checksums, are maintained in separate research
+records. They are distinct from this 0.3.0 release candidate.
 
 The .9004 archive includes uncommitted work beyond the .9001 commit. Its exact
 historical source is not represented by tagging that commit. The .9005 source
@@ -42,26 +37,13 @@ from Raghav Sharma in the inspected archive:
 [He et al. (2021)](https://doi.org/10.1038/s42003-021-02146-6).
 The public repository starts with commit
 `a0d38e45e5096187dbc6a7ef4a2bdfd9903a87fc` and does not contain the earlier
-ancestry. A recovered local development repository preserves that history:
+ancestry. Source provenance checks identify upstream NEBULA commit
+`e17fb830b6fa0f692bb69e656b6a512c18212e7f`, "Version 1.5.3", dated
+2024-02-15, as the development ancestor. Detailed development records are
+maintained separately; this is not a Git parent relationship in the public
+repository.
 
-- Upstream NEBULA commit `e17fb830b6fa0f692bb69e656b6a512c18212e7f`,
-  "Version 1.5.3", dated 2024-02-15, is the direct parent of the first local
-  customization, `7c6ede66b0ceca839269278a1b5637ddfe674fce` (2024-10-29).
-- Package renaming is recorded at
-  `48f8553348ef2a831e1d3451b6a777949ded2faf` and
-  `0ecc0a47b12077097e117028a3ec93ad94d10614` (2024-11-07), followed by
-  the scrope rename at `32c8ec11791917a28c42efd745c5735cc2e8eda6`
-  (2025-09-17).
-- The recovered development HEAD,
-  `70dbf56a3337fbe05d5a7cc1f161ab10070d9906`, contains all 49 tracked
-  paths selected for the public root import, from 121 historical tracked paths.
-  Forty-eight of those are byte-identical; README
-  differs by the omission of one local working-note line. This is a verified
-  content bridge, not a Git parent relationship between the two repositories.
-
-The recovered ancestry establishes NEBULA 1.5.3 as the development ancestor.
-A separately preserved NEBULA 1.5.3 comparison archive has SHA-256
-`764e6a1f775ccc2192990807a0ea8a75db3ebcf8ff5d807375523fa1096785aa`.
+A separately preserved NEBULA 1.5.3 archive provides a source comparison.
 Its ten R files match that upstream tree after line-ending normalization;
 both example datasets and four shared native source files match exactly.
 The source archive and the Git tree are distinct artifacts, not identical
@@ -103,8 +85,8 @@ contains historical biological observations.
 
 Upstream commit `e17fb830` declares GPL-3 in DESCRIPTION but contains GPL
 Version 2 text in LICENSE. That historical LICENSE was inherited unchanged.
-The later scRoPE commit `40d19b762c4d1a14f90cf730bb6d2a54bc2aef56`
-(2026-01-13) changed DESCRIPTION from GPL-3 to GPL-2 without changing LICENSE.
+During earlier scRoPE development, DESCRIPTION changed from GPL-3 to GPL-2
+without changing LICENSE.
 The separate NEBULA 1.5.3 archive also declares GPL-3. These are historical
 records; the maintained-source change below does not alter their declarations,
 relabel old archives, or resolve which historical terms applied to old copies.

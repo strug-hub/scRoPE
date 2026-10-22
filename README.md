@@ -68,8 +68,8 @@ p-value. The corresponding model-based results are `se_x` and `p_naive_x`.
 P-values test a zero coefficient, without multiple-testing adjustment.
 Use `availability == "inference"` for certified JLN results.
 
-The reviewed serial fit took **about 11 seconds** on an M3 Max MacBook
-(R 4.5.2); timing depends on hardware and software.
+Recorded benchmark: **about 11 seconds** for a serial fit on an M3 Max
+MacBook with R 4.5.2; timing depends on hardware and software.
 
 ![Model-based and donor-robust intervals for all 24 synthetic genes](man/figures/toy24-overview.png)
 

@@ -135,7 +135,7 @@ For source maintainers, `Rscript data-raw/rebuild_toy24.R` regenerates only
 
 ## Recorded runtime
 
-On the user-reported M3 Max MacBook, R 4.5.2 / scRoPE 0.3.0:
+Benchmark configuration: M3 Max MacBook, R 4.5.2 / scRoPE 0.3.0.
 0.047 seconds to generate; 10.964 seconds for the first fit; 11.957 seconds
 for the complete one-fit R process including startup and exports; 10.409
 seconds for an identical-input warm fit. Final PNG/SVG rendering took 0.988
