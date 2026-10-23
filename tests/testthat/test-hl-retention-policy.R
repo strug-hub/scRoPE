@@ -43,25 +43,49 @@
 # Structure, missing/nonfinite values and discrete fields remain exact,
 # including discrete public codes stored as doubles. Same-input checks below
 # deliberately continue to use expect_identical().
-.hl_retention_equivalent <- function(x, y, field = "") {
-  if (!identical(typeof(x), typeof(y)) ||
-      !identical(length(x), length(y)) ||
-      !identical(attributes(x), attributes(y))) return(FALSE)
+.hl_retention_mismatch <- function(x, y, field = "", path = "fit") {
+  mismatch <- function(reason) paste0(path, ": ", reason)
+  if (!identical(typeof(x), typeof(y))) return(mismatch("types differ"))
+  if (!identical(length(x), length(y))) return(mismatch("lengths differ"))
+  if (!identical(attributes(x), attributes(y))) {
+    return(mismatch("attributes (including names/dimensions) differ"))
+  }
   discrete <- c("algorithm", "convergence", "y", "id", "subject",
                 "count", "evaluations", "rank", "n", "m")
-  if (field %in% discrete) return(identical(x, y))
-  if (is.list(x)) {
-    return(all(vapply(seq_along(x), function(i) {
-      name <- if (is.null(names(x))) "" else names(x)[[i]]
-      .hl_retention_equivalent(x[[i]], y[[i]], name)
-    }, logical(1))))
+  # Atomic subject fields are donor IDs; inner$subject is instead a list of
+  # continuous donor contributions and must reach the recursive comparison.
+  if (is.atomic(x) && field %in% discrete) {
+    return(if (identical(x, y)) NULL else mismatch("discrete values differ"))
   }
-  if (!is.double(x)) return(identical(x, y))
+  if (is.list(x)) {
+    for (i in seq_along(x)) {
+      name <- if (is.null(names(x))) "" else names(x)[[i]]
+      child_path <- paste0(path, if (nzchar(name)) paste0("$", name) else
+        paste0("[[", i, "]]"))
+      difference <- .hl_retention_mismatch(x[[i]], y[[i]], name, child_path)
+      if (!is.null(difference)) return(difference)
+    }
+    return(NULL)
+  }
+  if (!is.double(x)) {
+    return(if (identical(x, y)) NULL else mismatch("exact values differ"))
+  }
   finite <- is.finite(x)
   if (!identical(finite, is.finite(y)) ||
-      !identical(x[!finite], y[!finite])) return(FALSE)
-  all(abs(x[finite] - y[finite]) <=
-        1e-12 + 1e-12 * pmax(abs(x[finite]), abs(y[finite])))
+      !identical(x[!finite], y[!finite])) {
+    return(mismatch("missing/nonfinite values differ"))
+  }
+  delta <- abs(x[finite] - y[finite])
+  limit <- 1e-12 + 1e-12 * pmax(abs(x[finite]), abs(y[finite]))
+  bad <- which(delta > limit)
+  if (!length(bad)) return(NULL)
+  first <- bad[[1L]]
+  mismatch(sprintf("element [%d]: absolute difference %.6g exceeds tolerance %.6g",
+                   which(finite)[[first]], delta[[first]], limit[[first]]))
+}
+
+.hl_retention_equivalent <- function(x, y, field = "") {
+  is.null(.hl_retention_mismatch(x, y, field))
 }
 
 test_that("HL cross-fit equivalence is tight and preserves discrete invariants", {
@@ -92,6 +116,63 @@ test_that("HL cross-fit equivalence is tight and preserves discrete invariants",
   expect_false(.hl_retention_equivalent(list(value = 1), list(other = 1)))
   expect_false(.hl_retention_equivalent(matrix(1, 1, 1), 1))
   expect_false(.hl_retention_equivalent(1L, 1))
+})
+
+test_that("HL cross-fit equivalence recurses through per-donor contributions", {
+  reference <- list(
+    data = list(subject = c(1, 1, 2, 2), id = c("donor_a", "donor_b")),
+    inner = list(subject = list(
+      list(p = -2, h_beta = c(0, 1), p_beta_beta = NA, a = -1),
+      list(p = -3, h_beta = c(1, 0), p_beta_beta = NA, a = -2)
+    )),
+    convergence = 0, algorithm = 1
+  )
+  rounded <- reference
+  rounded$inner$subject[[1L]]$h_beta[[1L]] <- 9.77e-15
+  expect_true(.hl_retention_equivalent(
+    rounded$inner$subject[[1L]]$h_beta,
+    reference$inner$subject[[1L]]$h_beta
+  ))
+  expect_true(.hl_retention_equivalent(rounded, reference))
+
+  changed <- reference
+  changed$inner$subject[[2L]]$p <- changed$inner$subject[[2L]]$p + 1e-8
+  expect_false(.hl_retention_equivalent(changed, reference))
+  for (name in c("subject", "id")) {
+    changed <- reference
+    changed$data[[name]][[1L]] <- if (name == "subject") 1 + 1e-14 else "donor_c"
+    expect_false(.hl_retention_equivalent(changed, reference), info = name)
+  }
+  for (name in c("convergence", "algorithm")) {
+    changed <- reference
+    changed[[name]] <- changed[[name]] + 1e-14
+    expect_false(.hl_retention_equivalent(changed, reference), info = name)
+  }
+  changed <- reference
+  names(changed$inner$subject[[1L]])[[1L]] <- "other"
+  expect_false(.hl_retention_equivalent(changed, reference))
+  changed <- reference
+  changed$inner$subject <- rev(changed$inner$subject)
+  expect_false(.hl_retention_equivalent(changed, reference))
+})
+
+test_that("HL retention mismatches identify the field and comparison failure", {
+  reference <- list(inner = list(subject = list(list(h_beta = c(0, 1)))))
+  changed <- reference
+  changed$inner$subject[[1L]]$h_beta[[2L]] <- 1 + 1e-8
+  difference <- .hl_retention_mismatch(changed, reference, path = "public fit 2")
+  expect_match(difference, "public fit 2$inner$subject[[1]]$h_beta: element [2]",
+               fixed = TRUE)
+  expect_match(difference, "absolute difference", fixed = TRUE)
+  expect_match(difference, "exceeds tolerance", fixed = TRUE)
+  expect_match(.hl_retention_mismatch(list(subject = 1 + 1e-14),
+                                     list(subject = 1)),
+               "fit$subject: discrete values differ", fixed = TRUE)
+  expect_match(.hl_retention_mismatch(list(value = Inf), list(value = NA_real_)),
+               "fit$value: missing/nonfinite values differ", fixed = TRUE)
+  expect_match(.hl_retention_mismatch(list(value = 1), list(other = 1)),
+               "fit: attributes (including names/dimensions) differ", fixed = TRUE)
+  expect_null(.hl_retention_mismatch(reference, reference))
 })
 
 .hl_retention_call <- function(name, args, keep_diagnostics, legacy = FALSE) {
@@ -284,7 +365,7 @@ test_that("HL output retention preserves computations and avoids gene accumulati
   expected$diagnostics <- NULL
   observed <- compact$public$result
   observed$diagnostics <- NULL
-  expect_true(.hl_retention_equivalent(observed, expected))
+  expect_null(.hl_retention_mismatch(observed, expected, path = "public result"))
   expect_identical(nrow(compact$public$result$summary), 3L)
   expect_identical(compact$public$result$summary$fit_status[[3L]],
                    "inner_no_finite_root")
@@ -299,20 +380,22 @@ test_that("HL output retention preserves computations and avoids gene accumulati
   expect_equal(length(full$public$fits), 5L)
   expect_equal(length(compact$public$fits), 5L)
   for (ii in seq_along(full$public$fits)) {
-    expect_true(.hl_retention_equivalent(
+    expect_null(.hl_retention_mismatch(
       .hl_retention_science(compact$public$fits[[ii]]),
-      .hl_retention_science(full$public$fits[[ii]])
-    ), info = paste("public fit", ii))
+      .hl_retention_science(full$public$fits[[ii]]),
+      path = paste("public fit", ii)
+    ))
     if (length(full$public$fits[[ii]]$outer_runs)) {
       run_summary <- function(run) {
         fields <- c("success", "status", "reason", "start", "evaluations",
                     "stationarity", "invalid_guard_faces")
         run[intersect(fields, names(run))]
       }
-      expect_true(.hl_retention_equivalent(
+      expect_null(.hl_retention_mismatch(
         lapply(compact$public$fits[[ii]]$outer_runs, run_summary),
-        lapply(full$public$fits[[ii]]$outer_runs, run_summary)
-      ), info = paste("public outer runs", ii))
+        lapply(full$public$fits[[ii]]$outer_runs, run_summary),
+        path = paste("public outer runs", ii)
+      ))
       expect_true(all(vapply(compact$public$fits[[ii]]$outer_runs,
                              function(run) length(run$trust_trace) == 0L,
                              logical(1))))
