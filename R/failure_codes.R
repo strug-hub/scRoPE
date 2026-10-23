@@ -10,6 +10,7 @@ failure_codes <- list(
     invalid_coefficient_transform = "invalid_coefficient_transform"
   ),
   wald = list(
+    optimizer_not_converged = "optimizer_not_converged",
     missing_godambe = "missing_godambe",
     missing_blocks = "missing_blocks",
     singular_S = "singular_S",
@@ -26,6 +27,11 @@ failure_codes <- list(
     start_objective_review_zone = "start_objective_review_zone",
     start_objective_hard_stop = "start_objective_hard_stop",
     competing_uncertified_candidate = "competing_uncertified_candidate",
+    competitive_boundary_candidate = "competitive_boundary_candidate",
+    competitive_distinct_basin_candidate =
+      "competitive_distinct_basin_candidate",
+    competitive_hard_stop_candidate = "competitive_hard_stop_candidate",
+    same_basin_review_unresolved = "same_basin_review_unresolved",
     singular_joint_curvature = "singular_joint_curvature",
     covariance_identity_failed = "covariance_identity_failed",
     donor_additivity_target_failed = "donor_additivity_target_failed",
@@ -70,6 +76,7 @@ failure_codes <- list(
     singular_Hpsi = "singular_Hpsi",
     singular_Hlambda = "singular_Hlambda",
     nonconverged_constrained = "nonconverged_constrained",
+    nonconverged_unconstrained = "nonconverged_unconstrained",
     constraint_not_satisfied = "constraint_not_satisfied",
     boundary_constrained = "boundary_constrained",
     nonpositive_curvature = "nonpositive_curvature",
@@ -81,6 +88,9 @@ failure_codes <- list(
     joint_ln_calibration_pending = "joint_ln_calibration_pending"
   ),
   score = list(
+    nonconverged_constrained = "nonconverged_constrained",
+    constraint_not_satisfied = "constraint_not_satisfied",
+    boundary_constrained = "boundary_constrained",
     singular_Spsi = "singular_Spsi",
     undefined_stat = "undefined_stat",
     joint_ln_calibration_pending = "joint_ln_calibration_pending"

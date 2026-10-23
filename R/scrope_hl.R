@@ -35,8 +35,12 @@
 #' @param adj_cond_limit Compatibility argument for the former adjusted-LRT
 #'   implementation. A non-default value is ignored with a warning because
 #'   objective-ratio/LRT inference is unsupported.
-#' @param keep_diagnostics Logical; retain per-gene diagnostic objects
-#'   (including the HL caches).
+#' @param keep_diagnostics Logical; defaults to `TRUE`, retaining full per-gene
+#'   fits, solver histories and test objects. With `FALSE`, optional histories
+#'   are not built and full fits/test objects are not accumulated across genes.
+#'   Required solver, certification, covariance and requested test computations
+#'   are unchanged; summaries, statuses/reasons, provenance, requested random
+#'   effects and `hl_adj_details` remain available. `diagnostics` is `NULL`.
 #' @return A list matching the structure of `scrope()` with the following HL
 #'   additions: the summary gains columns `se_robust_*`, `wald_stat_*`,
 #'   `p_robust_*`, and their success/failure flags

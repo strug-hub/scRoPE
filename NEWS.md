@@ -1,3 +1,162 @@
+# scRoPE 0.3.0 — unreleased local preparation
+
+- Expose JLN donor-robust Score and Pace-adjusted working-objective-ratio
+  p-values as experimental, asymptotic outputs through the existing opt-in
+  `additional_tests` argument. Initial public scope is a single non-intercept
+  coefficient tested against zero; Wald remains the default. Preserve the
+  studied accepted-primary requirement and all native per-test numerical
+  gates. Broader contrasts retain diagnostic-only results with explicit
+  reasons; unavailable tests are not replaced with Wald or legacy inference.
+  The linked methods guide distinguishes favorable cell-level calibration
+  from observed donor-level inflation in the retained validation study.
+- Refresh the README with supported fitting/test choices and acknowledgments;
+  keep technical interpretation and migration detail in the linked guide.
+- Apply MIT to the maintained 0.3.0 source under the maintainer's instruction,
+  retaining verbatim upstream NEBULA MIT notices and separate dependency terms.
+  Historical sources and their original license records are unchanged.
+
+
+- Add the reviewed 24-gene omitted-donor-slope `toy_data` quick start, with
+  exact regeneration, complete reference results and an all-gene interval plot.
+  Keep existing `sample_data` and `sample_seurat` interfaces unchanged.
+  Shorten the README and retain advanced methods/migration in a linked guide.
+  This illustration does not establish calibration or non-null target equality.
+
+- Integrate the preserved .9005 baseline and the reviewed .9006 candidate as
+  present-day local commits. The version is a proposed release target, not an
+  approved or published release; no historical campaign is relabeled.
+- Update the installed-package smoke for JLN schema 3 and HL/PGMM schema 2,
+  default/explicit JLN parity, and actionable legacy-request rejection.
+- Add a mandatory installed-package two-worker gate and a proposed Linux CI
+  workflow. A skipped parallel test does not satisfy that gate.
+- Document source hashes, recover the NEBULA 1.5.3 development ancestry, and
+  restore example-data attribution. Initially record conflicting license
+  metadata and missing generation details without changing terms; the later
+  maintained-source MIT change is described above.
+
+- Replace inherited teaching fixtures with paired, reproducibly generated
+  synthetic multi-donor examples and a matching Seurat object. Supply generator,
+  fixed seed/parameters, conversion tests and illustrative README figures.
+  Historical objects and scientific results retain their original sources.
+  These examples do not establish calibration, power or code-license clearance.
+
+The changes below first formed the unpublished .9006 review candidate and are
+carried into this release preparation. The remaining version entries describe
+source development history; they do not imply GitHub releases or tags.
+
+# scRoPE 0.2.5.9006 — local release candidate
+
+- Imported the exact preserved 0.2.5.9005 scientific source into an isolated
+  development worktree. This candidate is unpublished and does not replace
+  the original source versions or outputs of historical simulations.
+- Made joint-LN the maintained `scrope()` LN default. Explicit legacy estimator
+  and operational-fallback requests are rejected with migration guidance;
+  rejected JLN fits are not silently replaced by another estimator.
+- Retired default and explicit `nebula(method = "LN")` calls with actionable
+  guidance. Explicit `nebula(method = "HL")` remains a separate historical
+  compatibility API, with no automatic method substitution.
+- Require accepted PGMM endpoints for optional inference: LRT needs accepted
+  unrestricted and constrained fits; Score needs an accepted constrained null
+  fit. Positive LR values do not override optimizer rejection.
+- Map PGMM custom contrasts from reported coefficient units to the internal
+  fitting coordinates, including nonzero null values. Retain the existing
+  sample-centered intercept interpretation.
+- Reconstruct corrected first-order HL residual means in original-design
+  coordinates. Existing JLN/PGMM centered-coordinate behavior is retained.
+- Add focused regressions and bounded comparisons against preserved .9005.
+  The .9006 snapshot kept Joint-LN Score/Pace/LRT calibration status unchanged;
+  the later scoped 0.3.0 exposure is described above. No new inferential
+  calibration or final release approval was implied by this snapshot.
+
+# scRoPE 0.2.5.9005
+
+- Corrected-HL now passes `keep_diagnostics` through its nested and Score
+  solvers. With `FALSE`, optional iteration/evaluation histories are not
+  built, duplicate candidate records are compact, and full per-gene fits
+  and test objects are not accumulated across genes. Required warm starts,
+  objectives, derivatives, certification, covariance and test calculations
+  are unchanged. The default `TRUE` retains the existing detailed output.
+  Public summaries, status/reason fields and requested random effects remain
+  available under either setting. Retained-object reductions do not establish
+  a representative runtime or peak-memory improvement.
+
+# scRoPE 0.2.5.9004
+
+- Required unrestricted joint-LN core starts can receive one bounded L-BFGS
+  recovery from their own failed interior endpoint, followed by ordinary
+  polishing and a new complete certificate. Recovery is accepted only within
+  the existing objective allowance. Original failures and recovery decisions
+  remain in candidate diagnostics; required-start resolution and all inference
+  gates are unchanged. Boundary, constrained, optional and PQL starts bypass
+  recovery. This development candidate awaits full-fit validation.
+
+# scRoPE 0.2.5.9002 (development)
+
+- Joint-LN evaluates the same working objective with stable scalar arithmetic
+  during optimization, polishing, certification, and donorwise audits. This
+  reduces cancellation near stationary points while preserving derivatives,
+  scientific certification thresholds, bounds, and inference restrictions.
+
+- Normalized gamma ratios avoid storage proportional to the largest count.
+  This development implementation requires independent review and subsequent
+  cohort validation before scientific adoption.
+
+# scRoPE 0.2.5.9001 (development)
+
+- Fixed the PGMM BOBYQA fallback argument to use `x0`. Optimizer acceptance
+  now respects each backend's return codes: `nlminb` code 0 and BOBYQA codes
+  1 through 4. Budget stops and missing or malformed statuses do not count
+  as convergence. Existing fallback triggers and objective ordering remain
+  unchanged.
+
+- Public PGMM main fits now use explicit `nlminb` limits of 500 iterations
+  and 500 objective evaluations. `pgmm_control` permits bounded overrides,
+  including the earlier 150/200 limits. Tolerances, starts, constrained-fit
+  controls, and retry policy are unchanged. These limits are a development
+  choice, not a guarantee of convergence or statistical calibration.
+
+- PGMM model and robust Wald statistics, p-values, and standard errors are
+  unavailable when the native optimizer has not converged. New independent
+  optimizer and model-Wald status fields distinguish optimizer failure from
+  covariance failure. Failed endpoints and covariance remain in raw diagnostics.
+
+- PGMM diagnostics retain selected optimizer controls, native iterations and
+  evaluations, attempted optimizer calls, covariance availability, information
+  conditioning, and a scaled Newton correction. The correction is diagnostic
+  only and never updates or certifies an endpoint.
+
+# scRoPE 0.2.5.9000 (development)
+
+- Joint-LN can now use one bounded review to recognize an additional optimizer
+  endpoint as the same numerical solution. Model-based and donor-robust Wald
+  inference then continues from the unchanged certified fit. Boundary,
+  distinct, hard-stop, or unresolved solutions still withhold inference.
+
+- Added plain-language per-gene fields for the estimator, inference status,
+  numerical resolution, and inference source. The original strict decision and
+  technical route codes remain in provenance for reproducibility.
+
+This development build is intended for calibration simulations and is not a
+public release.
+
+# scRoPE 0.2.5 (2026-08-24)
+
+- Improved diagnostics when joint-LN optimization finds more than one plausible
+  solution. scRoPE now distinguishes near-duplicate solutions from boundary or
+  genuinely competing solutions, making withheld results easier to investigate.
+  In 0.2.5, this assessment is diagnostic-only and does not change which results
+  are eligible for inference.
+
+- Added an `availability` table for joint-LN fits, with one row per analyzed
+  gene. It reports whether inference is available, whether only an explicitly
+  requested operational estimate is available, or whether the result is
+  unavailable. Concise status messages explain unavailable results, while full
+  technical diagnostics remain available for advanced users.
+
+- Improved the performance of corrected first-order HL fits by reusing
+  recession checks when the design is unchanged. This reduces repeated work
+  without changing the acceptance criteria or statistical results.
+
 # scRoPE 0.2.4 (2026-07-23)
 
 - Added one explicit `scrope(model = ...)` front door for the LN, corrected

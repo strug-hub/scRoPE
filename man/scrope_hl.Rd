@@ -92,8 +92,12 @@ objective-ratio/LRT inference is unsupported.}
 implementation. A non-default value is ignored with a warning because
 objective-ratio/LRT inference is unsupported.}
 
-\item{keep_diagnostics}{Logical; retain per-gene diagnostic objects
-(including the HL caches).}
+\item{keep_diagnostics}{Logical; defaults to `TRUE`, retaining full per-gene
+fits, solver histories and test objects. With `FALSE`, optional histories
+are not built and full fits/test objects are not accumulated across genes.
+Required solver, certification, covariance and requested test computations
+are unchanged; summaries, statuses/reasons, provenance, requested random
+effects and `hl_adj_details` remain available. `diagnostics` is `NULL`.}
 }
 \value{
 A list matching the structure of `scrope()` with the following HL

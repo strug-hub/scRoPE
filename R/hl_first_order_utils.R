@@ -186,15 +186,26 @@ hl_fo_rhs_consistency <- function(M, rhs) {
     stop("rhs must be a finite vector with length nrow(M).", call. = FALSE)
   }
   rhs <- as.numeric(rhs)
-  info <- hl_fo_svd_info(M, compute_pinv = TRUE, complete_left = TRUE)
+  zero_rhs <- !any(rhs != 0)
+  info <- if (zero_rhs) {
+    # A homogeneous system is consistent exactly.  Its numerical rank is still
+    # needed by callers, but a thin decomposition suffices and avoids forming an
+    # nrow(M)-dimensional left-null basis for tall recession systems.
+    hl_fo_svd_info(M, compute_pinv = FALSE)
+  } else {
+    # Preserve the locked nonhomogeneous feasibility calculation, including its
+    # left-null projection and tolerance behavior.
+    hl_fo_svd_info(M, compute_pinv = TRUE, complete_left = TRUE)
+  }
   # Once the declared numerical rank equals the number of equations, every
-  # right-hand side is in the row space algebraically.  Avoid misclassifying a
-  # full-row-rank system because the explicitly formed SVD projector accumulated
-  # a few ulps.
+  # right-hand side is in the row space algebraically. Exact zero right-hand
+  # sides are also consistent without forming any projector.
   residual <- if (info$rank == nrow(M)) {
     numeric(length(rhs))
   } else if (nrow(M) == 0L) {
     numeric(0)
+  } else if (zero_rhs) {
+    numeric(length(rhs))
   } else {
     as.vector(
       info$left_null_basis %*% crossprod(info$left_null_basis, rhs)

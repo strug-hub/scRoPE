@@ -23,6 +23,7 @@ pmg_robust_wald <- function(unconstrained,
                             cond_limit = 1e8) {
   beta_hat <- unconstrained$theta$beta
   cov_beta <- unconstrained$robust_cov
+  optimizer_converged <- pmg_optimizer_converged(unconstrained)
 
   if (is.null(beta_hat) || is.null(cov_beta)) {
     return(list(
@@ -32,13 +33,28 @@ pmg_robust_wald <- function(unconstrained,
       ridge = NA_real_,
       method = NA_character_,
       success = FALSE,
-      failure_reason = normalise_failure("missing_godambe", "wald")
+      failure_reason = normalise_failure(
+        if (optimizer_converged) "missing_godambe" else "optimizer_not_converged",
+        "wald"
+      )
     ))
   }
 
   delta <- matrix(as.numeric(L %*% beta_hat - b), ncol = 1)
   cov_psi <- L %*% cov_beta %*% t(L)
   cov_psi <- 0.5 * (cov_psi + t(cov_psi))
+
+  if (!optimizer_converged) {
+    return(list(
+      stat = NA_real_,
+      delta = delta,
+      variance = cov_psi,
+      ridge = NA_real_,
+      method = NA_character_,
+      success = FALSE,
+      failure_reason = normalise_failure("optimizer_not_converged", "wald")
+    ))
+  }
 
   cov_inv_info <- invert_with_ridge(
     cov_psi,
@@ -198,11 +214,31 @@ pmg_adjusted_contrasts <- function(ctx,
       unconstrained_repair_applied = fit_pair$diagnostics$unconstrained_repair_applied
     )
 
+    score_gate <- list(
+      available = isTRUE(convergence$accepted) && constraint_satisfied &&
+        isTRUE(fit_con$lrt_gate$interior) && isTRUE(fit_con$lrt_gate$nuisance_interior),
+      failure_reason = if (!isTRUE(convergence$accepted)) {
+        "nonconverged_constrained"
+      } else if (!constraint_satisfied) {
+        "constraint_not_satisfied"
+      } else if (!isTRUE(fit_con$lrt_gate$interior) ||
+                 !isTRUE(fit_con$lrt_gate$nuisance_interior)) {
+        "boundary_constrained"
+      } else {
+        NA_character_
+      },
+      convergence_basis = convergence$convergence_basis,
+      constraint_satisfied = constraint_satisfied,
+      interior = isTRUE(fit_con$lrt_gate$interior),
+      nuisance_interior = isTRUE(fit_con$lrt_gate$nuisance_interior)
+    )
     score_res <- compute_adj_score(
       constrained = fit_con,
       L = def$L,
-      ridge_factor = ridge_factor
+      ridge_factor = ridge_factor,
+      score_gate = score_gate
     )
+    score_res$gate <- score_gate
     lrt_res <- compute_profile_lrt(
       unconstrained = fit_unconstrained,
       constrained = fit_con,
@@ -212,6 +248,18 @@ pmg_adjusted_contrasts <- function(ctx,
       cond_limit = cond_limit,
       lrt_gate_override = lrt_gate_override
     )
+    # A positive raw LR does not certify the unrestricted endpoint. In
+    # particular, do not expose a Wald/raw-LR fallback from a rejected fit.
+    lrt_res$gate$unconstrained_accepted <- pmg_optimizer_converged(fit_unconstrained)
+    if (!lrt_res$gate$unconstrained_accepted) {
+      lrt_res$success <- FALSE
+      lrt_res$adjusted_available <- FALSE
+      lrt_res$adjusted_failure_reason <- normalise_failure("nonconverged_unconstrained", "lrt")
+      lrt_res$failure_reason <- lrt_res$adjusted_failure_reason
+      lrt_res$wP_adjusted <- NA_real_
+      lrt_res$method <- "lrt_fail"
+      lrt_res$fallback <- FALSE
+    }
     wald_res <- pmg_robust_wald(
       unconstrained = fit_unconstrained,
       L = def$L,

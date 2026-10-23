@@ -29,8 +29,9 @@ scrope(
   lrt_details = FALSE,
   keep_diagnostics = TRUE,
   model = c("LN", "HL", "PGMM"),
-  ln_estimator = c("legacy_post_pml", "joint_ln"),
-  ln_operational_fallback = c("none", "legacy_post_pml")
+  ln_estimator = "joint_ln",
+  ln_operational_fallback = "none",
+  pgmm_control = NULL
 )
 }
 \arguments{
@@ -62,39 +63,58 @@ supplied.}
 \item{fmaxsize}{Maximum future.globals size (in bytes) when using parallel execution.}
 
 \item{cutoff_cell}{Threshold (cells per subject × phi) below which legacy LN
-refinement is triggered. Non-default values are unavailable outside the
-legacy LN route.}
+refinement was triggered. Retained for compatibility and ignored by joint-LN;
+non-default values are rejected by HL and PGMM.}
 
-\item{kappa}{Kappa threshold for adaptive legacy LN refinement. This argument
-is unavailable outside the legacy LN route when set to a non-default value.}
+\item{kappa}{Retired legacy LN refinement threshold. Ignored by joint-LN;
+non-default values are rejected by HL and PGMM.}
 
-\item{allow_per_gene_switch}{Logical; allow legacy per-gene LN/HL switching.
-Defaults to `FALSE` so one requested route is used for every gene. This is
-unavailable for `model = "HL"`, `model = "PGMM"`, and joint-LN.}
+\item{allow_per_gene_switch}{Retained compatibility argument; must be `FALSE`.
+One requested route is used for every gene.}
 
-\item{use_betas}{Which fixed-effect anchor to use in LN variance-refinement
-starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
-`"final_betas"` uses the LN optimizer coefficients. The non-default option
-is unavailable for PGMM and ignored with a warning by first-order HL.}
+\item{use_betas}{Retired legacy LN variance-refinement anchor, retained for
+compatibility and ignored by joint-LN. Accepts `"betae"` or `"final_betas"`.
+The non-default option is unavailable for PGMM and ignored with a warning
+by first-order HL.}
 
 \item{output_re}{Logical; return subject-level random effects. PGMM does not
 currently support this output and warns before returning `NULL`.}
 
 \item{additional_tests}{Optional character vector selecting extra
-contrast-level diagnostics to compute, in addition to the default
+contrast-level tests/diagnostics to compute, in addition to the default
 adjusted Wald columns (`se_robust_*`, `p_robust_*`). Supported values
-are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).}
+are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).
+For joint-LN, these opt in to experimental asymptotic robust Score and
+Pace-adjusted working-objective-ratio tests for eligible scalar zero nulls.}
 
-\item{lrt}{Logical; legacy flag for adjusted profile LRTs. Equivalent to
-including `"lrt"` in `additional_tests`.}
+\item{lrt}{Logical; alias for including `"lrt"` in `additional_tests`.
+Joint-LN uses a Pace-adjusted working-objective ratio, not an ordinary
+exact-likelihood LRT.}
 
-\item{lrt_contrasts}{Optional list of additional contrasts (see details).}
+\item{lrt_contrasts}{Optional list of additional hypotheses `L beta = b`.
+Each entry may be a matrix/vector `L` (zero null) or a list containing
+`L`, optional `b`, and optional `name`. Columns follow `pred` and use the
+reported coefficient units. LN/PGMM coefficients have input-scale slopes
+and a sample-centered intercept; corrected HL uses original-design
+coordinates. Internal scaling is applied to `L`, leaving `b` unchanged.
+An intercept-containing LN/PGMM contrast does not automatically define a
+fixed population target.
+Public joint-LN optional tests require one row selecting exactly one
+non-intercept coefficient with a finite nonzero weight and `b` exactly zero.
+Broader hypotheses retain internal diagnostics but no public optional tail.}
 
-\item{lrt_include_scale}{Logical; include the H/G scale factor in the summary.}
+\item{lrt_include_scale}{Logical; include the test's adjustment factor in
+the summary (`wU / qP` for the joint-LN Pace ratio).}
 
-\item{lrt_details}{Logical; return a tidy data frame with raw LRT diagnostics.}
+\item{lrt_details}{Logical; return a tidy data frame when LRT is requested.
+If neither optional test was requested, `TRUE` or a non-`NULL`
+`lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
+does not additionally request LRT or its details table.}
 
-\item{keep_diagnostics}{Logical; retain per-gene diagnostic objects.}
+\item{keep_diagnostics}{Logical; retain per-gene diagnostic objects. For HL,
+`FALSE` also suppresses optional solver histories and cross-gene retention
+of full fits; required scientific computations and public summaries remain
+unchanged (see [scrope_hl()]).}
 
 \item{model}{Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
@@ -103,34 +123,30 @@ PGMM supports subject- and cell-level fixed effects but omits separate
 cell-level overdispersion, so robust results are preferred for cell-level
 predictors. No route is silently changed to another route.}
 
-\item{ln_estimator}{LN estimator. `"legacy_post_pml"` is the default and
-preserves the released post-PML behavior. `"joint_ln"` is opt-in and
-estimates coefficients and dispersions together. It returns model-based
-and donor-robust Wald inference for genes that pass its numerical checks;
-otherwise, uncertainty and test fields are `NA`. This argument applies
-only when `model = "LN"`.}
+\item{ln_estimator}{LN estimator. `"joint_ln"` is the default and the only
+maintained LN estimator. It jointly estimates coefficients and dispersions
+and returns model-based and donor-robust Wald inference for genes passing
+its numerical checks. `"legacy_post_pml"` is retired and raises an error.
+This selector only controls `model = "LN"`; its default is also accepted
+by the other routes as a shared-signature compatibility argument.}
 
-\item{ln_operational_fallback}{Optional independent legacy fallback for
-joint-LN fits. `"none"` (the default) performs no fallback fitting.
-`"legacy_post_pml"` independently refits a gene when joint-LN inference is
-unavailable because a dispersion estimate reached its allowed boundary.
-The sidecar exposes only an operational legacy coefficient, dispersions,
-and diagnostics when the legacy fit passes its numerical checks; it never
-exposes covariance or inferential output. This option requires
-`model = "LN"`, `ln_estimator = "joint_ln"`, and
-`allow_per_gene_switch = FALSE`.}
+\item{ln_operational_fallback}{Retained compatibility argument; only `"none"`
+is supported. `"legacy_post_pml"` raises an error. Unavailable joint-LN
+inference is never replaced with a legacy fit.}
+
+\item{pgmm_control}{PGMM main unconstrained `nlminb` budget: a named list
+with positive integer `iter.max` and/or `eval.max`. Missing entries default
+to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
+the earlier optimizer limits. This does not change tolerances, starts,
+constrained/profile fit controls, or retry policy, and is not a total
+fitting-work cap. It applies only to `model = "PGMM"`.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,
   `algorithm`, optional `random_effect`, `diagnostics`, optional
   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-  and, only when requested,
-  `operational_fallback`. For joint-LN fits, use
-  `provenance$per_gene$inference_available` and `failure_reason` to determine
-  whether primary inference is available. The fallback component contains
-  `per_gene` status, long `coefficients`, `overdispersion`, and technical
-  `diagnostics`, all explicitly marked as inference-unsupported. Fallback
-  values never overwrite the primary result fields.
+  and, for joint-LN, the one-row-per-gene `availability` table and per-test
+  `test_status`. No legacy operational fallback component is generated.
 }
 \description{
 Fits sc-RoPE working-likelihood models for multi-subject single-cell data
@@ -138,10 +154,17 @@ and, where supported by the selected estimator, computes optional adjusted
 tests for fixed-effect contrasts.
 }
 \details{
-The public default remains `ln_estimator = "legacy_post_pml"`. The opt-in
-`"joint_ln"` estimator jointly estimates fixed effects and dispersions from
-the LN approximate marginal criterion. It reports a numerically verified
+The default `"joint_ln"` estimator jointly estimates fixed effects and
+dispersions from the LN approximate marginal criterion. It reports a numerically verified
 local solution; global uniqueness is not claimed.
+
+An extra nearby uncertified endpoint may undergo one bounded same-basin
+review. A resolved endpoint is
+not certified and never replaces the selected root. It only removes that
+endpoint's veto; estimates, model-based covariance, donor-robust covariance,
+and Wald inference remain functions of the fully certified selected root.
+The original strict decision is retained in per-gene provenance. These
+numerical checks do not establish asymptotic calibration.
 
 Because the three routes share one function signature, non-LN routes accept
 explicit default values of LN-only compatibility arguments. A non-default
@@ -150,29 +173,68 @@ route-specific documentation explicitly promises a warning.
 
 For genes passing the joint-LN numerical checks, model-based and robust Wald
 inference is returned. Otherwise, covariance, standard errors, Wald
-statistics, and p-values are `NA`. Adjusted Score and likelihood-ratio tests
-are unavailable for `"joint_ln"` pending calibration.
+statistics, and p-values are `NA`.
 
-When the fallback is requested, eligible genes are independently refitted
-with the default legacy estimator. A successful fallback exposes only the
-operational coefficient and dispersions from that fit. It is judged by its
-own numerical checks and never overwrites the primary joint-LN result.
+Joint-LN optional Score and Pace-adjusted ratio tests are experimental and
+asymptotic. Their initial public scope is a scalar zero-null single
+non-intercept coefficient, including cell- and subject-level predictors.
+A rescaled single-coefficient selector is allowed; nonzero nulls,
+mixed-coefficient, intercept-containing and multiple-row hypotheses remain
+diagnostic-only with reason `joint_ln_optional_scope_unsupported`.
+Both public tests require accepted unrestricted primary and constrained
+joint-LN roots. Score additionally requires its native donor-variability
+checks; Pace also requires matching objective provenance and its stricter
+effective-curvature and ratio checks. Failed tests retain `NA` and exact
+reasons without numerical repair or fallback.
 
-The separate `operational_fallback` component contains per-gene fallback
-status, a long coefficient table, fitted dispersions, and technical
-diagnostics. Use `fallback_status == "coefficient_available"` and
-`coefficient_available` to identify an operational point estimate.
-`inference_supported` is always `FALSE`; there are deliberately no fallback
-covariance, standard-error, test-statistic, p-value, or q-value fields.
+For an eligible accepted request, Score uses `wU` and Pace uses
+`wP * wU / qP`, with upper-tail chi-square(1) p-values. Summary methods are
+`joint_ln_robust_score` and `joint_ln_pace_adjusted_ratio`; their
+`score_status_*` / `lrt_status_*` fields are `experimental_asymptotic`.
+Per-test success means numerical availability, not guaranteed calibration.
+`test_status` remains available with `keep_diagnostics = FALSE`.
+Internal helpers retain `public_available = FALSE` and
+`public_status = "diagnostic_only"`; the public wrapper applies scope and
+acceptance rules before creating a tail. Raw `wP` is not a public
+ordinary likelihood-ratio test, and `p_naive_*` remains model-based Wald.
 
-Routine interpretation has three states: use the primary result when
-`inference_available` is `TRUE`; optionally report an available legacy
-fallback coefficient as an operational sensitivity estimate without
-uncertainty or hypothesis testing; otherwise treat inference as unavailable.
+Retained scalar-zero simulations show materially different calibration for
+cell- and subject-level predictors: cell-level 5\% rejection is near nominal
+across the studied settings, while subject-level rejection is inflated,
+especially under strong hidden variation. Rates conditional on available
+results do not establish unconditional calibration. Numerical checks do not
+establish population regularity or target identification. See the installed
+`guides/methods-and-migration.md` for settings, rates, uncertainty and scope.
 
-FDR control for joint-LN Score/LRT remains calibration-pending. The fallback
-cannot enter an FDR procedure because it contains no p-values. Internal route
-codes and numerical checks are retained only in provenance and diagnostics.
+PGMM LRT requires accepted unrestricted and constrained endpoints; Score
+requires an accepted constrained null endpoint. Rejected endpoints cannot
+obtain genuine test success from a positive raw likelihood difference.
+Raw quantities may be retained as diagnostics when inference is unavailable.
+
+Legacy-LN fitting and its operational fallback are retired. Historical
+reproduction requires the exact preserved package version recorded for the
+analysis (0.2.5.9005 or earlier); explicit legacy requests are never redirected
+to joint-LN.
+
+For joint-LN, `availability` gives exactly one row per analyzed gene/request:
+`"inference"` for certified primary Wald inference, or `"unavailable"`.
+A finite diagnostic endpoint is never promoted to an operational estimate.
+One consolidated availability warning is emitted when any row lacks primary
+inference.
+Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
+`inference_status`, `strict_inference_status`,
+`enabled_inference_status`, `resolution_status`, `inference_source`,
+`newly_enabled`, `availability_transition`, `resolution_policy_version`,
+`availability`, `reason_group`, `status_message`, `inference_supported`,
+`estimate_source`, `attention_flag`, and `technical_code`. The compact
+`provenance$per_gene` table also retains strict and enabled route codes,
+failure reasons, policy identity, mode, and all veto classes. Earlier
+`route`, `inference_available`, and `failure_reason` fields are retained for
+compatibility.
+
+Family-level FDR control is not established by this experimental exposure.
+Internal route codes and numerical checks are retained only in provenance
+and diagnostics.
 
 With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters.

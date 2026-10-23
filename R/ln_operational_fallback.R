@@ -41,17 +41,49 @@ ln_operational_fallback_eligibility <- function(gene_result) {
     isTRUE(state_match) && isTRUE(objective_match) &&
     identical(unname(as.logical(checks[["interior"]])), FALSE) &&
     all(as.logical(checks[setdiff(required_checks, "interior")]))
-  route_ok <- identical(gene_result$route, "R2")
-  reason_ok <- identical(gene_result$failure_reason, "dispersion_boundary")
+  resolution <- gene_result$ln_joint$resolution
+  strict_route <- if (is.list(resolution)) {
+    ln_availability_scalar_character(
+      resolution$strict_inference_route,
+      ln_availability_scalar_character(
+        resolution$strict_route,
+        gene_result$route
+      )
+    )
+  } else {
+    ln_availability_scalar_character(gene_result$route)
+  }
+  strict_failure <- if (is.list(resolution)) {
+    ln_availability_scalar_character(
+      resolution$strict_inference_failure_reason,
+      ln_availability_scalar_character(
+        resolution$strict_failure_reason,
+        gene_result$failure_reason
+      )
+    )
+  } else {
+    ln_availability_scalar_character(gene_result$failure_reason)
+  }
+  actual_route <- ln_availability_scalar_character(gene_result$route)
+  actual_failure <- ln_availability_scalar_character(
+    gene_result$failure_reason
+  )
+  actual_boundary <- identical(actual_route, "R2") &&
+    identical(actual_failure, "dispersion_boundary")
+  strict_boundary <- identical(strict_route, "R2") &&
+    identical(strict_failure, "dispersion_boundary")
   failed_checks <- if (isTRUE(complete_checks)) {
     names(checks)[!as.logical(checks)]
   } else {
     character(0)
   }
   list(
-    eligible = isTRUE(route_ok && reason_ok),
+    eligible = isTRUE(actual_boundary || strict_boundary),
     eligibility_rule =
-      "primary_R2_and_final_failure_reason_dispersion_boundary",
+      paste0(
+        "actual_or_strict_comparator_R2_and_",
+        "failure_reason_dispersion_boundary"
+      ),
     selected_check_audit_used_for_eligibility = FALSE,
     primary_route = if (is.null(gene_result$route)) NA_character_ else
       as.character(gene_result$route[[1L]]),
@@ -60,6 +92,8 @@ ln_operational_fallback_eligibility <- function(gene_result) {
     } else {
       as.character(gene_result$failure_reason[[1L]])
     },
+    strict_comparator_route = strict_route,
+    strict_comparator_failure_reason = strict_failure,
     selected_candidate = selected,
     primary_joint_candidate_checks = checks,
     complete_checks = complete_checks,
@@ -254,15 +288,12 @@ ln_operational_assess_legacy_fit <- function(legacy_fit, ctx) {
 }
 
 ln_operational_attempt_gene <- function(gene_index, posv, ctx) {
-  ctx$debug_env <- new.env(parent = emptyenv())
-  tryCatch({
-    legacy_fit <- fit_gene_unconstrained(gene_index, posv, ctx)
-    ln_operational_assess_legacy_fit(legacy_fit, ctx)
-  }, error = function(e) {
-    result <- ln_operational_empty_assessment("legacy_fit_error")
-    result$diagnostics <- list(error_message = conditionMessage(e))
-    result
-  })
+  stop(paste0(
+    "The legacy-LN operational fallback is retired. Use ",
+    "ln_operational_fallback='none'. For historical reproduction, use the ",
+    "exact preserved scRoPE version recorded for the analysis ",
+    "(0.2.5.9005 or earlier)."
+  ), call. = FALSE)
 }
 
 ln_operational_build_sidecar <- function(primary_results, eligibility,
@@ -411,7 +442,11 @@ ln_operational_build_sidecar <- function(primary_results, eligibility,
     schema_version = 2L,
     method = "legacy_post_pml",
     role = "operational_coefficient_dispersion_diagnostics_only",
-    selection_rule = "primary_R2_and_failure_reason_dispersion_boundary",
+    selection_rule =
+      paste0(
+        "actual_or_strict_comparator_R2_and_",
+        "failure_reason_dispersion_boundary"
+      ),
     inference_supported = FALSE,
     inference_status = "unsupported_for_all_fallback_routes",
     per_gene = per_gene,

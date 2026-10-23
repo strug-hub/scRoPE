@@ -59,7 +59,7 @@ test_that("PMG per-subject gradients aggregate to pmg_der and match pmg_hes", {
   expect_equal(eval_at_theta$hessian, hes_global, tolerance = 1e-10)
 })
 
-test_that("fit_gene_pmg_unconstrained agrees with legacy nebula PMM fit", {
+test_that("fit_gene_pmg_unconstrained agrees with frozen legacy PMM values", {
   fx <- pmg_test_fixture()
   fit_fn <- getFromNamespace("fit_gene_pmg_unconstrained", "scRoPE")
 
@@ -69,16 +69,7 @@ test_that("fit_gene_pmg_unconstrained agrees with legacy nebula PMM fit", {
     ctx = fx$prep$ctx
   )
 
-  legacy <- nebula(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    model = "PMM",
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1
-  )
+  legacy <- pmg_frozen_legacy("core")
 
   beta_cols <- grep("^logFC_", names(legacy$summary), value = TRUE)
   se_cols <- grep("^se_", names(legacy$summary), value = TRUE)

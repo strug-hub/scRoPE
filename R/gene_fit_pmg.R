@@ -1,3 +1,31 @@
+# Optimizer return codes are backend-specific. NLopt codes 5 and 6 are
+# budget stops even though they are positive return values.
+pmg_optimizer_converged <- function(fit) {
+  if (!is.list(fit)) return(FALSE)
+  raw <- fit[["raw"]]
+  if (is.null(raw)) raw <- fit[["raw_fit"]]
+  if (!is.list(raw)) return(FALSE)
+  code <- raw[["convergence"]]
+  if (!is.numeric(code) || is.complex(code) || length(code) != 1L || !is.finite(code) ||
+      code != trunc(code)) {
+    return(FALSE)
+  }
+  if (identical(fit[["optimizer"]], "nlminb")) {
+    return(isTRUE(code == 0))
+  }
+  if (identical(fit[["optimizer"]], "bobyqa")) {
+    return(code %in% c(1L, 2L, 3L, 4L))
+  }
+  FALSE
+}
+
+# Keep nloptr's x0 interface explicit; inject only a mock in contract tests.
+pmg_run_bobyqa <- function(start, objective, lower, upper,
+                           optimizer = nloptr::bobyqa) {
+  ref <- optimizer(x0 = start, fn = objective, lower = lower, upper = upper)
+  list(par = ref$par, optimizer = "bobyqa", raw = ref)
+}
+
 pmg_initial_beta <- function(posv, ctx) {
   start <- rep(0, ctx$nb)
   start[ctx$intcol] <- log(posv$mct) - ctx$moffset
@@ -137,7 +165,9 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       ) / objective_scale
     }
 
+    optimizer_calls <- c(nlminb = 0L, bobyqa = 0L)
     run_nlminb <- function(start_value, control_value) {
+      optimizer_calls[["nlminb"]] <<- optimizer_calls[["nlminb"]] + 1L
       tryCatch({
         args <- list(
           start = start_value,
@@ -150,19 +180,21 @@ fit_gene_pmg_unconstrained <- function(gene_index,
           args$control <- control_value
         }
         ref <- do.call(nlminb, args)
-        list(par = ref$par, optimizer = "nlminb", raw = ref)
+        list(par = ref$par, optimizer = "nlminb", raw = ref,
+             control = utils::modifyList(list(iter.max = 150L, eval.max = 200L),
+                                         if (is.null(control_value)) list() else control_value))
       }, error = function(e) NULL)
     }
 
     run_bobyqa <- function(start_value) {
+      optimizer_calls[["bobyqa"]] <<- optimizer_calls[["bobyqa"]] + 1L
       tryCatch({
-        ref <- bobyqa(
-          par = start_value,
-          fn = obj_fn,
+        pmg_run_bobyqa(
+          start = start_value,
+          objective = obj_fn,
           lower = lower,
           upper = upper
         )
-        list(par = ref$par, optimizer = "bobyqa", raw = ref)
       }, error = function(e) NULL)
     }
 
@@ -174,18 +206,13 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       )
     }
 
-    raw_converged <- function(fit_try) {
-      conv <- fit_try$raw$convergence
-      is.null(conv) || isTRUE(conv == 0L)
-    }
-
     fits <- list()
     retry_used_actual <- FALSE
     first_fit <- run_nlminb(start_list[[1L]], control_list[[1L]])
     if (!is.null(first_fit)) {
       fits[[length(fits) + 1L]] <- first_fit
     }
-    if (is.null(first_fit) || (isTRUE(retry) && !raw_converged(first_fit))) {
+    if (is.null(first_fit) || (isTRUE(retry) && !pmg_optimizer_converged(first_fit))) {
       retry_used_actual <- TRUE
       for (start_value in start_list) {
         for (control_value in control_list) {
@@ -196,7 +223,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
         }
       }
       has_converged_gradient_fit <- any(vapply(fits, function(fit_try) {
-        identical(fit_try$optimizer, "nlminb") && raw_converged(fit_try)
+        identical(fit_try$optimizer, "nlminb") && pmg_optimizer_converged(fit_try)
       }, logical(1)))
       if (isTRUE(retry) && length(start_list) && !has_converged_gradient_fit) {
         fit_try <- run_bobyqa(start_list[[1L]])
@@ -232,8 +259,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       )
     }, numeric(1))
     fit_convergence_rank <- vapply(fits, function(fit_try) {
-      conv <- fit_try$raw$convergence
-      if (is.null(conv) || isTRUE(conv == 0L)) 0L else 1L
+      if (pmg_optimizer_converged(fit_try)) 0L else 1L
     }, integer(1))
     fit <- fits[[order(fit_objective, fit_convergence_rank)[[1L]]]]
 
@@ -275,8 +301,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
     )
 
     convergence <- 1L
-    conv_raw <- fit$raw$convergence
-    if (!is.null(conv_raw) && conv_raw != 0) {
+    if (!pmg_optimizer_converged(fit)) {
       convergence <- -50L
     }
     if (all(is.na(naive_cov_full))) {
@@ -286,6 +311,16 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       convergence <- -27L
     }
 
+    # Diagnostic correction only: never update the endpoint or acceptance rule.
+    newton_diagnostics <- tryCatch(
+      pmg_reduced_newton_diagnostics(eval_at_opt$observed_info,
+                                    eval_at_opt$gradient, fit$par),
+      error = function(e) list(
+        H_red_positive_definite = FALSE, H_red_rcond = NA_real_,
+        newton_step_red = rep(NA_real_, length(fit$par)),
+        max_abs_newton_step_scaled = NA_real_,
+        gradient_quadratic_lr_bound = NA_real_)
+    )
     gradient_norms <- pmg_vector_norms(eval_at_opt$gradient)
     raw_convergence <- if (!is.null(fit$raw$convergence)) fit$raw$convergence else NA_integer_
     raw_message <- if (!is.null(fit$raw$message)) fit$raw$message else NA_character_
@@ -332,9 +367,22 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       diagnostics = list(
         raw_convergence = raw_convergence,
         raw_message = raw_message,
+        optimizer_success = pmg_optimizer_converged(fit),
+        optimizer_backend = fit$optimizer,
+        optimizer_calls = optimizer_calls,
+        optimizer_control = fit$control,
+        optimizer_iterations = if (identical(fit$optimizer, "nlminb")) fit$raw$iterations else fit$raw$iter,
+        optimizer_evaluations = fit$raw$evaluations,
+        model_covariance_finite = all(is.finite(naive_cov_beta)),
+        sandwich_covariance_finite = all(is.finite(robust_cov_beta)),
         objective = eval_at_opt$objective,
         gradient_max_abs = gradient_norms$max_abs,
         gradient_l2 = gradient_norms$l2,
+        information_positive_definite = newton_diagnostics$H_red_positive_definite,
+        information_rcond = newton_diagnostics$H_red_rcond,
+        newton_step = newton_diagnostics$newton_step_red,
+        max_abs_newton_step_scaled = newton_diagnostics$max_abs_newton_step_scaled,
+        gradient_quadratic_lr_bound = newton_diagnostics$gradient_quadratic_lr_bound,
         active = active,
         at_lower = fit$par <= lower + sqrt(.Machine$double.eps),
         at_upper = fit$par >= upper - sqrt(.Machine$double.eps),
@@ -510,7 +558,9 @@ fit_gene_pmg_constrained <- function(gene_index,
       ) / objective_scale
     }
 
+    optimizer_calls <- c(nlminb = 0L, bobyqa = 0L)
     run_nlminb <- function(start_value, control_value) {
+      optimizer_calls[["nlminb"]] <<- optimizer_calls[["nlminb"]] + 1L
       tryCatch({
         args <- list(
           start = start_value,
@@ -523,19 +573,21 @@ fit_gene_pmg_constrained <- function(gene_index,
           args$control <- control_value
         }
         ref <- do.call(nlminb, args)
-        list(par = ref$par, optimizer = "nlminb", raw = ref)
+        list(par = ref$par, optimizer = "nlminb", raw = ref,
+             control = utils::modifyList(list(iter.max = 150L, eval.max = 200L),
+                                         if (is.null(control_value)) list() else control_value))
       }, error = function(e) NULL)
     }
 
     run_bobyqa <- function(start_value) {
+      optimizer_calls[["bobyqa"]] <<- optimizer_calls[["bobyqa"]] + 1L
       tryCatch({
-        ref <- bobyqa(
-          par = start_value,
-          fn = obj_fn,
+        pmg_run_bobyqa(
+          start = start_value,
+          objective = obj_fn,
           lower = lower_theta,
           upper = upper_theta
         )
-        list(par = ref$par, optimizer = "bobyqa", raw = ref)
       }, error = function(e) NULL)
     }
 
@@ -547,18 +599,13 @@ fit_gene_pmg_constrained <- function(gene_index,
       )
     }
 
-    raw_converged <- function(fit_try) {
-      conv <- fit_try$raw$convergence
-      is.null(conv) || isTRUE(conv == 0L)
-    }
-
     fits <- list()
     retry_used_actual <- FALSE
     first_fit <- run_nlminb(start_list[[1L]], control_list[[1L]])
     if (!is.null(first_fit)) {
       fits[[length(fits) + 1L]] <- first_fit
     }
-    if (is.null(first_fit) || (isTRUE(retry) && !raw_converged(first_fit))) {
+    if (is.null(first_fit) || (isTRUE(retry) && !pmg_optimizer_converged(first_fit))) {
       retry_used_actual <- TRUE
       for (start_value in start_list) {
         for (control_value in control_list) {
@@ -569,7 +616,7 @@ fit_gene_pmg_constrained <- function(gene_index,
         }
       }
       has_converged_gradient_fit <- any(vapply(fits, function(fit_try) {
-        identical(fit_try$optimizer, "nlminb") && raw_converged(fit_try)
+        identical(fit_try$optimizer, "nlminb") && pmg_optimizer_converged(fit_try)
       }, logical(1)))
       if (isTRUE(retry) && length(start_list) && !has_converged_gradient_fit) {
         fit_try <- run_bobyqa(start_list[[1L]])
@@ -619,8 +666,7 @@ fit_gene_pmg_constrained <- function(gene_index,
       NA_real_
     }
     fit_convergence_rank <- vapply(fits, function(fit_try) {
-      conv <- fit_try$raw$convergence
-      if (is.null(conv) || isTRUE(conv == 0L)) 0L else 1L
+      if (pmg_optimizer_converged(fit_try)) 0L else 1L
     }, integer(1))
     fit <- fits[[order(fit_objective, fit_convergence_rank)[[1L]]]]
 
@@ -700,8 +746,7 @@ fit_gene_pmg_constrained <- function(gene_index,
     }
 
     convergence <- 1L
-    conv_raw <- fit$raw$convergence
-    if (!is.null(conv_raw) && conv_raw != 0) {
+    if (!pmg_optimizer_converged(fit)) {
       convergence <- -50L
     }
     if (all(is.na(naive_cov_beta))) {
@@ -747,6 +792,14 @@ fit_gene_pmg_constrained <- function(gene_index,
       diagnostics = list(
         raw_convergence = raw_convergence,
         raw_message = raw_message,
+        optimizer_success = pmg_optimizer_converged(fit),
+        optimizer_backend = fit$optimizer,
+        optimizer_calls = optimizer_calls,
+        optimizer_control = fit$control,
+        optimizer_iterations = if (identical(fit$optimizer, "nlminb")) fit$raw$iterations else fit$raw$iter,
+        optimizer_evaluations = fit$raw$evaluations,
+        model_covariance_finite = all(is.finite(naive_cov_beta)),
+        sandwich_covariance_finite = all(is.finite(robust_cov_beta)),
         objective = eval_at_opt$objective,
         full_gradient_max_abs = full_gradient_norms$max_abs,
         full_gradient_l2 = full_gradient_norms$l2,

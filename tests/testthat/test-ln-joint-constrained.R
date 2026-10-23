@@ -21,22 +21,26 @@ test_that("joint LN constraints use the public-to-internal map and reduced root"
   prep <- ln_joint_prepare_fixture(result$fx)
   M <- fit$provenance$coefficient_map_internal_to_public
 
-  expect_true(all(fit$lrt_details$method == "unavailable_joint_ln"))
-  expect_true(all(!fit$lrt_details$success))
-  expect_true(all(!fit$lrt_details$score_success))
-  expect_true(all(is.na(fit$lrt_details$stat)))
-  expect_true(all(is.na(fit$lrt_details$p_value)))
-  expect_true(all(is.na(fit$lrt_details$score_stat)))
-  expect_true(all(is.na(fit$lrt_details$score_p_value)))
+  # These custom hypotheses remain outside the scoped public opt-in contract.
+  details <- fit$lrt_details[fit$lrt_details$contrast %in%
+                               vapply(contrasts, `[[`, "", "name"), , drop = FALSE]
+  expect_equal(nrow(details), length(contrasts))
+  expect_true(all(details$method == "joint_ln_pace_adjusted_ratio"))
+  expect_true(all(!details$success))
+  expect_true(all(!details$score_success))
+  expect_true(all(is.na(details$stat)))
+  expect_true(all(is.na(details$p_value)))
+  expect_true(all(is.na(details$score_stat)))
+  expect_true(all(is.na(details$score_p_value)))
   expect_true(all(
-    fit$lrt_details$failure_reason == "joint_ln_calibration_pending"
+    details$failure_reason == "joint_ln_optional_scope_unsupported"
   ))
-  expect_true(all(fit$lrt_details$constrained_route == "R0"))
-  expect_true(all(fit$lrt_details$gate_converged))
+  expect_true(all(details$constrained_route == "R0"))
+  expect_true(all(details$gate_converged))
   expect_true(all(
-    fit$lrt_details$convergence_basis == "joint_ln_endpoint_pair"
+    details$convergence_basis == "joint_ln_endpoint_pair"
   ))
-  expect_false(any(fit$lrt_details$fallback))
+  expect_false(any(details$fallback))
 
   raw_tests <- fit$diagnostics$raw[[1L]]$lrt
   definitions <- list(
@@ -95,11 +99,11 @@ test_that("adjusted score cannot bypass an explicit unavailable gate", {
     L = matrix(c(1, 0), nrow = 1L),
     score_gate = list(
       available = FALSE,
-      failure_reason = "joint_ln_calibration_pending"
+      failure_reason = "nonconverged_constrained"
     )
   )
   expect_false(blocked$success)
   expect_true(is.na(blocked$stat))
   expect_true(is.na(blocked$pval))
-  expect_identical(blocked$failure_reason, "joint_ln_calibration_pending")
+  expect_identical(blocked$failure_reason, "nonconverged_constrained")
 })

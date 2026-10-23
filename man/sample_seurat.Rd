@@ -3,14 +3,27 @@
 \docType{data}
 \name{sample_seurat}
 \alias{sample_seurat}
-\title{Example Seurat object for scRoPE workflows}
+\title{Matching synthetic Seurat teaching object}
 \format{
-A Seurat object with a count assay and per-cell metadata.
+A Seurat object with an RNA count assay and per-cell metadata.
+}
+\source{
+Constructed from the package's synthetic \code{sample_data} using
+\code{make_synthetic_seurat()} in the installed examples generator.
 }
 \usage{
 data(sample_seurat)
 }
 \description{
-A compact Seurat object for demonstrating `scToNeb()` and related helpers.
+A Seurat object containing exactly the counts and cells in \code{sample_data}:
+eight genes and 1,200 cells. No real human data are included.
+}
+\details{
+The RNA assay contains the reference count matrix. Metadata include
+X1, X2, cc and offset, with replicate equal to sid. Compatibility labels
+celltype (equal to cc) and tech (synthetic_control/synthetic_treatment)
+are artificial, not measured cell types or sequencing technologies.
+Use \code{scToNeb(sample_seurat, assay="RNA", id="replicate",
+pred=c("X1", "X2", "cc"), offset="offset")} for the matching inputs.
 }
 \keyword{datasets}

@@ -62,7 +62,9 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
                                      include_laplace_constant = TRUE,
                                      constraint_R = NULL,
                                      constraint_rhs = numeric(0),
-                                     inner_acceptance_tier = "derivative") {
+                                     inner_acceptance_tier = "derivative",
+                                     recession_check = NULL,
+                                     keep_diagnostics = TRUE) {
   active <- as.integer(active)
   rho_full <- as.numeric(rho_template)
   if (length(active)) rho_full[active] <- as.numeric(rho_active)
@@ -78,7 +80,9 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
     beta_start = beta_start,
     eta_start = eta_start,
     cold = cold,
-    acceptance_tier = inner_acceptance_tier
+    acceptance_tier = inner_acceptance_tier,
+    recession_check = recession_check,
+    keep_diagnostics = keep_diagnostics
   )
   if (!isTRUE(inner$success)) return(inner)
 
@@ -187,9 +191,15 @@ hl_fo_score_state_at_rho <- function(data, rho_active, rho_template, active,
 
 hl_fo_score_make_evaluator <- function(data, rho_template, active, beta_star, K,
                                        seed_beta, include_laplace_constant = TRUE,
-                                       constraint_R, constraint_rhs) {
+                                       constraint_R, constraint_rhs,
+                                       recession_check = NULL,
+                                       keep_diagnostics = TRUE) {
+  if (is.null(recession_check)) {
+    recession_check <- hl_fo_make_recession_check(data, K)
+  }
   cache <- list()
   trace <- list()
+  evaluation_count <- 0L
   evaluate <- function(rho, cold = FALSE) {
     nearest <- NULL
     if (!isTRUE(cold) && length(cache)) {
@@ -211,9 +221,12 @@ hl_fo_score_make_evaluator <- function(data, rho_template, active, beta_star, K,
       include_laplace_constant = include_laplace_constant,
       constraint_R = constraint_R,
       constraint_rhs = constraint_rhs,
-      inner_acceptance_tier = if (length(active)) "derivative" else "statistical"
+      inner_acceptance_tier = if (length(active)) "derivative" else "statistical",
+      recession_check = recession_check,
+      keep_diagnostics = keep_diagnostics
     )
-    trace[[length(trace) + 1L]] <<- list(
+    evaluation_count <<- evaluation_count + 1L
+    if (isTRUE(keep_diagnostics)) trace[[length(trace) + 1L]] <<- list(
       rho = as.numeric(rho),
       cold = isTRUE(cold),
       success = isTRUE(state$success),
@@ -238,14 +251,15 @@ hl_fo_score_make_evaluator <- function(data, rho_template, active, beta_star, K,
   }
   list(
     evaluate = evaluate,
-    count = function() length(trace),
+    count = function() evaluation_count,
     trace = function() trace,
     cache = function() cache
   )
 }
 
 hl_fo_score_optimize_start <- function(start, lower, upper, evaluator,
-                                       root_tolerance = 1e-8) {
+                                       root_tolerance = 1e-8,
+                                       keep_diagnostics = TRUE) {
   radius <- 1
   invalid_consecutive <- 0L
   start_count <- evaluator$count()
@@ -288,7 +302,7 @@ hl_fo_score_optimize_start <- function(start, lower, upper, evaluator,
       -sum(gradient * step) -
         0.5 * sum(step * (curvature %*% step))
     } else NA_real_
-    entry <- list(
+    entry <- if (isTRUE(keep_diagnostics)) list(
       radius = radius,
       rho = current$rho,
       residual = residual,
@@ -297,9 +311,11 @@ hl_fo_score_optimize_start <- function(start, lower, upper, evaluator,
     )
     if (!is.finite(predicted) || predicted <= 0) {
       radius <- radius / 4
-      entry$accepted <- FALSE
-      entry$reason <- "nonpositive_prediction"
-      trust_trace[[length(trust_trace) + 1L]] <- entry
+      if (isTRUE(keep_diagnostics)) {
+        entry$accepted <- FALSE
+        entry$reason <- "nonpositive_prediction"
+        trust_trace[[length(trust_trace) + 1L]] <- entry
+      }
       next
     }
 
@@ -307,9 +323,11 @@ hl_fo_score_optimize_start <- function(start, lower, upper, evaluator,
     if (any(proposal <= lower) || any(proposal >= upper)) {
       radius <- radius / 4
       invalid_consecutive <- invalid_consecutive + 1L
-      entry$accepted <- FALSE
-      entry$reason <- "outside_guard"
-      trust_trace[[length(trust_trace) + 1L]] <- entry
+      if (isTRUE(keep_diagnostics)) {
+        entry$accepted <- FALSE
+        entry$reason <- "outside_guard"
+        trust_trace[[length(trust_trace) + 1L]] <- entry
+      }
       if (invalid_consecutive >= 5L) {
         return(list(success = FALSE, status = "score_null_no_convergence",
                     reason = "five_invalid_trials", state = current,
@@ -324,9 +342,11 @@ hl_fo_score_optimize_start <- function(start, lower, upper, evaluator,
     if (!isTRUE(trial$success)) {
       radius <- radius / 4
       invalid_consecutive <- invalid_consecutive + 1L
-      entry$accepted <- FALSE
-      entry$reason <- trial$status
-      trust_trace[[length(trust_trace) + 1L]] <- entry
+      if (isTRUE(keep_diagnostics)) {
+        entry$accepted <- FALSE
+        entry$reason <- trial$status
+        trust_trace[[length(trust_trace) + 1L]] <- entry
+      }
       if (invalid_consecutive >= 5L) {
         return(list(success = FALSE, status = "score_null_no_convergence",
                     reason = "five_invalid_trials", state = current,
@@ -343,21 +363,29 @@ hl_fo_score_optimize_start <- function(start, lower, upper, evaluator,
     actual <- 0.5 * sum(residual^2) -
       0.5 * sum(trial_residual_fixed_scale^2)
     ratio <- actual / predicted
-    entry$actual_reduction <- actual
-    entry$ratio <- ratio
+    if (isTRUE(keep_diagnostics)) {
+      entry$actual_reduction <- actual
+      entry$ratio <- ratio
+    }
     if (!is.finite(ratio) || ratio < 0.1) {
       radius <- radius / 4
-      entry$accepted <- FALSE
-      entry$reason <- "insufficient_reduction"
+      if (isTRUE(keep_diagnostics)) {
+        entry$accepted <- FALSE
+        entry$reason <- "insufficient_reduction"
+      }
     } else {
       current <- trial
-      entry$accepted <- TRUE
-      entry$reason <- "accepted"
+      if (isTRUE(keep_diagnostics)) {
+        entry$accepted <- TRUE
+        entry$reason <- "accepted"
+      }
       if (ratio > 0.75 && sqrt(sum(step^2)) >= 0.9 * radius) {
         radius <- min(100, 2 * radius)
       }
     }
-    trust_trace[[length(trust_trace) + 1L]] <- entry
+    if (isTRUE(keep_diagnostics)) {
+      trust_trace[[length(trust_trace) + 1L]] <- entry
+    }
   }
 }
 
@@ -388,7 +416,8 @@ hl_fo_score_select_candidates <- function(candidates) {
 }
 
 hl_fo_score_certify_candidate <- function(candidate, evaluator, R, rhs,
-                                          C_R, K, root_tolerance = 1e-8) {
+                                          C_R, K, root_tolerance = 1e-8,
+                                          keep_diagnostics = TRUE) {
   warm <- candidate$state
   cold <- evaluator$evaluate(warm$rho, cold = TRUE)
   if (!isTRUE(cold$success)) {
@@ -514,8 +543,29 @@ hl_fo_score_certify_candidate <- function(candidate, evaluator, R, rhs,
     K = K
   )
   list(success = TRUE, status = "ok", state = cold,
-       start = candidate$start, trust_trace = candidate$trust_trace,
+       start = candidate$start,
+       trust_trace = if (isTRUE(keep_diagnostics)) candidate$trust_trace else list(),
        evaluations = candidate$evaluations)
+}
+
+# Summarize a completed attempt only after its state is no longer required by
+# root certification or selection.  The selected null state and its scientific
+# certificate are retained separately for the Score postroot calculation.
+.hl_fo_score_compact_run <- function(run) {
+  fields <- c("success", "status", "reason", "start", "evaluations",
+              "cold_discrepancy", "constraint", "mode_residual",
+              "auxiliary_backward_error", "nuisance_rank",
+              "statistical_displacement", "statistical_displacement_limit")
+  out <- run[intersect(fields, names(run))]
+  state_fields <- c("success", "status", "reason", "root_type",
+                    "rho", "rho_full", "beta", "g0", "root_scale",
+                    "root_scaled_residual", "constraint", "failed_subject")
+  for (name in c("state", "cold")) {
+    if (!is.null(run[[name]])) {
+      out[[name]] <- run[[name]][intersect(state_fields, names(run[[name]]))]
+    }
+  }
+  out
 }
 
 # Fit the full-chi Score nuisance root.  The returned constrained_fit is the
@@ -528,7 +578,8 @@ hl_fo_score_null_fit <- function(data, R, rhs = NULL,
                                  fixed_natural = numeric(0),
                                  guard_min = c(1e-4, 1e-4),
                                  guard_max = c(10, 1000),
-                                 include_laplace_constant = TRUE) {
+                                 include_laplace_constant = TRUE,
+                                 keep_diagnostics = TRUE) {
   reduced <- .hl_fo_reduce_contrast(R, rhs)
   if (!isTRUE(reduced$ok)) {
     return(.hl_fo_score_root_failure(
@@ -581,7 +632,8 @@ hl_fo_score_null_fit <- function(data, R, rhs = NULL,
       guard_min = guard_min,
       guard_max = guard_max,
       seed = seed,
-      include_laplace_constant = include_laplace_constant
+      include_laplace_constant = include_laplace_constant,
+      keep_diagnostics = keep_diagnostics
     )
   }
   constrained_fit$object_type <- "reduced_constrained_maximizer"
@@ -619,19 +671,53 @@ hl_fo_score_null_fit <- function(data, R, rhs = NULL,
     seed_beta = seed$beta,
     include_laplace_constant = include_laplace_constant,
     constraint_R = R_use,
-    constraint_rhs = rhs_use
+    constraint_rhs = rhs_use,
+    keep_diagnostics = keep_diagnostics
   )
   starts <- hl_fo_outer_starts(primary, lower, upper)
-  runs <- lapply(starts, hl_fo_score_optimize_start,
-                 lower = lower, upper = upper, evaluator = evaluator)
-  algebraic <- Filter(function(x) isTRUE(x$success), runs)
-  certification_attempts <- lapply(
-    algebraic, hl_fo_score_certify_candidate,
-    evaluator = evaluator, R = R_use, rhs = rhs_use,
-    C_R = C_R, K = affine$K
-  )
-  certified <- Filter(function(x) isTRUE(x$success), certification_attempts)
+  if (isTRUE(keep_diagnostics)) {
+    runs <- lapply(starts, hl_fo_score_optimize_start,
+                   lower = lower, upper = upper, evaluator = evaluator)
+    algebraic <- Filter(function(x) isTRUE(x$success), runs)
+    certification_attempts <- lapply(
+      algebraic, hl_fo_score_certify_candidate,
+      evaluator = evaluator, R = R_use, rhs = rhs_use,
+      C_R = C_R, K = affine$K
+    )
+    certified <- Filter(function(x) isTRUE(x$success), certification_attempts)
+  } else {
+    # Preserve the optimize-all-then-certify order and the evaluator's warm
+    # cache.  Failed/full historical states need not be accumulated.
+    runs <- vector("list", length(starts))
+    algebraic <- list()
+    for (ii in seq_along(starts)) {
+      run <- hl_fo_score_optimize_start(
+        starts[[ii]], lower = lower, upper = upper, evaluator = evaluator,
+        keep_diagnostics = FALSE
+      )
+      if (isTRUE(run$success)) algebraic[[length(algebraic) + 1L]] <- run
+      runs[[ii]] <- .hl_fo_score_compact_run(run)
+    }
+    run <- NULL
+    certification_attempts <- vector("list", length(algebraic))
+    certified <- list()
+    for (ii in seq_along(algebraic)) {
+      attempt <- hl_fo_score_certify_candidate(
+        algebraic[[ii]], evaluator = evaluator, R = R_use, rhs = rhs_use,
+        C_R = C_R, K = affine$K, keep_diagnostics = FALSE
+      )
+      if (isTRUE(attempt$success)) {
+        certified[[length(certified) + 1L]] <- attempt
+      }
+      certification_attempts[[ii]] <- .hl_fo_score_compact_run(attempt)
+      algebraic[ii] <- list(NULL)
+    }
+    attempt <- NULL
+  }
   selection <- hl_fo_score_select_candidates(certified)
+  if (!isTRUE(keep_diagnostics)) {
+    selection$candidates <- lapply(selection$candidates, .hl_fo_score_compact_run)
+  }
   if (!isTRUE(selection$success)) {
     certification_statuses <- vapply(
       certification_attempts,
@@ -690,7 +776,8 @@ hl_fo_score_test <- function(data, R, rhs = NULL,
                              active = c("tau", "xi"),
                              fixed_natural = numeric(0),
                              constrained_fit = NULL,
-                             include_laplace_constant = TRUE) {
+                             include_laplace_constant = TRUE,
+                             keep_diagnostics = TRUE) {
   null <- hl_fo_score_null_fit(
     data = data,
     R = R,
@@ -701,7 +788,8 @@ hl_fo_score_test <- function(data, R, rhs = NULL,
     fixed_natural = fixed_natural,
     guard_min = guard_min,
     guard_max = guard_max,
-    include_laplace_constant = include_laplace_constant
+    include_laplace_constant = include_laplace_constant,
+    keep_diagnostics = keep_diagnostics
   )
   if (!isTRUE(null$success)) return(null)
 

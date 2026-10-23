@@ -10,6 +10,7 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
+    pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
     cpc = 0,
     mincp = 1,
@@ -85,7 +86,7 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
   )))
 })
 
-test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predictors", {
+test_that("top-level scrope PGMM matches frozen legacy PMM values for cell-level predictors", {
   fx <- pmg_interior_test_fixture()
 
   current <- scrope(
@@ -93,30 +94,60 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for cell-level predic
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
+    pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
     cpc = 0,
     mincp = 1
   )
-  legacy <- nebula(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    model = "PMM",
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1
-  )
+  legacy <- pmg_frozen_legacy("cell")
+  receipt <- pmg_cell_endpoint_receipt(current$diagnostics$raw[[1L]], fx, legacy)
+  pmg_write_cell_endpoint_receipt(receipt, current$summary)
 
   expect_equal(current$summary$logFC_x, legacy$summary$logFC_x, tolerance = 1e-6)
   expect_equal(current$summary$se_x, legacy$summary$se_x, tolerance = 1e-6)
   expect_equal(current$summary$p_naive_x, legacy$summary$p_x, tolerance = 1e-6)
-  expect_equal(current$overdispersion$Subject, as.numeric(legacy$overdispersion), tolerance = 1e-6)
+  expect_identical(as.numeric(current$overdispersion$Subject), receipt$theta[3L])
+  # A frozen optimizer endpoint is not an exact MLE: its sigma differs from
+  # the independent profile root by 5.16e-8. Require both endpoints' measured
+  # accuracy instead of exact cross-platform reproduction of that residual.
+  expect_true(pmg_cell_endpoint_is_precise(receipt), info = paste(
+    "PGMM endpoint failed the independent root/curvature accuracy certificate;",
+    "inspect _diagnostics/pgmm-cell-endpoint.txt (or SCROPE_TEST_DIAGNOSTICS_DIR)."
+  ))
+  expect_lt(abs(receipt$reference$shape_score), 1e-11)
+  expect_lt(abs(receipt$reference$slope_score), 1e-12)
+  expect_equal(current$summary$se_x, receipt$reference$model_se, tolerance = 1e-6)
+  expect_equal(current$summary$se_robust_x, receipt$reference$robust_se, tolerance = 1e-6)
   expect_equal(current$convergence, legacy$convergence)
   expect_equal(current$algorithm, legacy$algorithm)
 })
 
-test_that("top-level scrope PGMM matches legacy nebula PMM for subject-level predictors", {
+test_that("PGMM endpoint accuracy checks reject material numerical errors", {
+  fx <- pmg_interior_test_fixture()
+  fit_fn <- getFromNamespace("fit_gene_pmg_unconstrained", "scRoPE")
+  eval_fn <- getFromNamespace("pmg_ll_der_hes", "scRoPE")
+  raw <- fit_fn(fx$gene_index, fx$posv, fx$prep$ctx,
+                control = list(iter.max = 150L, eval.max = 200L))
+  legacy <- pmg_frozen_legacy("cell")
+  expect_true(pmg_cell_endpoint_is_precise(pmg_cell_endpoint_receipt(raw, fx, legacy)))
+  # A real 1e-4 change in sigma must not pass by inflating its Newton budget.
+  perturbed <- raw
+  perturbed$theta$subVar <- perturbed$theta$subVar + 1e-4
+  ctx <- fx$prep$ctx
+  evaluated <- eval_fn(
+    c(perturbed$theta$beta, perturbed$theta$subVar), ctx$pred, ctx$offset,
+    fx$posv$Y, ctx$fid, ctx$cumsumy[fx$gene_index, ],
+    ctx$posind[[fx$gene_index]], fx$posv$posindy, ctx$nb, ctx$nind, ctx$k
+  )
+  perturbed$score <- evaluated$gradient
+  perturbed$observed_info <- evaluated$observed_info
+  expect_false(pmg_cell_endpoint_is_precise(pmg_cell_endpoint_receipt(perturbed, fx, legacy)))
+  wrong_status <- pmg_cell_endpoint_receipt(raw, fx, legacy)
+  wrong_status$optimizer_diagnostics$optimizer_success <- FALSE
+  expect_false(pmg_cell_endpoint_is_precise(wrong_status))
+})
+
+test_that("top-level scrope PGMM matches frozen legacy PMM values for subject-level predictors", {
   fx <- pmg_subject_level_test_fixture()
 
   current <- scrope(
@@ -124,20 +155,12 @@ test_that("top-level scrope PGMM matches legacy nebula PMM for subject-level pre
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
+    pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
     cpc = 0,
     mincp = 1
   )
-  legacy <- nebula(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    model = "PMM",
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1
-  )
+  legacy <- pmg_frozen_legacy("subject")
 
   expect_equal(current$summary$logFC_z_subject, legacy$summary$logFC_z_subject, tolerance = 1e-6)
   expect_equal(current$summary$se_z_subject, legacy$summary$se_z_subject, tolerance = 1e-6)

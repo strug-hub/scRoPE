@@ -14,7 +14,8 @@
 #' library(scRoPE)
 #'
 #' data("sample_seurat")
-#' re <- scToNeb(obj = sample_seurat, assay = "RNA", id = "replicate", pred = c("celltype", "tech"))
+#' re <- scToNeb(sample_seurat, assay = "RNA", id = "replicate",
+#'               pred = c("X1", "X2", "cc"), offset = "offset")
 #' }
 
 
@@ -71,7 +72,11 @@ scToNeb <- function(obj, assay = NULL, id = NULL, pred = NULL, offset = NULL, ve
     }
     p_df <- data.frame(p_df, row.names = colnames(obj))
     data_neb <- list(
-      count = Seurat::GetAssayData(obj, slot = "counts"),
+      count = if (utils::packageVersion("SeuratObject") >= "5.0.0") {
+        Seurat::GetAssayData(obj, layer = "counts")
+      } else {
+        Seurat::GetAssayData(obj, slot = "counts")
+      },
       pred = p_df
     )
     if (!is.null(id)) {

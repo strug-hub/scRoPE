@@ -1,8 +1,8 @@
 Package: scRoPE
 Type: Package
 Title: Robust Differential Analysis for Single-Cell RNA-Seq
-Version: 0.2.4
-Date: 2026-07-23
+Version: 0.3.0
+Date: 2026-10-20
 Authors@R: person("Lehang", "Zhong", email = "lehang.zhong@mail.utoronto.ca", role = c("aut", "cre"))
 Author: Lehang Zhong [aut, cre]
 Maintainer: Lehang Zhong <lehang.zhong@mail.utoronto.ca>
@@ -13,31 +13,17 @@ Description: Provides robust inference for negative binomial mixed models in
     (sandwich) information to provide robust Wald inference and model-specific
     adjusted tests for linear contrasts. Inferential availability depends on
     the fitted model and validated inference route.
-License: GPL-2
+License: MIT + file LICENSE
 Encoding: UTF-8
 Depends: R (>= 4.1)
-Imports:
-    Rcpp (>= 1.0.7),
-    nloptr,
-    stats,
-    Matrix,
-    methods,
-    Rfast,
-    trust,
-    parallelly (>= 1.34.0),
-    doFuture (>= 0.12.2),
-    future (>= 1.32.0),
-    foreach (>= 1.5.2),
-    doRNG (>= 1.8.6)
-LinkingTo:
-    Rcpp,
-    RcppEigen
+Imports: Rcpp (>= 1.0.7), nloptr, stats, Matrix, methods, Rfast, trust,
+        parallelly (>= 1.34.0), doFuture (>= 0.12.2), future (>=
+        1.32.0), foreach (>= 1.5.2), doRNG (>= 1.8.6)
+LinkingTo: Rcpp, RcppEigen
 RoxygenNote: 7.3.2
-URL: https://github.com/strug-hub/scRoPE, https://github.com/lhe17/nebula
+URL: https://github.com/strug-hub/scRoPE,
+        https://github.com/lhe17/nebula
 BugReports: https://github.com/strug-hub/scRoPE/issues
-Suggests:
-    utils,
-    testthat (>= 3.0.0),
-    Seurat,
-    SingleCellExperiment
+Suggests: utils, testthat (>= 3.0.0), Seurat, SingleCellExperiment
 Config/testthat/edition: 3
+NeedsCompilation: yes

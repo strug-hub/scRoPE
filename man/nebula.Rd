@@ -41,7 +41,9 @@ nebula(
 
 \item{model}{'NBGMM', 'PMM' or 'NBLMM'. 'NBGMM' is for fitting a negative binomial gamma mixed model. 'PMM' is for fitting a Poisson gamma mixed model. 'NGLMM' is for fitting a negative binomial lognormal mixed model (the same model as that in the lme4 package). The default is 'NBGMM'.}
 
-\item{method}{'LN' or 'HL'. 'LN' is to use NEBULA-LN and 'HL' is to use NEBULA-HL. The default is 'LN'.}
+\item{method}{Must be explicitly set to 'HL' to use the historical NEBULA-HL
+API. The retained default 'LN' and explicit 'LN' requests raise an error
+because legacy-LN is retired. Use [scrope()] for maintained joint-LN fits.}
 
 \item{cutoff_cell}{The data will be refit using NEBULA-HL to estimate both overdispersions if the product of the cells per subject and the estimated cell-level overdispersion parameter \eqn{\phi} is smaller than cutoff_cell. The default is 20.}
 
@@ -85,6 +87,7 @@ Association analysis of a multi-subject single-cell data set using a fast negati
 library(scRoPE)
 data(sample_data)
 pred = model.matrix(~X1+X2+cc,data=sample_data$pred)
-re = nebula(count=sample_data$count,id=sample_data$sid,pred=pred)
+re = nebula(count=sample_data$count[1L, , drop=FALSE],
+            id=sample_data$sid,pred=pred,method='HL',ncore=1)
 
 }

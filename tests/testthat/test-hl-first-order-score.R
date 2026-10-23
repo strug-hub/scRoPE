@@ -149,6 +149,45 @@ test_that("full-chi root Jacobian matches fully reprofiled finite differences", 
   }, logical(1))))
 })
 
+test_that("full-chi evaluator computes its static recession check once", {
+  case <- .hl_fo_score_c1()
+  R <- case$fixture$constraint$C
+  rhs <- case$fixture$constraint$rhs
+  affine <- .hl_fo_score_ns("hl_fo_affine_constraint")(
+    R, rhs, p = case$data$p
+  )
+  original <- .hl_fo_score_ns("hl_fo_inner_recession")
+  calls <- 0L
+  local_mocked_bindings(
+    hl_fo_inner_recession = function(data, K) {
+      calls <<- calls + 1L
+      original(data, K)
+    },
+    .package = "scRoPE"
+  )
+
+  evaluator <- .hl_fo_score_ns("hl_fo_score_make_evaluator")(
+    data = case$data,
+    rho_template = case$seed$rho_full,
+    active = 1:2,
+    beta_star = affine$beta_star,
+    K = affine$K,
+    seed_beta = case$seed$beta,
+    constraint_R = R,
+    constraint_rhs = rhs
+  )
+  first <- evaluator$evaluate(case$seed$rho_full, cold = TRUE)
+  second <- evaluator$evaluate(case$seed$rho_full, cold = TRUE)
+  expect_true(first$success)
+  expect_true(second$success)
+  expect_identical(calls, 1L)
+  expect_identical(second$beta, first$beta)
+  expect_identical(second$g0, first$g0)
+  expect_identical(second$G0, first$G0)
+  expect_identical(second$augmented$A, first$augmented$A)
+  expect_identical(second$augmented$J, first$augmented$J)
+})
+
 test_that("q zero has a separate certified full-chi Score null object", {
   case <- .hl_fo_score_c1()
   fixture <- case$fixture

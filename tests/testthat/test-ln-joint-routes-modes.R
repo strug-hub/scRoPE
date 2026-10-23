@@ -1,15 +1,23 @@
 test_that("joint LN R2 removes every analytic covariance and Wald field", {
-  result <- ln_joint_fit_fixture(
-    max = c(0.01, 1000),
-    output_re = TRUE,
-    additional_tests = c("score", "lrt")
+  expect_warning(
+    result <- ln_joint_fit_fixture(
+      max = c(0.01, 1000),
+      output_re = TRUE,
+      additional_tests = c("score", "lrt")
+    ),
+    "Joint-LN inference was unavailable for 1 gene"
   )
   fit <- result$fit
   provenance <- fit$provenance$per_gene
 
   expect_identical(provenance$route, "R2")
   expect_false(provenance$inference_available)
-  expect_identical(provenance$failure_reason, "dispersion_boundary")
+  expect_identical(
+    provenance$failure_reason,
+    "competitive_hard_stop_candidate"
+  )
+  expect_identical(provenance$strict_failure_reason, "dispersion_boundary")
+  expect_identical(provenance$resolution_status, "hard_stop")
   expect_identical(provenance$mode_status, "fit_unavailable")
 
   covariance_columns <- grep("^se_|^se_robust_", names(fit$summary), value = TRUE)
@@ -27,7 +35,7 @@ test_that("joint LN R2 removes every analytic covariance and Wald field", {
   expect_true(all(unlist(fit$summary[grep(
     "^wald_failure_",
     names(fit$summary)
-  )]) == "dispersion_boundary"))
+  )]) == "competitive_hard_stop_candidate"))
   expect_equal(dim(fit$random_effect), c(1L, length(unique(result$fx$id))))
   expect_true(all(is.na(as.matrix(fit$random_effect))))
   expect_true(all(!fit$lrt_details$gate_converged))
@@ -39,7 +47,7 @@ test_that("joint LN R2 removes every analytic covariance and Wald field", {
   expect_true(all(!fit$lrt_details$score_success))
 })
 
-test_that("joint LN route resolution separates failed starts from inference class", {
+test_that("legacy incomplete resolver records fail closed", {
   candidate <- function(label, objective, certified = TRUE,
                         finite = TRUE, required = TRUE, core = TRUE) {
     list(
@@ -64,8 +72,20 @@ test_that("joint LN route resolution separates failed starts from inference clas
     list(candidate("S_up", 10.1, certified = FALSE))
   )
   dominated_resolution <- ln_joint_resolve_candidates(dominated)
-  expect_identical(dominated_resolution$route, "R0")
-  expect_identical(dominated_resolution$dominated_uncertified, "S_up")
+  expect_identical(dominated_resolution$route, "R2")
+  expect_identical(
+    dominated_resolution$failure_reason,
+    "selected_candidate_certificate_inconsistent"
+  )
+  expect_identical(dominated_resolution$resolution$prospective_route, "R2")
+  expect_false(dominated_resolution$resolution$selected_root_certified)
+  expect_true(all(vapply(
+    dominated_resolution$resolution$candidate_resolutions,
+    function(record) {
+      identical(record$class, "competitive_hard_stop") && isTRUE(record$veto)
+    },
+    logical(1)
+  )))
 
   competing <- c(
     certified,
@@ -75,8 +95,17 @@ test_that("joint LN route resolution separates failed starts from inference clas
   expect_identical(competing_resolution$route, "R2")
   expect_identical(
     competing_resolution$failure_reason,
-    "competing_uncertified_candidate"
+    "selected_candidate_certificate_inconsistent"
   )
+  expect_identical(competing_resolution$resolution$prospective_route, "R2")
+  expect_false(competing_resolution$resolution$selected_root_certified)
+  expect_true(all(vapply(
+    competing_resolution$resolution$candidate_resolutions,
+    function(record) {
+      identical(record$class, "competitive_hard_stop") && isTRUE(record$veto)
+    },
+    logical(1)
+  )))
 
   missing_required <- c(
     certified,
@@ -90,6 +119,23 @@ test_that("joint LN route resolution separates failed starts from inference clas
   missing_resolution <- ln_joint_resolve_candidates(missing_required)
   expect_identical(missing_resolution$route, "R2")
   expect_identical(missing_resolution$failure_reason, "required_start_failed")
+})
+
+test_that("a completed joint LN fit releases its objective registry entry", {
+  ln_joint_objective_instance_registry("clear")
+  on.exit(ln_joint_objective_instance_registry("clear"), add = TRUE)
+  expect_identical(
+    ln_joint_objective_instance_registry("size"),
+    0L
+  )
+
+  result <- ln_joint_fit_fixture()
+
+  expect_true(is.list(result$fit))
+  expect_identical(
+    ln_joint_objective_instance_registry("size"),
+    0L
+  )
 })
 
 test_that("fixed-beta donor modes are inferentially invariant and residual-aligned", {
@@ -229,7 +275,7 @@ test_that("fixed-beta donor modes are inferentially invariant and residual-align
   )
 })
 
-test_that("joint LN API rejects unsupported switching and PGMM crossover", {
+test_that("joint LN API rejects unsupported switching", {
   fx <- ln_joint_test_fixture()
   expect_error(
     scrope(
@@ -245,26 +291,14 @@ test_that("joint LN API rejects unsupported switching and PGMM crossover", {
     ),
     "does not support allow_per_gene_switch"
   )
-  expect_error(
-    scrope(
-      fx$count,
-      fx$id,
-      pred = fx$pred,
-      offset = fx$offset,
-      verbose = FALSE,
-      cpc = 0,
-      mincp = 1,
-      model = "PGMM",
-      ln_estimator = "joint_ln"
-    ),
-    "applies only to model='LN'"
-  )
 })
 
 test_that("joint LN single-core and multicore results agree", {
   skip_if(parallelly::availableCores() < 2L)
   one <- ln_joint_fit_fixture(ncore = 1L)$fit
+  ln_joint_save_psock_pair("default-wald", one)
   two <- ln_joint_fit_fixture(ncore = 2L)$fit
+  ln_joint_save_psock_pair("default-wald", one, two)
   expect_equal(one$summary, two$summary, tolerance = 1e-8)
   expect_equal(one$overdispersion, two$overdispersion, tolerance = 1e-8)
   expect_equal(one$convergence, two$convergence)

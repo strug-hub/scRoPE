@@ -33,56 +33,76 @@ scrope_psock_library_paths <- function() {
 #' @param ncore Number of cores for parallel processing.
 #' @param fmaxsize Maximum future.globals size (in bytes) when using parallel execution.
 #' @param cutoff_cell Threshold (cells per subject × phi) below which legacy LN
-#'   refinement is triggered. Non-default values are unavailable outside the
-#'   legacy LN route.
-#' @param kappa Kappa threshold for adaptive legacy LN refinement. This argument
-#'   is unavailable outside the legacy LN route when set to a non-default value.
-#' @param allow_per_gene_switch Logical; allow legacy per-gene LN/HL switching.
-#'   Defaults to `FALSE` so one requested route is used for every gene. This is
-#'   unavailable for `model = "HL"`, `model = "PGMM"`, and joint-LN.
-#' @param use_betas Which fixed-effect anchor to use in LN variance-refinement
-#'   starts: `"betae"` matches legacy `nebula` intercept-only anchoring, while
-#'   `"final_betas"` uses the LN optimizer coefficients. The non-default option
-#'   is unavailable for PGMM and ignored with a warning by first-order HL.
+#'   refinement was triggered. Retained for compatibility and ignored by joint-LN;
+#'   non-default values are rejected by HL and PGMM.
+#' @param kappa Retired legacy LN refinement threshold. Ignored by joint-LN;
+#'   non-default values are rejected by HL and PGMM.
+#' @param allow_per_gene_switch Retained compatibility argument; must be `FALSE`.
+#'   One requested route is used for every gene.
+#' @param use_betas Retired legacy LN variance-refinement anchor, retained for
+#'   compatibility and ignored by joint-LN. Accepts `"betae"` or `"final_betas"`.
+#'   The non-default option is unavailable for PGMM and ignored with a warning
+#'   by first-order HL.
 #' @param output_re Logical; return subject-level random effects. PGMM does not
 #'   currently support this output and warns before returning `NULL`.
 #' @param additional_tests Optional character vector selecting extra
-#'   contrast-level diagnostics to compute, in addition to the default
+#'   contrast-level tests/diagnostics to compute, in addition to the default
 #'   adjusted Wald columns (`se_robust_*`, `p_robust_*`). Supported values
 #'   are `"score"` and `"lrt"`. Defaults to character(0) (Wald only).
-#' @param lrt Logical; legacy flag for adjusted profile LRTs. Equivalent to
-#'   including `"lrt"` in `additional_tests`.
-#' @param lrt_contrasts Optional list of additional contrasts (see details).
-#' @param lrt_include_scale Logical; include the H/G scale factor in the summary.
-#' @param lrt_details Logical; return a tidy data frame with raw LRT diagnostics.
-#' @param keep_diagnostics Logical; retain per-gene diagnostic objects.
+#'   For joint-LN, these opt in to experimental asymptotic robust Score and
+#'   Pace-adjusted working-objective-ratio tests for eligible scalar zero nulls.
+#' @param lrt Logical; alias for including `"lrt"` in `additional_tests`.
+#'   Joint-LN uses a Pace-adjusted working-objective ratio, not an ordinary
+#'   exact-likelihood LRT.
+#' @param lrt_contrasts Optional list of additional hypotheses `L beta = b`.
+#'   Each entry may be a matrix/vector `L` (zero null) or a list containing
+#'   `L`, optional `b`, and optional `name`. Columns follow `pred` and use the
+#'   reported coefficient units. LN/PGMM coefficients have input-scale slopes
+#'   and a sample-centered intercept; corrected HL uses original-design
+#'   coordinates. Internal scaling is applied to `L`, leaving `b` unchanged.
+#'   An intercept-containing LN/PGMM contrast does not automatically define a
+#'   fixed population target.
+#'   Public joint-LN optional tests require one row selecting exactly one
+#'   non-intercept coefficient with a finite nonzero weight and `b` exactly zero.
+#'   Broader hypotheses retain internal diagnostics but no public optional tail.
+#' @param lrt_include_scale Logical; include the test's adjustment factor in
+#'   the summary (`wU / qP` for the joint-LN Pace ratio).
+#' @param lrt_details Logical; return a tidy data frame when LRT is requested.
+#'   If neither optional test was requested, `TRUE` or a non-`NULL`
+#'   `lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
+#'   does not additionally request LRT or its details table.
+#' @param keep_diagnostics Logical; retain per-gene diagnostic objects. For HL,
+#'   `FALSE` also suppresses optional solver histories and cross-gene retention
+#'   of full fits; required scientific computations and public summaries remain
+#'   unchanged (see [scrope_hl()]).
 #' @param model Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 #'   `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
 #'   analyzed gene, and `"PGMM"` uses the exact Poisson-gamma mixed-model path.
 #'   PGMM supports subject- and cell-level fixed effects but omits separate
 #'   cell-level overdispersion, so robust results are preferred for cell-level
 #'   predictors. No route is silently changed to another route.
-#' @param ln_estimator LN estimator. `"legacy_post_pml"` is the default and
-#'   preserves the released post-PML behavior. `"joint_ln"` is opt-in and
-#'   estimates coefficients and dispersions together. It returns model-based
-#'   and donor-robust Wald inference for genes that pass its numerical checks;
-#'   otherwise, uncertainty and test fields are `NA`. This argument applies
-#'   only when `model = "LN"`.
-#' @param ln_operational_fallback Optional independent legacy fallback for
-#'   joint-LN fits. `"none"` (the default) performs no fallback fitting.
-#'   `"legacy_post_pml"` independently refits a gene when joint-LN inference is
-#'   unavailable because a dispersion estimate reached its allowed boundary.
-#'   The sidecar exposes only an operational legacy coefficient, dispersions,
-#'   and diagnostics when the legacy fit passes its numerical checks; it never
-#'   exposes covariance or inferential output. This option requires
-#'   `model = "LN"`, `ln_estimator = "joint_ln"`, and
-#'   `allow_per_gene_switch = FALSE`.
+#' @param ln_estimator LN estimator. `"joint_ln"` is the default and the only
+#'   maintained LN estimator. It jointly estimates coefficients and dispersions
+#'   and returns model-based and donor-robust Wald inference for genes passing
+#'   its numerical checks. `"legacy_post_pml"` is retired and raises an error.
+#'   This selector only controls `model = "LN"`; its default is also accepted
+#'   by the other routes as a shared-signature compatibility argument.
+#' @param ln_operational_fallback Retained compatibility argument; only `"none"`
+#'   is supported. `"legacy_post_pml"` raises an error. Unavailable joint-LN
+#'   inference is never replaced with a legacy fit.
 #'
 #' @details
-#' The public default remains `ln_estimator = "legacy_post_pml"`. The opt-in
-#' `"joint_ln"` estimator jointly estimates fixed effects and dispersions from
-#' the LN approximate marginal criterion. It reports a numerically verified
+#' The default `"joint_ln"` estimator jointly estimates fixed effects and
+#' dispersions from the LN approximate marginal criterion. It reports a numerically verified
 #' local solution; global uniqueness is not claimed.
+#'
+#' An extra nearby uncertified endpoint may undergo one bounded same-basin
+#' review. A resolved endpoint is
+#' not certified and never replaces the selected root. It only removes that
+#' endpoint's veto; estimates, model-based covariance, donor-robust covariance,
+#' and Wald inference remain functions of the fully certified selected root.
+#' The original strict decision is retained in per-gene provenance. These
+#' numerical checks do not establish asymptotic calibration.
 #'
 #' Because the three routes share one function signature, non-LN routes accept
 #' explicit default values of LN-only compatibility arguments. A non-default
@@ -91,45 +111,86 @@ scrope_psock_library_paths <- function() {
 #'
 #' For genes passing the joint-LN numerical checks, model-based and robust Wald
 #' inference is returned. Otherwise, covariance, standard errors, Wald
-#' statistics, and p-values are `NA`. Adjusted Score and likelihood-ratio tests
-#' are unavailable for `"joint_ln"` pending calibration.
+#' statistics, and p-values are `NA`.
 #'
-#' When the fallback is requested, eligible genes are independently refitted
-#' with the default legacy estimator. A successful fallback exposes only the
-#' operational coefficient and dispersions from that fit. It is judged by its
-#' own numerical checks and never overwrites the primary joint-LN result.
+#' Joint-LN optional Score and Pace-adjusted ratio tests are experimental and
+#' asymptotic. Their initial public scope is a scalar zero-null single
+#' non-intercept coefficient, including cell- and subject-level predictors.
+#' A rescaled single-coefficient selector is allowed; nonzero nulls,
+#' mixed-coefficient, intercept-containing and multiple-row hypotheses remain
+#' diagnostic-only with reason `joint_ln_optional_scope_unsupported`.
+#' Both public tests require accepted unrestricted primary and constrained
+#' joint-LN roots. Score additionally requires its native donor-variability
+#' checks; Pace also requires matching objective provenance and its stricter
+#' effective-curvature and ratio checks. Failed tests retain `NA` and exact
+#' reasons without numerical repair or fallback.
 #'
-#' The separate `operational_fallback` component contains per-gene fallback
-#' status, a long coefficient table, fitted dispersions, and technical
-#' diagnostics. Use `fallback_status == "coefficient_available"` and
-#' `coefficient_available` to identify an operational point estimate.
-#' `inference_supported` is always `FALSE`; there are deliberately no fallback
-#' covariance, standard-error, test-statistic, p-value, or q-value fields.
+#' For an eligible accepted request, Score uses `wU` and Pace uses
+#' `wP * wU / qP`, with upper-tail chi-square(1) p-values. Summary methods are
+#' `joint_ln_robust_score` and `joint_ln_pace_adjusted_ratio`; their
+#' `score_status_*` / `lrt_status_*` fields are `experimental_asymptotic`.
+#' Per-test success means numerical availability, not guaranteed calibration.
+#' `test_status` remains available with `keep_diagnostics = FALSE`.
+#' Internal helpers retain `public_available = FALSE` and
+#' `public_status = "diagnostic_only"`; the public wrapper applies scope and
+#' acceptance rules before creating a tail. Raw `wP` is not a public
+#' ordinary likelihood-ratio test, and `p_naive_*` remains model-based Wald.
 #'
-#' Routine interpretation has three states: use the primary result when
-#' `inference_available` is `TRUE`; optionally report an available legacy
-#' fallback coefficient as an operational sensitivity estimate without
-#' uncertainty or hypothesis testing; otherwise treat inference as unavailable.
+#' Retained scalar-zero simulations show materially different calibration for
+#' cell- and subject-level predictors: cell-level 5% rejection is near nominal
+#' across the studied settings, while subject-level rejection is inflated,
+#' especially under strong hidden variation. Rates conditional on available
+#' results do not establish unconditional calibration. Numerical checks do not
+#' establish population regularity or target identification. See the installed
+#' `guides/methods-and-migration.md` for settings, rates, uncertainty and scope.
 #'
-#' FDR control for joint-LN Score/LRT remains calibration-pending. The fallback
-#' cannot enter an FDR procedure because it contains no p-values. Internal route
-#' codes and numerical checks are retained only in provenance and diagnostics.
+#' PGMM LRT requires accepted unrestricted and constrained endpoints; Score
+#' requires an accepted constrained null endpoint. Rejected endpoints cannot
+#' obtain genuine test success from a positive raw likelihood difference.
+#' Raw quantities may be retained as diagnostics when inference is unavailable.
+#'
+#' Legacy-LN fitting and its operational fallback are retired. Historical
+#' reproduction requires the exact preserved package version recorded for the
+#' analysis (0.2.5.9005 or earlier); explicit legacy requests are never redirected
+#' to joint-LN.
+#'
+#' For joint-LN, `availability` gives exactly one row per analyzed gene/request:
+#' `"inference"` for certified primary Wald inference, or `"unavailable"`.
+#' A finite diagnostic endpoint is never promoted to an operational estimate.
+#' One consolidated availability warning is emitted when any row lacks primary
+#' inference.
+#' Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
+#' `inference_status`, `strict_inference_status`,
+#' `enabled_inference_status`, `resolution_status`, `inference_source`,
+#' `newly_enabled`, `availability_transition`, `resolution_policy_version`,
+#' `availability`, `reason_group`, `status_message`, `inference_supported`,
+#' `estimate_source`, `attention_flag`, and `technical_code`. The compact
+#' `provenance$per_gene` table also retains strict and enabled route codes,
+#' failure reasons, policy identity, mode, and all veto classes. Earlier
+#' `route`, `inference_available`, and `failure_reason` fields are retained for
+#' compatibility.
+#'
+#' Family-level FDR control is not established by this experimental exposure.
+#' Internal route codes and numerical checks are retained only in provenance
+#' and diagnostics.
 #'
 #' With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 #' conditional PML predictions evaluated at the plug-in joint-LN parameters.
 #' They do not alter coefficients, dispersions, covariance, tests, or
 #' convergence.
 #'
+#' @param pgmm_control PGMM main unconstrained `nlminb` budget: a named list
+#'   with positive integer `iter.max` and/or `eval.max`. Missing entries default
+#'   to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
+#'   the earlier optimizer limits. This does not change tolerances, starts,
+#'   constrained/profile fit controls, or retry policy, and is not a total
+#'   fitting-work cap. It applies only to `model = "PGMM"`.
+#'
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, optional
 #'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-#'   and, only when requested,
-#'   `operational_fallback`. For joint-LN fits, use
-#'   `provenance$per_gene$inference_available` and `failure_reason` to determine
-#'   whether primary inference is available. The fallback component contains
-#'   `per_gene` status, long `coefficients`, `overdispersion`, and technical
-#'   `diagnostics`, all explicitly marked as inference-unsupported. Fallback
-#'   values never overwrite the primary result fields.
+#'   and, for joint-LN, the one-row-per-gene `availability` table and per-test
+#'   `test_status`. No legacy operational fallback component is generated.
 #'
 #' @useDynLib scRoPE, .registration = TRUE
 #' @importFrom Rcpp evalCpp
@@ -159,14 +220,37 @@ scrope <- function(
     lrt_details = FALSE,
     keep_diagnostics = TRUE,
     model = c("LN", "HL", "PGMM"),
-    ln_estimator = c("legacy_post_pml", "joint_ln"),
-    ln_operational_fallback = c("none", "legacy_post_pml")) {
+    ln_estimator = "joint_ln",
+    ln_operational_fallback = "none",
+    pgmm_control = NULL) {
   cutoff_cell_missing <- missing(cutoff_cell)
   kappa_missing <- missing(kappa)
-  ln_estimator_missing <- missing(ln_estimator)
-  ln_estimator <- match.arg(ln_estimator)
-  ln_operational_fallback <- match.arg(ln_operational_fallback)
+  ln_estimator <- match.arg(ln_estimator, c("joint_ln", "legacy_post_pml"))
+  ln_operational_fallback <- match.arg(
+    ln_operational_fallback, c("none", "legacy_post_pml")
+  )
+  if (identical(ln_estimator, "legacy_post_pml")) {
+    stop(paste0(
+      "ln_estimator='legacy_post_pml' is retired. Use ",
+      "scrope(..., model='LN', ln_estimator='joint_ln') for maintained LN fits. ",
+      "To reproduce historical legacy results, use the exact preserved scRoPE ",
+      "version recorded for that analysis (0.2.5.9005 or earlier)."
+    ), call. = FALSE)
+  }
+  if (identical(ln_operational_fallback, "legacy_post_pml")) {
+    stop(paste0(
+      "ln_operational_fallback='legacy_post_pml' is retired. Use ",
+      "ln_operational_fallback='none'; unavailable joint-LN inference remains ",
+      "unavailable. To reproduce historical fallback results, use the exact ",
+      "preserved scRoPE version recorded for that analysis ",
+      "(0.2.5.9005 or earlier)."
+    ), call. = FALSE)
+  }
   model <- match.arg(model)
+  if (!identical(model, "PGMM") && !is.null(pgmm_control)) {
+    stop("pgmm_control applies only to model='PGMM'.")
+  }
+  if (identical(model, "PGMM")) pgmm_control <- pmg_resolve_control(pgmm_control)
   if (length(opt) != 1L || is.na(opt) || !opt %in% c("lbfgs", "trust")) {
     stop("opt must be 'lbfgs' or 'trust'.")
   }
@@ -176,12 +260,6 @@ scrope <- function(
   }
 
   if (identical(model, "HL")) {
-    if (!identical(ln_operational_fallback, "none")) {
-      stop("ln_operational_fallback applies only to model='LN'.")
-    }
-    if (!ln_estimator_missing && !identical(ln_estimator, "legacy_post_pml")) {
-      stop("ln_estimator applies only to model='LN'; do not request joint_ln for HL.")
-    }
     if (isTRUE(allow_per_gene_switch)) {
       stop("allow_per_gene_switch is unavailable for model='HL'; the requested HL route is used for every gene.")
     }
@@ -216,12 +294,6 @@ scrope <- function(
   }
 
   if (identical(model, "PGMM")) {
-    if (!identical(ln_operational_fallback, "none")) {
-      stop("ln_operational_fallback applies only to model='LN'.")
-    }
-    if (!ln_estimator_missing && !identical(ln_estimator, "legacy_post_pml")) {
-      stop("ln_estimator applies only to model='LN'; do not request joint_ln for PGMM.")
-    }
     if (isTRUE(allow_per_gene_switch)) {
       stop("allow_per_gene_switch is unavailable for model='PGMM'.")
     }
@@ -257,7 +329,8 @@ scrope <- function(
       lrt_contrasts = lrt_contrasts,
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
-      keep_diagnostics = keep_diagnostics
+      keep_diagnostics = keep_diagnostics,
+      pgmm_control = pgmm_control
     )
     pgmm_result$provenance <- list(
       schema_version = 2L,
@@ -265,6 +338,12 @@ scrope <- function(
       requested_model = "PGMM",
       effective_model = "PGMM",
       estimator = "pgmm_exact_marginal",
+      optimizer = list(
+        primary_backend = "nlminb",
+        main_control = pgmm_control,
+        scope = "main_unconstrained_fit",
+        retry_requested = FALSE
+      ),
       model_covariance = "pgmm_observed_information",
       robust_covariance = "pgmm_donor_sandwich",
       test_capabilities = data.frame(
@@ -277,20 +356,6 @@ scrope <- function(
     return(pgmm_result)
   }
 
-  if (!identical(ln_operational_fallback, "none") &&
-      !identical(ln_estimator, "joint_ln")) {
-    stop(paste0(
-      "ln_operational_fallback='legacy_post_pml' requires ",
-      "ln_estimator='joint_ln'."
-    ))
-  }
-  if (!identical(ln_operational_fallback, "none") &&
-      isTRUE(allow_per_gene_switch)) {
-    stop(paste0(
-      "ln_operational_fallback='legacy_post_pml' does not support ",
-      "allow_per_gene_switch=TRUE."
-    ))
-  }
   if (identical(ln_estimator, "joint_ln") && isTRUE(allow_per_gene_switch)) {
     stop("ln_estimator='joint_ln' does not support allow_per_gene_switch=TRUE.")
   }
@@ -578,11 +643,31 @@ scrope <- function(
     output_re = output_re,
     id = id,
     ln_estimator = ln_estimator,
+    ln_candidate_resolution_mode = if (identical(
+        ln_estimator,
+        "joint_ln"
+      )) {
+      "calibration_candidate_enabled"
+    } else {
+      "not_applicable"
+    },
     coef_internal_to_public = coef_internal_to_public
   )
 
   gene_results <- foreach(i = gid) %dorng% {
+    (function() {
     posv <- call_posindy(count, i - 1, nind)
+    if (identical(ctx$ln_estimator, "joint_ln")) {
+      on.exit(
+        ln_joint_objective_instance_registry(
+          "remove_matching",
+          gene_index = i,
+          posv = posv,
+          ctx = ctx
+        ),
+        add = TRUE
+      )
+    }
     unconstrained <- fit_gene_unconstrained(i, posv, ctx)
 
     if ((want_score || want_lrt) && length(lrt_names) > 0) {
@@ -592,7 +677,7 @@ scrope <- function(
         cache <- vector("list", length(lrt_names))
         names(cache) <- lrt_names
         neg_detected <- FALSE
-        joint_ln_pending <- identical(ctx$ln_estimator, "joint_ln")
+        joint_ln_route <- identical(ctx$ln_estimator, "joint_ln")
         empty_score_result <- function(L, msg = NULL, reason = NULL) {
           d0 <- nrow(L)
           if (!is.null(msg)) {
@@ -619,7 +704,7 @@ scrope <- function(
           )
         }
         empty_ridge <- list(Hpsi = NA_real_, Gpsi = NA_real_, wald = NA_real_)
-        joint_pending_lrt <- function(unconstrained_fit, constrained_fit) {
+        joint_lrt_details <- function(unconstrained_fit, constrained_fit) {
           diagnostics <- constrained_fit$diagnostics
           if (is.null(diagnostics)) diagnostics <- list()
           gate <- constrained_fit$lrt_gate
@@ -677,7 +762,7 @@ scrope <- function(
             fallback = FALSE,
             success = FALSE,
             adjusted_available = FALSE,
-            adjusted_failure_reason = "joint_ln_calibration_pending",
+            adjusted_failure_reason = NA_character_,
             gate = list(
               converged = isTRUE(unconstrained_fit$inference_available) &&
                 isTRUE(constrained_fit$inference_available),
@@ -706,30 +791,38 @@ scrope <- function(
               nuisance_hessian_invertible = hessian_ok,
               interior = isTRUE(gate$interior),
               nuisance_interior = isTRUE(gate$nuisance_interior),
-              profiled_curvature_positive = hessian_ok,
+              profiled_curvature_positive = NA,
               profiled_variability_positive = NA,
-              scale_positive = FALSE
+              scale_positive = NA
             ),
-            failure_reason = normalise_failure(
-              "joint_ln_calibration_pending",
-              "lrt"
-            )
+            failure_reason = NA_character_
           )
         }
 
         for (idx_nm in seq_along(lrt_names)) {
           nm <- lrt_names[idx_nm]
           def <- lrt_defs[[nm]]
-          L_fit <- if (joint_ln_pending) {
+          L_fit <- if (joint_ln_route) {
             def$L %*% ctx$coef_internal_to_public
           } else {
             def$L
           }
           constrained_fit <- fit_gene_constrained(i, posv, ctx, L_fit, def$b)
+          joint_public <- if (joint_ln_route) {
+            ln_joint_public_optional_tests(
+              current_unconstrained, constrained_fit, def$L, def$b,
+              intcol, ctx$coef_internal_to_public
+            )
+          } else {
+            NULL
+          }
           lrt_res <- NULL
           if (want_lrt) {
-            if (joint_ln_pending) {
-              lrt_res <- joint_pending_lrt(current_unconstrained, constrained_fit)
+            if (joint_ln_route) {
+              lrt_res <- utils::modifyList(
+                joint_lrt_details(current_unconstrained, constrained_fit),
+                joint_public$lrt
+              )
             } else {
               ln_gate <- ln_lrt_gate_override(constrained_fit, def$L, def$b)
               lrt_res <- compute_profile_lrt(
@@ -747,13 +840,8 @@ scrope <- function(
           gene_label <- if (!is.null(gname) && length(gname) >= i) gname[i] else paste0("gene_", i)
           score_res <- empty_score_result(def$L)
           if (want_score) {
-            if (joint_ln_pending) {
-              score_res$method <- "unavailable_joint_ln"
-              score_res$success <- FALSE
-              score_res$failure_reason <- normalise_failure(
-                "joint_ln_calibration_pending",
-                "score"
-              )
+            if (joint_ln_route) {
+              score_res <- joint_public$score
             } else {
               score_res <- tryCatch(
                 compute_adj_score(constrained_fit, def$L),
@@ -774,7 +862,9 @@ scrope <- function(
           }
           stat_adj <- if (!is.null(lrt_res)) lrt_res$wP_adjusted else NA_real_
           df <- def$df
-          pval <- if (!is.null(lrt_res) && !is.na(stat_adj)) {
+          pval <- if (joint_ln_route && !is.null(lrt_res)) {
+            lrt_res$pval
+          } else if (!is.null(lrt_res) && !is.na(stat_adj)) {
             pchisq(max(stat_adj, 0), df = df, lower.tail = FALSE)
           } else {
             NA_real_
@@ -792,6 +882,8 @@ scrope <- function(
             wU = if (!is.null(lrt_res)) lrt_res$wU else NA_real_,
             qP = if (!is.null(lrt_res)) lrt_res$qP else NA_real_,
             method = if (!is.null(lrt_res)) lrt_res$method else NA_character_,
+            status = if (joint_ln_route && want_lrt) lrt_res$status else NA_character_,
+            failure_stage = if (joint_ln_route && want_lrt) lrt_res$failure_stage else NA_character_,
             ridge = if (!is.null(lrt_res)) lrt_res$ridge else empty_ridge,
             fallback = if (!is.null(lrt_res)) lrt_res$fallback else NA,
             score_stat = score_res$stat,
@@ -799,6 +891,9 @@ scrope <- function(
             score_ridge = score_res$ridge,
             score_success = score_res$success,
             score_failure = score_res$failure_reason,
+            score_method = if (want_score) score_res$method else NA_character_,
+            score_status = if (joint_ln_route && want_score) score_res$status else NA_character_,
+            score_failure_stage = if (joint_ln_route && want_score) score_res$failure_stage else NA_character_,
             score_test = if (want_score) score_res else NULL
           )
         }
@@ -873,43 +968,7 @@ scrope <- function(
     }
 
     unconstrained
-  }
-
-  fallback_eligibility <- NULL
-  fallback_results <- NULL
-  if (identical(ln_operational_fallback, "legacy_post_pml")) {
-    fallback_eligibility <- lapply(
-      gene_results,
-      ln_operational_fallback_eligibility
-    )
-    fallback_ctx <- ctx
-    fallback_ctx$ln_estimator <- "legacy_post_pml"
-    fallback_ctx$allow_per_gene_switch <- FALSE
-    fallback_ctx$output_re <- FALSE
-    fallback_results <- foreach(
-      fallback_position = seq_along(gid),
-      .options.RNG = 20260721L
-    ) %dorng% {
-      if (!isTRUE(fallback_eligibility[[fallback_position]]$eligible)) {
-        ln_operational_empty_assessment()
-      } else {
-        fallback_gene <- gid[[fallback_position]]
-        tryCatch({
-          fallback_posv <- call_posindy(count, fallback_gene - 1L, nind)
-          ln_operational_attempt_gene(
-            fallback_gene,
-            fallback_posv,
-            fallback_ctx
-          )
-        }, error = function(e) {
-          fallback_error <- ln_operational_empty_assessment("legacy_fit_error")
-          fallback_error$diagnostics <- list(
-            error_message = conditionMessage(e)
-          )
-          fallback_error
-        })
-      }
-    }
+    })()
   }
 
   if (ncore > 1) {
@@ -1066,18 +1125,34 @@ scrope <- function(
     do.call(rbind, lapply(success_cols, function(success_col) {
       lab <- sub(paste0("^", success_prefix), "", success_col)
       failure_col <- paste0(failure_prefix, lab)
+      joint_optional <- identical(ln_estimator, "joint_ln") &&
+        test_label %in% c("score", "lrt")
       failure_vals <- if (failure_col %in% names(summary_df)) {
-        normalise_failure(summary_df[[failure_col]], norm_type)
+        if (joint_optional) summary_df[[failure_col]] else
+          normalise_failure(summary_df[[failure_col]], norm_type)
       } else {
         rep(NA_character_, nrow(summary_df))
       }
+      metadata_column <- function(field, default) {
+        column <- paste0(test_label, "_", field, "_", lab)
+        if (column %in% names(summary_df)) summary_df[[column]] else
+          rep(default, nrow(summary_df))
+      }
+      success_vals <- as.logical(summary_df[[success_col]])
       data.frame(
         gene_id = summary_df$gene_id,
         gene = summary_df$gene,
         contrast = lab,
         test = test_label,
-        success = as.logical(summary_df[[success_col]]),
+        success = success_vals,
         failure_reason = failure_vals,
+        method = metadata_column("method", if (test_label == "wald") {
+          "robust_wald"
+        } else NA_character_),
+        status = if (joint_optional) metadata_column("status", "unavailable") else
+          ifelse(success_vals, "available", "unavailable"),
+        inference = if (joint_optional) "experimental_asymptotic" else "asymptotic",
+        failure_stage = metadata_column("failure_stage", NA_character_),
         stringsAsFactors = FALSE
       )
     }))
@@ -1136,10 +1211,21 @@ scrope <- function(
         failure_norm <- rep(NA_character_, length(failure_raw))
         idx_fail <- !is.na(failure_raw) & nzchar(failure_raw)
         if (any(idx_fail)) {
-          failure_norm[idx_fail] <- normalise_failure(failure_raw[idx_fail], "lrt")
+          failure_norm[idx_fail] <- if (identical(ln_estimator, "joint_ln")) {
+            failure_raw[idx_fail]
+          } else normalise_failure(failure_raw[idx_fail], "lrt")
         }
         summary_df[[paste0("lrt_success_", key)]] <- success_vec
         summary_df[[paste0("lrt_failure_", key)]] <- failure_norm
+        if (identical(ln_estimator, "joint_ln")) {
+          for (field in c("status", "failure_stage")) {
+            summary_df[[paste0("lrt_", field, "_", key)]] <-
+              vapply(gene_results, function(gr) {
+                value <- gr$lrt[[nm]][[field]]
+                if (is.null(value)) NA_character_ else value
+              }, character(1))
+          }
+        }
       }
       if (want_score) {
         score_stats_vec <- vapply(gene_results, function(gr) {
@@ -1179,9 +1265,20 @@ scrope <- function(
         score_failure_norm <- rep(NA_character_, length(score_failure_raw))
         idx_score <- !is.na(score_failure_raw) & nzchar(score_failure_raw)
         if (any(idx_score)) {
-          score_failure_norm[idx_score] <- normalise_failure(score_failure_raw[idx_score], "score")
+          score_failure_norm[idx_score] <- if (identical(ln_estimator, "joint_ln")) {
+            score_failure_raw[idx_score]
+          } else normalise_failure(score_failure_raw[idx_score], "score")
         }
         summary_df[[paste0("score_failure_", key)]] <- score_failure_norm
+        if (identical(ln_estimator, "joint_ln")) {
+          for (field in c("method", "status", "failure_stage")) {
+            summary_df[[paste0("score_", field, "_", key)]] <-
+              vapply(gene_results, function(gr) {
+                value <- gr$lrt[[nm]][[paste0("score_", field)]]
+                if (is.null(value)) NA_character_ else value
+              }, character(1))
+          }
+        }
       }
     }
   }
@@ -1202,6 +1299,10 @@ scrope <- function(
       test = character(0),
       success = logical(0),
       failure_reason = character(0),
+      method = character(0),
+      status = character(0),
+      inference = character(0),
+      failure_stage = character(0),
       stringsAsFactors = FALSE
     )
   }
@@ -1271,10 +1372,55 @@ scrope <- function(
   }
 
   if (identical(ln_estimator, "joint_ln")) {
+    result_list$test_status <- test_status_df
+    joint_status <- lapply(gene_results, ln_joint_status_record)
     per_gene_provenance <- data.frame(
       gene_id = gid,
       gene = gname[gid],
+      estimator = vapply(joint_status, `[[`, character(1), "estimator"),
+      certified_root = vapply(
+        joint_status, `[[`, logical(1), "certified_root"
+      ),
+      inference_status = vapply(
+        joint_status, `[[`, character(1), "inference_status"
+      ),
+      strict_inference_status = vapply(
+        joint_status, `[[`, character(1), "strict_inference_status"
+      ),
+      enabled_inference_status = vapply(
+        joint_status, `[[`, character(1), "enabled_inference_status"
+      ),
+      resolution_status = vapply(
+        joint_status, `[[`, character(1), "resolution_status"
+      ),
+      inference_source = vapply(
+        joint_status, `[[`, character(1), "inference_source"
+      ),
+      newly_enabled = vapply(
+        joint_status, `[[`, logical(1), "newly_enabled"
+      ),
+      availability_transition = vapply(
+        joint_status, `[[`, character(1), "availability_transition"
+      ),
+      resolution_veto_classes = vapply(
+        joint_status, `[[`, character(1), "resolution_veto_classes"
+      ),
+      resolution_policy_version = vapply(
+        joint_status, `[[`, character(1), "resolution_policy_version"
+      ),
+      resolution_mode = vapply(
+        joint_status, `[[`, character(1), "resolution_mode"
+      ),
       route = vapply(gene_results, function(gr) gr$route, character(1)),
+      route_code = vapply(
+        joint_status, `[[`, character(1), "route_code"
+      ),
+      strict_route_code = vapply(
+        joint_status, `[[`, character(1), "strict_route_code"
+      ),
+      enabled_route_code = vapply(
+        joint_status, `[[`, character(1), "enabled_route_code"
+      ),
       start_provenance = vapply(gene_results, function(gr) {
         value <- gr$start_provenance
         if (is.null(value) || !length(value)) NA_character_ else as.character(value[[1L]])
@@ -1286,6 +1432,12 @@ scrope <- function(
         value <- gr$failure_reason
         if (is.null(value) || !length(value)) NA_character_ else as.character(value[[1L]])
       }, character(1)),
+      strict_failure_reason = vapply(
+        joint_status, `[[`, character(1), "strict_failure_reason"
+      ),
+      enabled_failure_reason = vapply(
+        joint_status, `[[`, character(1), "enabled_failure_reason"
+      ),
       mode_method = vapply(gene_results, function(gr) gr$mode_method, character(1)),
       mode_status = vapply(gene_results, function(gr) gr$mode_status, character(1)),
       mode_max_score_residual = vapply(gene_results, function(gr) {
@@ -1301,8 +1453,11 @@ scrope <- function(
     mode_diagnostics <- lapply(gene_results, function(gr) gr$mode)
     names(mode_diagnostics) <- gname[gid]
     result_list$provenance <- list(
-      schema_version = 2L,
+      schema_version = 3L,
       estimator = "ln_joint_root",
+      candidate_resolution_policy =
+        ln_joint_resolution_thresholds()$policy_version,
+      candidate_resolution_mode = ctx$ln_candidate_resolution_mode,
       model_covariance = "ln_joint_curvature_inverse",
       robust_covariance = "ln_joint_donor_sandwich",
       random_effect = if (output_re) {
@@ -1378,14 +1533,22 @@ scrope <- function(
     "LN"
   }
   if (identical(ln_estimator, "joint_ln")) {
-    result_list$provenance$inference_policy <- "joint_ln_calibration_pending"
+    result_list$provenance$inference_policy <-
+      "joint_ln_same_basin_wald_calibration_candidate"
+    result_list$provenance$pace_status <- "experimental_asymptotic_opt_in"
     result_list$provenance$test_capabilities <- data.frame(
       test = c("wald", "score", "lrt"),
-      public_available = c(TRUE, FALSE, FALSE),
+      public_available = rep(TRUE, 3L),
+      requested = c(TRUE, want_score, want_lrt),
       status = c(
-        "available_for_certified_R0",
-        "joint_ln_calibration_pending",
-        "joint_ln_calibration_pending"
+        "available_when_inference_status_available",
+        "experimental_asymptotic_when_requested_and_eligible",
+        "experimental_asymptotic_when_requested_and_eligible"
+      ),
+      scope = c(
+        "coefficient_wise",
+        "scalar_zero_null_single_nonintercept",
+        "scalar_zero_null_single_nonintercept"
       ),
       stringsAsFactors = FALSE
     )
@@ -1449,6 +1612,12 @@ scrope <- function(
           score_p_value = res$score_pval,
           score_ridge = res$score_ridge,
           score_success = res$score_success,
+          score_method = res$score_method,
+          score_status = res$score_status,
+          score_failure_reason = res$score_failure,
+          score_failure_stage = res$score_failure_stage,
+          status = res$status,
+          failure_stage = res$failure_stage,
           scale = res$scale,
           wP = res$wP,
           wU = res$wU,
@@ -1513,6 +1682,12 @@ scrope <- function(
       score_p_value = numeric(0),
       score_ridge = numeric(0),
       score_success = logical(0),
+      score_method = character(0),
+      score_status = character(0),
+      score_failure_reason = character(0),
+      score_failure_stage = character(0),
+      status = character(0),
+      failure_stage = character(0),
       scale = numeric(0),
       wP = numeric(0),
       wU = numeric(0),
@@ -1563,22 +1738,17 @@ scrope <- function(
     result_list$lrt_details <- NULL
   }
 
-  if (identical(ln_operational_fallback, "legacy_post_pml")) {
-    fallback_terms <- if (is.null(predn)) {
-      paste0("X", seq_len(nb))
-    } else {
-      predn
-    }
-    result_list$operational_fallback <- ln_operational_build_sidecar(
+  if (identical(ln_estimator, "joint_ln")) {
+    result_list$availability <- ln_availability_build(
       primary_results = gene_results,
-      eligibility = fallback_eligibility,
-      fallback_results = fallback_results,
       gid = gid,
       gene_names = gname[gid],
-      term_names = fallback_terms,
-      ctx = ctx
+      operational_fallback = NULL
     )
-    ln_operational_warn(result_list$operational_fallback)
+    ln_availability_warn(
+      result_list$availability,
+      operational_fallback_requested = FALSE
+    )
   }
 
   return(result_list)

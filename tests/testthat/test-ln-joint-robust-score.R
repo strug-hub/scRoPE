@@ -35,6 +35,22 @@
       list(name = name, L = definition$L, b = definition$b)
     }, definitions, names(definitions))
 
+    # Capture this very primary fit before optional inference receives it.
+    # Separate full fits can differ in their last bits across numerical stacks;
+    # mutation within a call must still fail an exact comparison.
+    original_fitter <- getFromNamespace("fit_gene_unconstrained", "scRoPE")
+    primary_before_optional <- NULL
+    primary_calls <- 0L
+    capture_primary <- function(...) {
+      fitted <- original_fitter(...)
+      primary_calls <<- primary_calls + 1L
+      primary_before_optional <<- serialize(
+        .ln_score_primary_fields(fitted), NULL, version = 3L
+      )
+      fitted
+    }
+    local_mocked_bindings(fit_gene_unconstrained = capture_primary,
+                          .package = "scRoPE")
     tested <- ln_joint_fit_fixture(
       additional_tests = "score",
       lrt_contrasts = contrasts
@@ -44,6 +60,8 @@
     cached <<- list(
       base = base,
       tested = tested,
+      primary_before_optional = primary_before_optional,
+      primary_calls = primary_calls,
       prep = ln_joint_prepare_fixture(tested$fx),
       definitions = definitions,
       raw_tests = raw_tests,
@@ -51,6 +69,113 @@
     )
     cached
   }
+})
+
+.ln_score_primary_fields <- function(raw) {
+  raw[c("theta", "naive_cov", "robust_cov", "score")]
+}
+
+.ln_score_primary_close <- function(actual, expected) {
+  # Explicit regression bound aligned with the existing primary-summary
+  # comparison; optimizer certificates concern other quantities/scales and
+  # do not mathematically imply this bound. The unit floor gives near-zero
+  # scores/off-diagonal entries an absolute bound. Structure and missingness
+  # remain exact, and same-call nonmutation is checked separately bit-for-bit.
+  if (!identical(typeof(actual), typeof(expected)) ||
+      !identical(attributes(actual), attributes(expected)) ||
+      length(actual) != length(expected)) return(FALSE)
+  if (is.list(actual)) {
+    return(all(vapply(seq_along(actual), function(i) {
+      .ln_score_primary_close(actual[[i]], expected[[i]])
+    }, logical(1))))
+  }
+  if (!is.numeric(actual)) return(identical(actual, expected))
+  finite <- is.finite(actual)
+  if (!identical(finite, is.finite(expected)) ||
+      !identical(actual[!finite], expected[!finite])) return(FALSE)
+  all(abs(actual[finite] - expected[finite]) <=
+        1e-10 * pmax(1, abs(actual[finite]), abs(expected[finite])))
+}
+
+.ln_score_primary_receipt <- function(case, repeat_baseline) {
+  primary <- function(fit) .ln_score_primary_fields(fit$diagnostics$raw[[1L]])
+  values <- list(baseline = primary(case$base$fit),
+                 repeated_baseline = primary(repeat_baseline),
+                 optional = primary(case$tested$fit),
+                 before_optional = unserialize(case$primary_before_optional))
+  difference <- function(a, b) {
+    a <- unlist(a, use.names = TRUE)
+    b <- unlist(b, use.names = TRUE)
+    data.frame(field = names(a), actual = unname(a), reference = unname(b),
+               absolute_difference = unname(abs(a - b)),
+               scaled_difference = unname(abs(a - b) / pmax(1, abs(a), abs(b))))
+  }
+  record <- list(
+    purpose = "same-input primary-fit portability and exact optional nonmutation",
+    fields = values, fixture = case$base$fx,
+    optional_fixture_identical = identical(case$base$fx, case$tested$fx),
+    primary_calls = case$primary_calls,
+    exact_optional_nonmutation = identical(values$optional, values$before_optional),
+    optional_vs_baseline = difference(values$optional, values$baseline),
+    repeat_vs_baseline = difference(values$repeated_baseline, values$baseline),
+    package_path = getNamespaceInfo(asNamespace("scRoPE"), "path"),
+    package_version = as.character(utils::packageVersion("scRoPE")),
+    available_cores = parallelly::availableCores(), session = utils::sessionInfo()
+  )
+  # R CMD check retains this copied-test-directory receipt even after failure.
+  # Source-tree test runs can direct receipts to a separate private directory.
+  directory <- Sys.getenv("SCROPE_TEST_DIAGNOSTICS_DIR",
+                          unset = testthat::test_path("_diagnostics"))
+  if (!dir.exists(directory)) dir.create(directory, recursive = TRUE)
+  saveRDS(record, file.path(directory, "ln-score-primary.rds"))
+  writeLines(capture.output(dput(record)),
+             file.path(directory, "ln-score-primary.txt"))
+  invisible(record)
+}
+
+test_that("primary-fit comparison rejects material and structural changes", {
+  baseline <- list(theta = list(beta = c(x = 0.2, intercept = -0.1),
+                                subVar = 0.3, cellVar = 4),
+                   naive_cov = diag(c(0.01, 0.02)),
+                   robust_cov = diag(c(0.03, 0.04)), score = c(0, 1e-12))
+  expect_true(.ln_score_primary_close(baseline, baseline))
+  last_bit <- baseline
+  last_bit$theta$cellVar <- last_bit$theta$cellVar + 4 * .Machine$double.eps
+  expect_true(.ln_score_primary_close(last_bit, baseline))
+  # Each independently fitted quantity retains a sensitive numerical check.
+  for (field in names(baseline)) {
+    changed <- baseline
+    if (field == "theta") changed$theta$beta[1L] <- changed$theta$beta[1L] + 1e-7
+    else changed[[field]][1L] <- changed[[field]][1L] + 1e-7
+    expect_false(.ln_score_primary_close(changed, baseline), info = field)
+    for (multiple in c(0.5, 2)) {
+      near_boundary <- baseline
+      if (field == "theta") {
+        near_boundary$theta$beta[1L] <- baseline$theta$beta[1L] + multiple * 1e-10
+      } else {
+        near_boundary[[field]][1L] <- baseline[[field]][1L] + multiple * 1e-10
+      }
+      expect_identical(.ln_score_primary_close(near_boundary, baseline),
+                       multiple < 1, info = paste(field, "bound multiple", multiple))
+    }
+  }
+  # Also exercise the relative part of the elementwise bound above unit scale.
+  for (multiple in c(0.5, 2)) {
+    near_boundary <- baseline
+    near_boundary$theta$cellVar <- baseline$theta$cellVar * (1 + multiple * 1e-10)
+    expect_identical(.ln_score_primary_close(near_boundary, baseline), multiple < 1)
+  }
+  changed <- baseline
+  names(changed$theta$beta) <- rev(names(changed$theta$beta))
+  expect_false(.ln_score_primary_close(changed, baseline))
+  changed <- baseline
+  dim(changed$naive_cov) <- c(1L, 4L)
+  expect_false(.ln_score_primary_close(changed, baseline))
+  changed <- baseline
+  changed$score[1L] <- NA_real_
+  expect_false(.ln_score_primary_close(changed, baseline))
+  # The within-call invariant remains exact even for an allowed last-bit drift.
+  expect_false(identical(last_bit, baseline))
 })
 
 .ln_score_required_fields <- c(
@@ -88,7 +213,7 @@ test_that("joint-LN robust Score diagnostics retain certified null state contrac
     expect_true(score$diagnostic_available, info = name)
     expect_true(is.na(score$failure_reason), info = name)
     expect_false(score$public_available, info = name)
-    expect_identical(score$public_status, "joint_ln_calibration_pending")
+    expect_identical(score$public_status, "diagnostic_only")
     expect_identical(score$df, as.integer(r))
     expect_true(is.finite(score$statistic) && score$statistic >= 0, info = name)
     expect_length(score$U_eff, r)
@@ -259,7 +384,7 @@ test_that("efficient-score projection and variability identities reconstruct ind
   }
 })
 
-test_that("audit-only Score path does not calculate ratio or public inference", {
+test_that("native Score diagnostics do not calculate ratio or public tails", {
   case <- .ln_score_focused_case()
   forbidden <- c(
     "wP", "qP", "pace", "multiplier", "compute_profile_lrt",
@@ -276,7 +401,7 @@ test_that("audit-only Score path does not calculate ratio or public inference", 
       info = token
     )
   }
-  for (name in names(case$raw_tests)) {
+  for (name in names(case$definitions)) {
     entry <- case$raw_tests[[name]]
     expect_null(entry$raw, info = name)
     expect_true(is.na(entry$stat), info = name)
@@ -287,9 +412,9 @@ test_that("audit-only Score path does not calculate ratio or public inference", 
     expect_true(is.na(entry$score_pval), info = name)
     expect_identical(
       entry$score_failure,
-      "joint_ln_calibration_pending"
+      "joint_ln_optional_scope_unsupported"
     )
-    expect_identical(entry$score_test$method, "unavailable_joint_ln")
+    expect_identical(entry$score_test$method, "joint_ln_robust_score")
     expect_true(is.na(entry$score_test$stat), info = name)
     expect_true(is.na(entry$score_test$pval), info = name)
   }
@@ -359,7 +484,7 @@ test_that("alternative null and interest bases leave the robust Score unchanged"
     expect_equal(candidate$statistic, reference$statistic, tolerance = 1e-9)
     expect_identical(candidate$df, reference$df)
     expect_false(candidate$public_available)
-    expect_identical(candidate$public_status, "joint_ln_calibration_pending")
+    expect_identical(candidate$public_status, "diagnostic_only")
   }
 })
 
@@ -391,7 +516,7 @@ test_that("rank-deficient tested variability is explicitly unavailable without r
   expect_false(score$diagnostic_available)
   expect_true(is.na(score$statistic))
   expect_false(score$public_available)
-  expect_identical(score$public_status, "joint_ln_calibration_pending")
+  expect_identical(score$public_status, "diagnostic_only")
   expect_match(score$failure_reason, "J_eff|variability|rank|singular",
                ignore.case = TRUE)
   expect_true(is.list(score$diagnostics$J_eff))
@@ -549,15 +674,18 @@ test_that("Score diagnostics fail closed for invalid sensitivity and provenance"
 })
 
 test_that("boundary, non-R0, and uncertified constrained fits stay unavailable", {
-  boundary <- ln_joint_fit_fixture(
-    max = c(0.01, 1000),
-    additional_tests = "score",
-    lrt_contrasts = list(list(
-      name = "boundary",
-      L = matrix(c(1, 0, 0), nrow = 1L),
-      b = 0
-    ))
-  )$fit
+  expect_warning(
+    boundary <- ln_joint_fit_fixture(
+      max = c(0.01, 1000),
+      additional_tests = "score",
+      lrt_contrasts = list(list(
+        name = "boundary",
+        L = matrix(c(1, 0, 0), nrow = 1L),
+        b = 0
+      ))
+    )$fit,
+    "Joint-LN inference was unavailable for 1 gene"
+  )
   constrained_boundary <- boundary$diagnostics$raw[[1L]]$lrt$boundary$constrained
   boundary_score <- constrained_boundary$ln_joint$score_diagnostic
 
@@ -566,7 +694,7 @@ test_that("boundary, non-R0, and uncertified constrained fits stay unavailable",
   expect_true(is.na(boundary_score$statistic))
   expect_false(boundary_score$public_available)
   expect_identical(boundary_score$public_status,
-                   "joint_ln_calibration_pending")
+                   "diagnostic_only")
   boundary_score_success <- grep(
     "^score_success_",
     names(boundary$summary),
@@ -612,15 +740,25 @@ test_that("boundary, non-R0, and uncertified constrained fits stay unavailable",
   expect_true(is.na(uncertified_score$statistic))
   expect_false(uncertified_score$public_available)
   expect_identical(uncertified_score$public_status,
-                   "joint_ln_calibration_pending")
+                   "diagnostic_only")
 })
 
-test_that("audit-only Score diagnostics do not change joint Wald or public Score fields", {
+test_that("optional Score leaves primary joint Wald unchanged and gates broader hypotheses", {
   case <- .ln_score_focused_case()
   baseline <- case$base$fit
   tested <- case$tested$fit
   raw_baseline <- baseline$diagnostics$raw[[1L]]
   raw_tested <- tested$diagnostics$raw[[1L]]
+  repeated_baseline <- ln_joint_fit_fixture()$fit
+  receipt <- .ln_score_primary_receipt(case, repeated_baseline)
+
+  expect_identical(case$base$fx, case$tested$fx)
+  expect_identical(case$primary_calls, 1L)
+  expect_identical(
+    serialize(.ln_score_primary_fields(raw_tested), NULL, version = 3L),
+    case$primary_before_optional
+  )
+  expect_true(receipt$exact_optional_nonmutation)
 
   primary_summary_columns <- setdiff(
     names(baseline$summary),
@@ -635,10 +773,14 @@ test_that("audit-only Score diagnostics do not change joint Wald or public Score
                tolerance = 1e-10)
   expect_equal(tested$convergence, baseline$convergence, tolerance = 0)
   expect_equal(tested$algorithm, baseline$algorithm, tolerance = 0)
-  expect_equal(raw_tested$theta, raw_baseline$theta, tolerance = 0)
-  expect_equal(raw_tested$naive_cov, raw_baseline$naive_cov, tolerance = 0)
-  expect_equal(raw_tested$robust_cov, raw_baseline$robust_cov, tolerance = 0)
-  expect_equal(raw_tested$score, raw_baseline$score, tolerance = 0)
+  for (field in names(.ln_score_primary_fields(raw_baseline))) {
+    expect_true(.ln_score_primary_close(raw_tested[[field]], raw_baseline[[field]]),
+                info = paste(field, "see ln-score-primary receipt for full precision"))
+  }
+  expect_true(.ln_score_primary_close(
+    .ln_score_primary_fields(repeated_baseline$diagnostics$raw[[1L]]),
+    .ln_score_primary_fields(raw_baseline)
+  ))
   score_success_columns <- grep(
     "^score_success_",
     names(tested$summary),
@@ -655,9 +797,10 @@ test_that("audit-only Score diagnostics do not change joint Wald or public Score
     value = TRUE
   )
   score_failure_columns <- grep(
-    "^score_failure_",
+    "^score_failure_(?!stage_)",
     names(tested$summary),
-    value = TRUE
+    value = TRUE,
+    perl = TRUE
   )
   expected_score_columns <- length(raw_tested$lrt)
   expect_gt(expected_score_columns, 0L)
@@ -665,39 +808,32 @@ test_that("audit-only Score diagnostics do not change joint Wald or public Score
   expect_length(score_stat_columns, expected_score_columns)
   expect_length(score_p_columns, expected_score_columns)
   expect_length(score_failure_columns, expected_score_columns)
-  expect_true(all(!unlist(tested$summary[score_success_columns])))
-  expect_true(all(is.na(unlist(tested$summary[score_stat_columns]))))
-  expect_true(all(is.na(unlist(tested$summary[score_p_columns]))))
-  expect_true(all(
-    unlist(tested$summary[score_failure_columns]) ==
-      "joint_ln_calibration_pending"
-  ))
+  for (name in names(raw_tested$lrt)) {
+    entry <- raw_tested$lrt[[name]]
+    expect_identical(tested$summary[[paste0("score_success_", name)]],
+                     entry$score_success, info = name)
+    expect_equal(tested$summary[[paste0("score_adj_", name)]],
+                 entry$score_stat, tolerance = 0, info = name)
+    expect_equal(tested$summary[[paste0("p_score_adj_", name)]],
+                 entry$score_pval, tolerance = 0, info = name)
+    if (name %in% names(case$definitions)) {
+      expect_false(entry$score_success, info = name)
+      expect_true(is.na(entry$score_stat), info = name)
+      expect_true(is.na(entry$score_pval), info = name)
+      expect_identical(entry$score_failure,
+                       "joint_ln_optional_scope_unsupported", info = name)
+    } else {
+      expect_true(entry$score_success, info = name)
+      expected <- entry$constrained$ln_joint$score_diagnostic$statistic
+      expect_equal(entry$score_stat, expected, tolerance = 0, info = name)
+      expect_equal(entry$score_pval,
+                   pchisq(expected, df = 1L, lower.tail = FALSE),
+                   tolerance = 1e-14, info = name)
+    }
+  }
 })
 
-test_that("joint-LN Score diagnostics leave legacy post-PML behavior unchanged", {
-  fx <- .ln_score_focused_case()$tested$fx
-  args <- list(
-    count = fx$count,
-    id = fx$id,
-    pred = fx$pred,
-    offset = fx$offset,
-    verbose = FALSE,
-    cpc = 0,
-    mincp = 1,
-    ncore = 1L,
-    output_re = TRUE
-  )
-  legacy_default <- suppressWarnings(do.call(scrope, args))
-  legacy_explicit <- suppressWarnings(do.call(
-    scrope,
-    c(args, list(ln_estimator = "legacy_post_pml"))
-  ))
-
-  expect_equal(legacy_default$summary, legacy_explicit$summary, tolerance = 0)
-  expect_equal(legacy_default$overdispersion,
-               legacy_explicit$overdispersion, tolerance = 0)
-  expect_equal(legacy_default$random_effect,
-               legacy_explicit$random_effect, tolerance = 0)
-  expect_identical(legacy_default$provenance$per_gene$route, "R1")
-  expect_identical(legacy_explicit$provenance$per_gene$route, "R1")
+test_that("requesting Score does not restore the retired legacy estimator", {
+  expect_error(scrope(ln_estimator = "legacy_post_pml",
+                      additional_tests = "score"), "retired")
 })
