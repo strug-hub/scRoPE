@@ -21,6 +21,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Use the Ubuntu archive mirror for system dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Avoid the slow Azure mirror during both R and package dependency setup.
+          sudo sed -i -E 's|https?://azure\.archive\.ubuntu\.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' /etc/apt/apt-mirrors.txt
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: release
