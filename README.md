@@ -22,17 +22,19 @@ side by side**.
 
 ## Installation
 
-This README describes the **0.3.0 development candidate**. Until it is published,
-install the supplied local archive; the current GitHub version may differ.
-With R ≥ 4.1, the dependencies in [DESCRIPTION](DESCRIPTION) and an
+Install the current development version from GitHub. With R ≥ 4.1 and an
 R-compatible C++ toolchain, start a fresh R session:
 
 ```r
-install.packages("scRoPE_0.3.0.tar.gz", repos = NULL, type = "source")
+install.packages("remotes")
+remotes::install_github("strug-hub/scRoPE")
 library(scRoPE)
 ```
 
-From a source checkout, `R CMD build .` creates the archive.
+This installs the default `main` branch, not a tagged release. Before the
+0.3.0 changes are merged into `main`, test the candidate explicitly with
+`remotes::install_github("strug-hub/scRoPE@codex/package-maintenance-0.3")`.
+Package dependencies are listed in [DESCRIPTION](DESCRIPTION).
 
 ## Quick start: 24 genes in one fit
 
