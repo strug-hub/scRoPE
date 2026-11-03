@@ -31,7 +31,8 @@ scrope(
   model = c("LN", "HL", "PGMM"),
   ln_estimator = "joint_ln",
   ln_operational_fallback = "none",
-  pgmm_control = NULL
+  pgmm_control = NULL,
+  ln_recovery = c("auto", "none")
 )
 }
 \arguments{
@@ -70,7 +71,7 @@ non-default values are rejected by HL and PGMM.}
 non-default values are rejected by HL and PGMM.}
 
 \item{allow_per_gene_switch}{Retained compatibility argument; must be `FALSE`.
-One requested route is used for every gene.}
+Does not control JLN recovery; use `ln_recovery` for that policy.}
 
 \item{use_betas}{Retired legacy LN variance-refinement anchor, retained for
 compatibility and ignored by joint-LN. Accepts `"betae"` or `"final_betas"`.
@@ -134,6 +135,15 @@ by the other routes as a shared-signature compatibility argument.}
 is supported. `"legacy_post_pml"` raises an error. Unavailable joint-LN
 inference is never replaced with a legacy fit.}
 
+\item{ln_recovery}{JLN recovery policy: `"auto"` (default) retains accepted
+native fits and attempts certified numerical refinement, dominated-start
+warning, fixed-positive-dispersion and identifiable whole-zero-donor limiting
+fits when needed. `"none"` preserves strict native behavior. Recovery requires
+the default dispersion box and `opt="lbfgs"`; other boxes/backends keep native
+results. Ignored by HL/PGMM. Recovery supports coefficient donor-robust Wald
+tests only. Inspect `recovery$routes` and `recovery$coefficients` for working
+target, selection and coefficient-estimability limitations.}
+
 \item{pgmm_control}{PGMM main unconstrained `nlminb` budget: a named list
 with positive integer `iter.max` and/or `eval.max`. Missing entries default
 to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
@@ -145,7 +155,8 @@ fitting-work cap. It applies only to `model = "PGMM"`.}
 A list with elements `summary`, `overdispersion`, `convergence`,
   `algorithm`, optional `random_effect`, `diagnostics`, optional
   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-  and, for joint-LN, the one-row-per-gene `availability` table and per-test
+  and, for joint-LN, `recovery` (automatic mode), the one-row-per-gene
+  `availability` table and per-test
   `test_status`. No legacy operational fallback component is generated.
 }
 \description{
@@ -168,12 +179,15 @@ numerical checks do not establish asymptotic calibration.
 
 Because the three routes share one function signature, non-LN routes accept
 explicit default values of LN-only compatibility arguments. A non-default
-LN-only value is rejected rather than silently ignored, except where the
-route-specific documentation explicitly promises a warning.
+LN-only value is rejected unless the parameter documentation explicitly
+states otherwise (for example, `ln_recovery` is ignored outside LN).
 
-For genes passing the joint-LN numerical checks, model-based and robust Wald
-inference is returned. Otherwise, covariance, standard errors, Wald
-statistics, and p-values are `NA`.
+Accepted native joint-LN fits return model-based and robust Wald inference.
+With `ln_recovery = "auto"`, failed native fits may obtain coefficient-wise
+robust Wald results from a supported recovery route. Recovered rows have no
+model-based SE, Score/LRT or random-effect output. Unavailable coefficients
+retain `NA` standard errors, Wald statistics and p-values. With
+`ln_recovery = "none"`, the strict native result is returned.
 
 Joint-LN optional Score and Pace-adjusted ratio tests are experimental and
 asymptotic. Their initial public scope is a scalar zero-null single
@@ -217,10 +231,13 @@ analysis (0.2.5.9005 or earlier); explicit legacy requests are never redirected
 to joint-LN.
 
 For joint-LN, `availability` gives exactly one row per analyzed gene/request:
-`"inference"` for certified primary Wald inference, or `"unavailable"`.
-A finite diagnostic endpoint is never promoted to an operational estimate.
-One consolidated availability warning is emitted when any row lacks primary
-inference.
+`"inference"` when all coefficient Wald results are available,
+`"partial_inference"` when only some are available, or `"unavailable"`.
+Inspect `recovery$routes` for the estimator and its limitations and
+`recovery$coefficients` for individual coefficient availability. These tables
+remain available with `keep_diagnostics = FALSE`. A finite endpoint alone
+does not establish inference. One consolidated warning reports recovery or
+unavailable native inference.
 Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
 `inference_status`, `strict_inference_status`,
 `enabled_inference_status`, `resolution_status`, `inference_source`,
@@ -228,13 +245,18 @@ Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
 `availability`, `reason_group`, `status_message`, `inference_supported`,
 `estimate_source`, `attention_flag`, and `technical_code`. The compact
 `provenance$per_gene` table also retains strict and enabled route codes,
-failure reasons, policy identity, mode, and all veto classes. Earlier
+failure reasons, policy identity, mode, and active veto classes. Under
+automatic recovery, `recovery$primary` retains the unchanged native result,
+including its original failure reasons and veto classes. Earlier
 `route`, `inference_available`, and `failure_reason` fields are retained for
 compatibility.
 
 Family-level FDR control is not established by this experimental exposure.
-Internal route codes and numerical checks are retained only in provenance
-and diagnostics.
+Detailed numerical checks are retained in provenance and diagnostics.
+In automatic mode, `diagnostics$raw[[j]]$robust_cov` retains standardized
+coefficient coordinates on every route; `robust_cov_public` uses the
+centered public coefficient units of `summary`. Both carry coordinate
+labels. Nonestimable covariance rows and columns remain `NA`.
 
 With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters.

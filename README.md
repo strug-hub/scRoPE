@@ -20,9 +20,38 @@ side by side**.
 - **Fits into an R workflow:** dense or sparse counts, Seurat and
   SingleCellExperiment conversion, per-gene diagnostics and optional residuals.
 
+## Automatic JLN recovery
+
+This 0.3.1.9000 development candidate adds `scrope(..., ln_recovery = "auto")` as the
+LN default. It keeps accepted ordinary JLN fits, then tries supported numerical,
+warning, fixed-dispersion and identifiable limiting-face routes when needed.
+Use `ln_recovery = "none"` for strict native behavior. HL and PGMM are unchanged.
+The candidate is under draft patch review and is not a released version.
+
+```r
+fit <- scrope(count, id, pred, offset = exposure, model = "LN")
+fit$summary
+fit$recovery$routes        # route, fixed values, working target and cautions
+fit$recovery$coefficients  # availability of each individual coefficient
+native <- fit$recovery$primary
+```
+
+For recovered rows, donor-robust coefficient Wald results use the sandwich of
+the actual free estimating equations. Model-based SE, optional Score/LRT and
+random effects remain unavailable for those rows. A limiting fit can report a
+slope while leaving its intercept or nuisance coefficient missing. Recovery
+currently requires the default dispersion box and L-BFGS-B; other settings keep
+native results. The limiting route additionally requires a first unit intercept,
+a unique separating direction and removal of whole all-zero donors.
+
+Fixed-dispersion and limiting-face results concern working targets. Data-selected
+routes/faces are not selectively calibrated; equality to a scientific target
+and FDR control are not established. Finite-donor undercoverage has been observed.
+See [the recovery guide](inst/doc/jln-recovery.md) for assumptions and evidence.
+
 ## Installation
 
-Install the current development version from GitHub. With R ≥ 4.1 and an
+Install the maintained version from GitHub. With R ≥ 4.1 and an
 R-compatible C++ toolchain, start a fresh R session:
 
 ```r
@@ -31,9 +60,10 @@ remotes::install_github("strug-hub/scRoPE")
 library(scRoPE)
 ```
 
-This installs the default `main` branch, not a tagged release. Before the
-0.3.0 changes are merged into `main`, test the candidate explicitly with
-`remotes::install_github("strug-hub/scRoPE@codex/package-maintenance-0.3")`.
+This installs the default `main` branch, which contains the merged 0.3.0 source.
+To test the automatic-recovery candidate under review, install its branch
+explicitly with
+`remotes::install_github("strug-hub/scRoPE@codex/jln-public-recovery-review")`.
 Package dependencies are listed in [DESCRIPTION](DESCRIPTION).
 
 ## Quick start: 24 genes in one fit
@@ -68,7 +98,12 @@ fit$availability
 `se_robust_x` and `p_robust_x` are its donor-robust standard error and Wald
 p-value. The corresponding model-based results are `se_x` and `p_naive_x`.
 P-values test a zero coefficient, without multiple-testing adjustment.
-Use `availability == "inference"` for certified JLN results.
+`availability == "inference"` indicates that all coefficient Wald results are
+available; it can include recovered working-target fits. Use
+`fit$recovery$routes` to identify the estimator and its limitations, and
+`fit$recovery$coefficients` to select available coefficients, including those
+from a `partial_inference` limiting fit. For strict native JLN, set
+`ln_recovery = "none"`.
 
 Recorded benchmark: **about 11 seconds** for a serial fit on an M3 Max
 MacBook with R 4.5.2; timing depends on hardware and software.
@@ -90,7 +125,7 @@ JLN is the default; select another engine explicitly with `model`.
 
 | Fitting engine | When to use it | Available inference |
 |:--|:--|:--|
-| **Joint-LN (JLN)** — `scrope()` | General multi-donor association analysis, with donor heterogeneity and cell-level overdispersion | Model-based and donor-robust **Wald**; opt-in experimental robust **Score** and **Pace-adjusted ratio** |
+| **Joint-LN (JLN)** — `scrope()` | General multi-donor association analysis, with donor heterogeneity and cell-level overdispersion | Native fits: model-based and donor-robust **Wald**, opt-in experimental robust **Score** and **Pace-adjusted ratio**. Recovered fits: available donor-robust coefficient **Wald** results only. |
 | **Corrected first-order HL** — `model = "HL"` | An alternative negative-binomial gamma mixed-model fit, including null-constrained Score analysis | Donor-robust **Wald**; optional robust **Score** |
 | **Exact PGMM** — `model = "PGMM"` | A simpler Poisson–gamma mixed model with an exact marginal likelihood and optional likelihood-based testing | Model-based and donor-robust **Wald**; optional adjusted **Score** and scaled adjusted **LRT** |
 
@@ -151,3 +186,19 @@ scRoPE builds on the model and computational foundation described in
 [MIT](LICENSE.md). Inherited NEBULA copyright and permission notices are
 retained. [Source provenance and third-party notices](inst/provenance/README.md#maintained-source-mit-declaration)
 document the maintained source and its dependencies.
+
+
+### Explicit JLN research option (development candidate)
+
+`scrope_jln_research(count, id, pred, target = "CFTR_centered", offset = exposure)`
+returns a route-labelled `summary` and preserves ordinary JLN in `primary`.
+It can report a corroborated interior root with an unresolved-search warning or
+a fully refitted fixed-positive-dispersion working fit. This compatibility
+wrapper explicitly uses strict native fits and preserves the earlier rule;
+the main interface above is the supported automatic workflow. See `?scrope_jln_research` for the required inputs,
+fixed constants, numerical gates, and output flags.
+
+This is an explicit research option. Its automatic selection is not selectively
+calibrated, fixed working targets need not equal scientific targets, and finite-
+donor undercoverage has been observed. Inspect `available`, `route`, `warning`
+and `inferential_scope`; no inference is fabricated for nuisance-limit failures.

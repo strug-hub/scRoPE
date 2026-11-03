@@ -1,6 +1,6 @@
 # Methods, inference availability and migration
 
-This guide accompanies the scRoPE 0.3.0 local release candidate. Start with
+This guide accompanies the scRoPE 0.3.1.9000 development candidate. Start with
 [the package quick start](../../README.md) for the 24-gene omitted-slope example.
 The additional route examples below use the separate, smaller `sample_data`
 teaching object (8 genes, 30 donors); they do not use `toy_data`.
@@ -16,6 +16,12 @@ design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
 `model` chooses the fitting engine; `additional_tests` requests supported
 inferential tests. The default engine is joint-LN. Coefficient-wise Wald
 results require no additional-test option.
+
+Joint-LN uses `ln_recovery = "auto"` by default. Accepted native fits retain
+the outputs below. Supported recovered rows return donor-robust coefficient
+Wald inference only; their model-based SE, Score/Pace results and random
+effects remain unavailable. Use `ln_recovery = "none"` for strict native
+behavior. Recovery does not apply to HL or PGMM.
 
 | Engine | Model-based output | Donor-robust output | Optional requests |
 |:--|:--|:--|:--|
@@ -235,54 +241,72 @@ fit_joint <- scrope(
 fit_joint$availability
 ```
 
-The retained joint-LN numerical policy can
+The retained native joint-LN numerical policy can
 resolve an extra nearby numerical endpoint as belonging to the same solution
 basin. When that happens, model-based and donor-robust Wald inference is
 reported from the unchanged certified selected root. The original strict
-decision is retained in provenance. Boundary, distinct-basin, hard-stop, and
-unresolved cases continue to withhold inference. Numerical certification is
-distinct from finite-sample calibration; this remains a local release candidate.
+decision is retained in provenance. Native boundary, distinct-basin, hard-stop,
+and unresolved cases withhold native inference. The default automatic policy
+can subsequently return a certified all-free refinement, an audited
+search-warning fit, a fixed-positive-dispersion fit, or identifiable coefficients
+on a whole-zero-donor limiting face. Recovery requires the default dispersion
+box and `opt = "lbfgs"`; other choices keep native behavior. The limiting route
+requires a first unit intercept, one separating direction and whole-donor
+removal. Unsupported geometry and failed recovery checks remain unavailable.
+Numerical certification is distinct from finite-sample calibration.
 
 `fit_joint$availability` has exactly one row per analyzed gene/request, rather
 than one row per coefficient or contrast. `availability = "inference"` means
-the coefficient, covariance, robust standard error, Wald statistic, and p-value
-are all evaluated at the same certified joint-LN fit. When primary inference is
-unavailable, the affected standard errors, Wald statistics, and p-values remain
-typed `NA`; sc-RoPE does not store `p = 1` or silently substitute results from
-another estimator. Technical route and failure details remain in `provenance`
-and, when requested, `diagnostics`.
+all coefficient Wald results are available; `"partial_inference"` means only
+some are available; `"unavailable"` means none are available. In automatic mode,
+inspect `recovery$routes` for the estimator, working target and limitations and
+`recovery$coefficients` for each coefficient's availability. These tables and
+`test_status` remain when `keep_diagnostics = FALSE`. Standard errors and tests
+use the covariance of the actual free estimating equations. Nonestimable
+coefficients and unsupported uncertainty remain typed `NA`. The original native
+result, including rejected endpoints and vetoes, is retained in
+`recovery$primary`. Active provenance describes the reported route, with the
+strict native fields preserved.
 
 The joint-LN estimator estimates coefficients and dispersions together. It is
 not expected to reproduce the legacy estimator exactly, and its verified
 solution is local rather than a claim of global uniqueness.
 
 Technical route labels are retained in `provenance` for reproducibility and
-debugging, but users do not need them to select results. Use `inference_status`,
-`resolution_status`, and `inference_source` for the primary joint-LN fit.
+debugging. Use `inference_status`, `resolution_status`, and `inference_source`
+for the reported fit, and the recovery tables for coefficient-level selection.
 `strict_inference_status`, `enabled_inference_status`, and `newly_enabled`
 record how the calibration-candidate rule differs from the original strict
-decision. The earlier `route`, `inference_available`, and `failure_reason`
+decision or automatic recovery. The earlier `route`, `inference_available`, and `failure_reason`
 fields remain available for compatibility and expert review.
 
-With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
+With `output_re = TRUE`, native joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters. They
-cannot change coefficient inference.
+cannot change coefficient inference. Recovered rows do not return donor modes.
 
-Model-based and donor-robust Wald are the default JLN tests. Experimental
+Model-based and donor-robust Wald are the native JLN tests. Recovered rows
+support donor-robust coefficient Wald tests only. Experimental
 Score and Pace-adjusted ratio p-values require an explicit optional request
 and the scope and numerical checks described above.
 Switching from the legacy estimator to `joint_ln` may change coefficients,
 standard errors, p-values, convergence statuses, and downstream results.
+
+Fixed-dispersion and limiting-face recovery concern regular working targets.
+Data-selected route/face coverage, equality to the scientific target and FDR
+control are not established. The fresh sparse-donor screen reported 10/99 null
+rejections, also observed for the oracle retained-donor comparator. No
+finite-cluster correction is applied. See [the recovery guide](../doc/jln-recovery.md)
+for the assumptions, numerical checks and bounded empirical evidence.
 
 ### Migration from legacy LN
 
 `ln_estimator = "legacy_post_pml"` and
 `ln_operational_fallback = "legacy_post_pml"` are retired from `scrope()` and
 produce actionable errors. They are not silently translated into joint-LN.
-`ln_operational_fallback = "none"` remains accepted. A rejected joint-LN fit
-continues to report unavailable inference; the candidate does not obtain a
-coefficient or p-value from another estimator. Per-gene model switching is
-also unavailable.
+`ln_operational_fallback = "none"` remains accepted and does not control JLN
+recovery. Use `ln_recovery = "none"` to retain native nonreports. Automatic
+recovery is labelled explicitly and never substitutes the retired legacy fit.
+Per-gene model switching remains unavailable.
 
 Historical reproduction requires the exact original version and settings,
 including its source changes. The retained simulations used multiple versions
@@ -290,8 +314,9 @@ including its source changes. The retained simulations used multiple versions
 is not sufficient provenance. Switching an earlier default call to this
 candidate intentionally changes its estimator and can change its results.
 
-For current results, use `availability == "inference"` for certified primary
-inference and retain `unavailable` outcomes in the planned denominator. Do not
+For current results, inspect per-coefficient availability and route limitations;
+a `partial_inference` gene can have an available scientific coefficient.
+Retain unavailable targets in the planned denominator. Do not
 replace missing p-values with 1. A finite uncertified endpoint remains a
 diagnostic quantity. Historical `estimate_only` sidecars are not generated by
 the maintained workflow.
@@ -515,6 +540,16 @@ a fixed population target or the same interpretation as the intercept at
 unobserved zero-valued predictors. Corrected first-order HL retains its
 original-design coefficient coordinates.
 
+For automatic JLN fits with diagnostics retained,
+`diagnostics$raw[[j]]$robust_cov` uses standardized coefficient coordinates on
+every route. The explicitly labelled `robust_cov_public` uses the centered
+public coefficient units of `summary`; its diagonal matches the reported
+robust SE squared. The retained `coefficient_map_internal_to_public` maps
+internal to public covariance. Nonestimable rows/columns are `NA`; when mapping
+a partial covariance, use its estimable submatrix to avoid propagating missing
+entries through a matrix product. `recovery$primary` retains native diagnostics
+unchanged, including the native covariance convention.
+
 `nbresidual()` recognizes corrected first-order HL output and reconstructs its
 means using the original design coordinates. Supply the original `pred`,
 positive `offset`, and matching cell/donor ordering. JLN and PGMM retain their
@@ -549,6 +584,8 @@ The returned object also contains:
 - `overdispersion`: fitted working-model overdispersion parameters;
 - `convergence` and `algorithm`: per-gene fitting status;
 - `availability`: one joint-LN status row per analyzed gene/request;
+- `recovery`: in automatic JLN mode, route and coefficient tables, the original
+  native result, and detailed recovery diagnostics when requested;
 - `test_status`: JLN per-test availability and failure reasons, retained even
   when detailed diagnostic objects are omitted;
 - `provenance`: estimator definition and technical information about each fit;
