@@ -79,15 +79,28 @@ ln_joint_psock_differences <- function(actual, expected, tolerance = 1e-8,
     }), use.names = FALSE))
   }
   if (is.double(actual)) {
-    # Preserve missing/nonfinite locations and kinds; finite values use the
-    # same tolerance as the pre-existing numerical PSOCK comparison.
+    # Preserve missing/nonfinite locations and kinds and the existing relative
+    # comparison. Near-zero score/probe diagnostics also allow 1e-12 absolute
+    # roundoff, well below the 1e-6 root and 1e-8 curvature certificates.
     if (!identical(is.na(actual), is.na(expected)) ||
         !identical(is.nan(actual), is.nan(expected)) ||
         !identical(is.finite(actual), is.finite(expected))) {
       return(fail("missing or nonfinite states differ"))
     }
     comparison <- all.equal(actual, expected, tolerance = tolerance)
-    if (!isTRUE(comparison)) return(fail(paste(comparison, collapse = "; ")))
+    if (!isTRUE(comparison)) {
+      absolute_fields <- c(
+        "score", "g_red", "q_gradient_reduced", "U_reduced",
+        "reduced_gradient_max_abs", "max_abs_newton_step_scaled",
+        "root_residual", "curvature_compatibility", "nuisance_root_scaled"
+      )
+      finite <- is.finite(actual)
+      within_floor <- field %in% absolute_fields &&
+        identical(actual[!finite], expected[!finite]) &&
+        all(abs(actual[finite] - expected[finite]) <=
+              1e-12 + tolerance * pmax(abs(actual[finite]), abs(expected[finite])))
+      if (!within_floor) return(fail(paste(comparison, collapse = "; ")))
+    }
   } else if (!identical(actual, expected)) {
     return(fail("exact values differ"))
   }
@@ -190,6 +203,36 @@ test_that("PSOCK diagnostic comparison tolerates only numerical text differences
     list(theta_reduced = "<missing>"), list(theta_reduced = "<malformed>"))), 0L)
   expect_gt(length(ln_joint_psock_differences(
     list(theta_reduced = "NA"), list(theta_reduced = "NaN"))), 0L)
+})
+
+test_that("PSOCK absolute floor applies only to small diagnostic roundoff", {
+  fields <- c("score", "g_red", "q_gradient_reduced", "U_reduced",
+    "reduced_gradient_max_abs", "max_abs_newton_step_scaled",
+    "root_residual", "curvature_compatibility", "nuisance_root_scaled")
+  baseline <- c(0, 3.7e-7)
+  roundoff <- baseline + 2e-13
+  for (field in fields) {
+    expect_length(ln_joint_psock_differences(roundoff, baseline, field = field), 0L)
+    expect_gt(length(ln_joint_psock_differences(baseline + 2e-11, baseline,
+      field = field)), 0L)
+  }
+  # Coefficients and p-values retain their previous relative-only comparison.
+  for (field in c("beta", "p_value")) {
+    expect_gt(length(ln_joint_psock_differences(roundoff, baseline,
+      field = field)), 0L)
+  }
+  expect_length(ln_joint_psock_differences(1e6 + 1e-3, 1e6, field = "score"), 0L)
+  expect_gt(length(ln_joint_psock_differences(1e6 + 1, 1e6, field = "score")), 0L)
+  for (pair in list(list(Inf, -Inf), list(NA_real_, NaN),
+                   list(c(0, NA_real_), c(NA_real_, 0)))) {
+    expect_gt(length(ln_joint_psock_differences(pair[[1L]], pair[[2L]],
+      field = "score")), 0L)
+  }
+  expect_gt(length(ln_joint_psock_differences(0, 0L, field = "score")), 0L)
+  expect_gt(length(ln_joint_psock_differences(c(a = 0), c(b = 0),
+    field = "score")), 0L)
+  expect_gt(length(ln_joint_psock_differences(list(score = 0, route = "R0"),
+    list(score = 0, route = "R2"))), 0L)
 })
 
 test_that("joint-LN diagnostic keys are exact identities within one fit", {
@@ -397,7 +440,15 @@ test_that("installed joint-LN PSOCK fits use the running package", {
     two$provenance$per_gene$resolution_mode ==
       "calibration_candidate_enabled"
   ))
-  expect_equal(one$lrt_details, two$lrt_details, tolerance = 1e-8)
+  diagnostic_columns <- c("reduced_gradient_max_abs", "max_abs_newton_step_scaled")
+  public_columns <- setdiff(names(one$lrt_details), diagnostic_columns)
+  expect_equal(one$lrt_details[public_columns], two$lrt_details[public_columns],
+    tolerance = 1e-8)
+  diagnostic_differences <- ln_joint_psock_differences(
+    one$lrt_details[diagnostic_columns], two$lrt_details[diagnostic_columns],
+    tolerance = 1e-8, path = "lrt_details")
+  expect_identical(length(diagnostic_differences), 0L, info = paste(diagnostic_differences,
+    collapse = "\n"))
   for (raw in list(one$diagnostics$raw, two$diagnostics$raw)) {
     errors <- ln_joint_psock_key_errors(raw)
     expect_identical(length(errors), 0L, info = paste(errors, collapse = "\n"))
