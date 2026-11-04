@@ -4,11 +4,12 @@ test_that("default recovery preserves successful native estimates and supports s
     x<-fx[[nm]]$input
     a<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE))
     n<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,ln_recovery='none'))
-    expect_identical(a$recovery$primary$summary,n$summary)
-    expect_identical(a$recovery$primary$overdispersion,n$overdispersion)
+    expect_recovery_refit_table(a$recovery$primary$summary,n$summary)
+    expect_recovery_refit_table(a$recovery$primary$overdispersion,n$overdispersion,
+      numerical=c("Subject","Cell"))
     expect_true(all(a$recovery$coefficients$available))
     expect_false(any(a$recovery$routes$selection_adjusted))
-    if(nm=='ordinary')expect_identical(a$summary,n$summary)
+    if(nm=='ordinary')expect_recovery_refit_table(a$summary,n$summary)
     else {
       expect_true(a$recovery$routes$added)
       expect_true(all(is.na(a$summary[grep('^se_',names(a$summary),value=TRUE)[!grepl('robust',grep('^se_',names(a$summary),value=TRUE))]])))
@@ -37,7 +38,7 @@ test_that("whole-zero-donor face reports only identifiable coefficients", {
   expect_equal(a$summary$logFC_x,o$summary$logFC_x,tolerance=1e-10)
   expect_equal(a$summary$se_robust_x,o$summary$se_robust_x,tolerance=1e-10)
   compact<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=FALSE))
-  expect_identical(compact$summary,a$summary)
+  expect_recovery_refit_table(compact$summary,a$summary)
   expect_null(compact$diagnostics);expect_null(compact$recovery$diagnostics)
   expect_null(compact$recovery$primary$diagnostics)
 })

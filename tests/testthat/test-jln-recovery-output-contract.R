@@ -11,13 +11,21 @@ test_that("automatic covariance coordinates agree across native and recovered ro
     cpc = 0, mincp = 1, verbose = FALSE, ln_recovery = "none"))
   expect_identical(fit$recovery$routes$route, c("ordinary_jln", "fixed_v"))
   # Fresh native fits have different objective-instance IDs and RNG receipts.
-  # Their public results/provenance and native covariance must be preserved.
-  fields <- setdiff(names(strict), "diagnostics")
+  # Numerical results can have roundoff; all other public metadata stays exact.
+  fields <- setdiff(names(strict), c("diagnostics", "summary", "overdispersion"))
   expect_identical(fit$recovery$primary[fields], strict[fields])
-  expect_identical(fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov,
+  expect_recovery_refit_table(fit$recovery$primary$summary, strict$summary)
+  expect_recovery_refit_table(fit$recovery$primary$overdispersion, strict$overdispersion,
+    numerical = c("Subject", "Cell"))
+  expect_recovery_refit_numeric(fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov,
     strict$diagnostics$raw[[1L]]$robust_cov)
   expect_null(fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov_public)
-  expect_identical(fit$summary[1L, ], strict$summary[1L, ])
+  expect_recovery_refit_table(fit$summary[1L, ], strict$summary[1L, ])
+  # Preservation within the same fit still requires bitwise identity.
+  expect_identical(fit$summary[1L, ], fit$recovery$primary$summary[1L, ])
+  expect_identical(fit$overdispersion[1L, ], fit$recovery$primary$overdispersion[1L, ])
+  expect_identical(fit$diagnostics$raw[[1L]]$robust_cov,
+    fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov)
   M <- fit$provenance$coefficient_map_internal_to_public
   for (j in seq_len(nrow(count))) {
     raw <- fit$diagnostics$raw[[j]]
@@ -70,14 +78,7 @@ test_that("partial recovery keeps covariance and status on the estimable coordin
   fit <- run(TRUE)
   compact <- run(FALSE)
   expect_identical(fit$recovery$routes$route, "identifiable_nuisance_limit")
-  # Independent fits can differ at optimizer precision across platforms. This
-  # 1e-10 tolerance is tighter than the 1e-6 root/Newton certificates; identifiers,
-  # types and statuses stay exact.
-  numerical <- grep("^(logFC_|se_|p_|wald_stat_)", names(fit$summary), value = TRUE)
-  metadata <- setdiff(names(fit$summary), numerical)
-  expect_identical(lapply(fit$summary, class), lapply(compact$summary, class))
-  expect_identical(fit$summary[metadata], compact$summary[metadata])
-  expect_equal(fit$summary[numerical], compact$summary[numerical], tolerance = 1e-10)
+  expect_recovery_refit_table(fit$summary, compact$summary)
   expect_identical(fit$provenance$per_gene, compact$provenance$per_gene)
   expect_identical(compact$recovery$coefficients, fit$recovery$coefficients)
   expect_identical(compact$provenance$per_gene$enabled_failure_reason,
@@ -98,4 +99,62 @@ test_that("partial recovery keeps covariance and status on the estimable coordin
     tolerance = 1e-12)
   expect_true(all(fit$test_status$failure_stage[!keep] == "coefficient_estimability"))
   expect_true(all(is.na(fit$test_status$failure_stage[keep])))
+})
+
+test_that("refit comparison tolerates only fitted numerical roundoff", {
+  baseline <- data.frame(gene_id = 1L, gene = "synthetic", route = "ordinary_jln",
+    wald_success_x = TRUE, logFC_x = 0.2, se_robust_x = 0.1, p_robust_x = 0.05,
+    logFC_region = NA_real_, fixed_donor_variance = 1e-4,
+    finite_cluster_multiplier = 1, stringsAsFactors = FALSE)
+  close <- baseline
+  for (name in c("logFC_x", "se_robust_x", "p_robust_x"))
+    close[[name]] <- close[[name]] + 1e-13
+  expect_length(recovery_refit_table_differences(close, baseline), 0L)
+  for (name in c("logFC_x", "se_robust_x", "p_robust_x")) {
+    changed <- baseline
+    changed[[name]] <- changed[[name]] + 1e-6
+    expect_gt(length(recovery_refit_table_differences(changed, baseline)), 0L)
+  }
+  for (name in c("gene_id", "gene", "route", "wald_success_x",
+                 "fixed_donor_variance", "finite_cluster_multiplier")) {
+    changed <- baseline
+    changed[[name]] <- switch(name, gene_id = 2L, gene = "other", route = "withheld",
+      wald_success_x = FALSE, baseline[[name]] + 1e-13)
+    expect_gt(length(recovery_refit_table_differences(changed, baseline)), 0L)
+  }
+  changed <- baseline
+  changed$gene_id <- as.double(changed$gene_id)
+  expect_gt(length(recovery_refit_table_differences(changed, baseline)), 0L)
+  changed <- baseline
+  changed$logFC_region <- 0
+  expect_gt(length(recovery_refit_table_differences(changed, baseline)), 0L)
+  changed$logFC_region <- NaN
+  expect_gt(length(recovery_refit_table_differences(changed, baseline)), 0L)
+  changed <- baseline
+  rownames(changed) <- "other"
+  expect_gt(length(recovery_refit_table_differences(changed, baseline)), 0L)
+  expect_gt(length(recovery_refit_table_differences(baseline[rev(names(baseline))],
+    baseline)), 0L)
+  expect_gt(length(recovery_refit_table_differences(baseline[-1L], baseline)), 0L)
+
+  research <- data.frame(gene_id = 1L, route = "fixed_v", coefficient = 0.2,
+    se_robust = 0.1, p_robust = 0.05, ci_lower = 0, ci_upper = 0.4,
+    fixed_donor_variance = 1e-4, finite_cluster_multiplier = 1)
+  changed <- research
+  changed$ci_lower <- 1e-13
+  expect_length(recovery_refit_table_differences(changed, research), 0L)
+  changed$ci_lower <- 1e-6
+  expect_gt(length(recovery_refit_table_differences(changed, research)), 0L)
+
+  covariance <- matrix(c(1, 0.1, 0.1, 2), 2,
+    dimnames = list(c("x", "z"), c("x", "z")))
+  expect_length(recovery_refit_numeric_differences(covariance + 1e-13, covariance), 0L)
+  expect_gt(length(recovery_refit_numeric_differences(covariance + 1e-6,
+    covariance)), 0L)
+  changed <- covariance
+  dimnames(changed) <- NULL
+  expect_gt(length(recovery_refit_numeric_differences(changed, covariance)), 0L)
+  expect_gt(length(recovery_refit_numeric_differences(0, 0L)), 0L)
+  expect_gt(length(recovery_refit_numeric_differences(Inf, -Inf)), 0L)
+  expect_gt(length(recovery_refit_numeric_differences(NA_real_, NaN)), 0L)
 })

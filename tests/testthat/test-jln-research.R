@@ -29,9 +29,10 @@ test_that("native results and disabled research policies remain explicit", {
   x <- f$ordinary$input
   native <- scrope(count = x$y, id = x$id, pred = x$X, offset = x$offset,
     model = "LN", cpc = 0, mincp = 1L, ncore = 1L, verbose = FALSE)
-  expect_identical(fit$primary$summary, native$summary)
-  expect_identical(fit$primary$overdispersion, native$overdispersion)
-  expect_identical(fit$primary$diagnostics$raw[[1]]$ln_joint$state$A_full,
+  expect_recovery_refit_table(fit$primary$summary, native$summary)
+  expect_recovery_refit_table(fit$primary$overdispersion, native$overdispersion,
+    numerical = c("Subject", "Cell"))
+  expect_recovery_refit_numeric(fit$primary$diagnostics$raw[[1]]$ln_joint$state$A_full,
                    native$diagnostics$raw[[1]]$ln_joint$state$A_full)
   expect_false(fit$summary$research_added)
   disabled <- suppressWarnings(research_call(f$zero, boundary = FALSE, dominated_warning = FALSE))
@@ -50,7 +51,7 @@ test_that("target selection and diagnostic retention do not change the fit", {
   lean <- suppressWarnings(research_call(f, target = "z", keep_diagnostics = FALSE))
   expect_equal(full$summary$coefficient, unname(f$z_expected["beta"]), tolerance = 1e-9)
   expect_equal(full$summary$se_robust, unname(f$z_expected["se"]), tolerance = 1e-9)
-  expect_identical(full$summary, lean$summary)
+  expect_recovery_refit_table(full$summary, lean$summary)
   expect_null(lean$diagnostics)
   expect_null(lean$primary$diagnostics)
   expect_false(is.null(full$diagnostics))
