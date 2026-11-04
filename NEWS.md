@@ -1,4 +1,22 @@
-# scRoPE 0.3.0 — unreleased local preparation
+## scRoPE 0.3.1.9000 (draft patch candidate)
+
+- Make JLN-first recovery available through `scrope(..., ln_recovery = "auto")`, the new LN default. `ln_recovery = "none"` preserves strict native behavior. Accepted ordinary fits are retained unchanged.
+- Support bounded all-free numerical refinement, the narrowly audited dominated-start warning, and fixed-positive-dispersion working fits with the exact free-parameter donor sandwich.
+- Add a general identifiable limiting-face route for a unique separating design direction affecting only whole all-zero donors. Report only estimable coefficients; nonestimable intercept/nuisance coefficients remain missing. The reduced JLN criterion is the exact full-objective limit.
+- Preserve native results in `recovery$primary`; expose route/working-target/selection warnings and coefficient-level availability. Recovered rows support donor-robust coefficient Wald tests only. Their model-based SE, optional Score/LRT and random effects are unavailable.
+- Audit retained native recovery endpoints, including unadopted attempts, before promoting a local fit. Keep active failure metadata consistent with the reported route and label both standardized and public covariance coordinates.
+- Keep the earlier `scrope_jln_research()` wrapper for reproducibility of the old opt-in rule. It explicitly uses strict native fits and does not include the new limiting-face route.
+- Data-selected route/face coverage, scientific-target equality and FDR calibration are not guaranteed. Prior finite-donor undercoverage remains documented. This development candidate is under review and is not a released version.
+
+## scRoPE 0.3.0.9003 (isolated research candidate)
+
+- Add `scrope_jln_research()` as an explicit opt-in combined JLN research workflow with labelled native, dominated-start warning, fixed-dispersion and withheld routes. Existing entry points and defaults are unchanged.
+- Retain the original positive-domain criterion and free-parameter donor sandwich, with a bounded evaluation-guard repair. Research selection/working-target limitations and observed finite-donor undercoverage are explicit; no general selective or FDR calibration is claimed.
+
+# scRoPE 0.3.0 — merged source
+
+The 0.3.0 source was merged into `main` in PR #1. The development-history notes
+below describe its preparation.
 
 - Expose JLN donor-robust Score and Pace-adjusted working-objective-ratio
   p-values as experimental, asymptotic outputs through the existing opt-in

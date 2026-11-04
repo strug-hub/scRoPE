@@ -38,7 +38,7 @@ scrope_psock_library_paths <- function() {
 #' @param kappa Retired legacy LN refinement threshold. Ignored by joint-LN;
 #'   non-default values are rejected by HL and PGMM.
 #' @param allow_per_gene_switch Retained compatibility argument; must be `FALSE`.
-#'   One requested route is used for every gene.
+#'   Does not control JLN recovery; use `ln_recovery` for that policy.
 #' @param use_betas Retired legacy LN variance-refinement anchor, retained for
 #'   compatibility and ignored by joint-LN. Accepts `"betae"` or `"final_betas"`.
 #'   The non-default option is unavailable for PGMM and ignored with a warning
@@ -106,12 +106,15 @@ scrope_psock_library_paths <- function() {
 #'
 #' Because the three routes share one function signature, non-LN routes accept
 #' explicit default values of LN-only compatibility arguments. A non-default
-#' LN-only value is rejected rather than silently ignored, except where the
-#' route-specific documentation explicitly promises a warning.
+#' LN-only value is rejected unless the parameter documentation explicitly
+#' states otherwise (for example, `ln_recovery` is ignored outside LN).
 #'
-#' For genes passing the joint-LN numerical checks, model-based and robust Wald
-#' inference is returned. Otherwise, covariance, standard errors, Wald
-#' statistics, and p-values are `NA`.
+#' Accepted native joint-LN fits return model-based and robust Wald inference.
+#' With `ln_recovery = "auto"`, failed native fits may obtain coefficient-wise
+#' robust Wald results from a supported recovery route. Recovered rows have no
+#' model-based SE, Score/LRT or random-effect output. Unavailable coefficients
+#' retain `NA` standard errors, Wald statistics and p-values. With
+#' `ln_recovery = "none"`, the strict native result is returned.
 #'
 #' Joint-LN optional Score and Pace-adjusted ratio tests are experimental and
 #' asymptotic. Their initial public scope is a scalar zero-null single
@@ -155,10 +158,13 @@ scrope_psock_library_paths <- function() {
 #' to joint-LN.
 #'
 #' For joint-LN, `availability` gives exactly one row per analyzed gene/request:
-#' `"inference"` for certified primary Wald inference, or `"unavailable"`.
-#' A finite diagnostic endpoint is never promoted to an operational estimate.
-#' One consolidated availability warning is emitted when any row lacks primary
-#' inference.
+#' `"inference"` when all coefficient Wald results are available,
+#' `"partial_inference"` when only some are available, or `"unavailable"`.
+#' Inspect `recovery$routes` for the estimator and its limitations and
+#' `recovery$coefficients` for individual coefficient availability. These tables
+#' remain available with `keep_diagnostics = FALSE`. A finite endpoint alone
+#' does not establish inference. One consolidated warning reports recovery or
+#' unavailable native inference.
 #' Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
 #' `inference_status`, `strict_inference_status`,
 #' `enabled_inference_status`, `resolution_status`, `inference_source`,
@@ -166,19 +172,32 @@ scrope_psock_library_paths <- function() {
 #' `availability`, `reason_group`, `status_message`, `inference_supported`,
 #' `estimate_source`, `attention_flag`, and `technical_code`. The compact
 #' `provenance$per_gene` table also retains strict and enabled route codes,
-#' failure reasons, policy identity, mode, and all veto classes. Earlier
+#' failure reasons, policy identity, mode, and active veto classes. Under
+#' automatic recovery, `recovery$primary` retains the unchanged native result,
+#' including its original failure reasons and veto classes. Earlier
 #' `route`, `inference_available`, and `failure_reason` fields are retained for
 #' compatibility.
 #'
 #' Family-level FDR control is not established by this experimental exposure.
-#' Internal route codes and numerical checks are retained only in provenance
-#' and diagnostics.
+#' Detailed numerical checks are retained in provenance and diagnostics.
+#' In automatic mode, `diagnostics$raw[[j]]$robust_cov` retains standardized
+#' coefficient coordinates on every route; `robust_cov_public` uses the
+#' centered public coefficient units of `summary`. Both carry coordinate
+#' labels. Nonestimable covariance rows and columns remain `NA`.
 #'
 #' With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 #' conditional PML predictions evaluated at the plug-in joint-LN parameters.
 #' They do not alter coefficients, dispersions, covariance, tests, or
 #' convergence.
 #'
+#' @param ln_recovery JLN recovery policy: `"auto"` (default) retains accepted
+#'   native fits and attempts certified numerical refinement, dominated-start
+#'   warning, fixed-positive-dispersion and identifiable whole-zero-donor limiting
+#'   fits when needed. `"none"` preserves strict native behavior. Recovery requires
+#'   the default dispersion box and `opt="lbfgs"`; other boxes/backends keep native
+#'   results. Ignored by HL/PGMM. Recovery supports coefficient donor-robust Wald
+#'   tests only. Inspect `recovery$routes` and `recovery$coefficients` for working
+#'   target, selection and coefficient-estimability limitations.
 #' @param pgmm_control PGMM main unconstrained `nlminb` budget: a named list
 #'   with positive integer `iter.max` and/or `eval.max`. Missing entries default
 #'   to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
@@ -189,7 +208,8 @@ scrope_psock_library_paths <- function() {
 #' @return A list with elements `summary`, `overdispersion`, `convergence`,
 #'   `algorithm`, optional `random_effect`, `diagnostics`, optional
 #'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-#'   and, for joint-LN, the one-row-per-gene `availability` table and per-test
+#'   and, for joint-LN, `recovery` (automatic mode), the one-row-per-gene
+#'   `availability` table and per-test
 #'   `test_status`. No legacy operational fallback component is generated.
 #'
 #' @useDynLib scRoPE, .registration = TRUE
@@ -222,7 +242,9 @@ scrope <- function(
     model = c("LN", "HL", "PGMM"),
     ln_estimator = "joint_ln",
     ln_operational_fallback = "none",
-    pgmm_control = NULL) {
+    pgmm_control = NULL,
+    ln_recovery = c("auto", "none")) {
+  ln_recovery <- match.arg(ln_recovery)
   cutoff_cell_missing <- missing(cutoff_cell)
   kappa_missing <- missing(kappa)
   ln_estimator <- match.arg(ln_estimator, c("joint_ln", "legacy_post_pml"))
@@ -376,6 +398,9 @@ scrope <- function(
   if (is.null(rownames(count))) {
     rownames(count) <- paste0("Gene", seq_len(nrow(count)))
   }
+  recovery_input <- if (identical(ln_recovery, "auto") && identical(ln_estimator, "joint_ln"))
+    list(count=count, pred=if(is.null(pred)) matrix(1,ncol(count),1,dimnames=list(NULL,"(Intercept)")) else as.matrix(pred),
+         id=id, offset=if(is.null(offset)) rep(1,ncol(count)) else offset) else NULL
   gname <- rownames(count)
   ngene <- nrow(count)
 
@@ -1604,6 +1629,7 @@ scrope <- function(
           if (is.null(value) || length(value) == 0L) default else value[[1L]]
         }
         data.frame(
+          gene_id = if (identical(ln_recovery, "auto")) gid[idx] else NULL,
           gene = gene_labels[idx],
           contrast = lrt_defs[[nm]]$label,
           stat = res$stat,
@@ -1745,10 +1771,14 @@ scrope <- function(
       gene_names = gname[gid],
       operational_fallback = NULL
     )
-    ln_availability_warn(
-      result_list$availability,
-      operational_fallback_requested = FALSE
-    )
+    if (identical(ln_recovery, "auto")) {
+      result_list <- ln_recovery_apply(result_list, gene_results, recovery_input,
+        enabled=identical(as.numeric(min), c(1e-4,1e-4)) &&
+          identical(as.numeric(max), c(10,1000)) && identical(opt,"lbfgs"),
+        keep_diagnostics=keep_diagnostics)
+    } else {
+      ln_availability_warn(result_list$availability, operational_fallback_requested=FALSE)
+    }
   }
 
   return(result_list)
