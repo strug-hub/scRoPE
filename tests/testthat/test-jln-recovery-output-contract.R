@@ -70,7 +70,13 @@ test_that("partial recovery keeps covariance and status on the estimable coordin
   fit <- run(TRUE)
   compact <- run(FALSE)
   expect_identical(fit$recovery$routes$route, "identifiable_nuisance_limit")
-  expect_identical(fit$summary, compact$summary)
+  # Independent fits may differ in their final floating-point bits. Keep the
+  # 1e-12 numerical tolerance used above; identifiers, types and statuses stay exact.
+  numerical <- grep("^(logFC_|se_|p_|wald_stat_)", names(fit$summary), value = TRUE)
+  metadata <- setdiff(names(fit$summary), numerical)
+  expect_identical(lapply(fit$summary, class), lapply(compact$summary, class))
+  expect_identical(fit$summary[metadata], compact$summary[metadata])
+  expect_equal(fit$summary[numerical], compact$summary[numerical], tolerance = 1e-12)
   expect_identical(fit$provenance$per_gene, compact$provenance$per_gene)
   expect_identical(compact$recovery$coefficients, fit$recovery$coefficients)
   expect_identical(compact$provenance$per_gene$enabled_failure_reason,
