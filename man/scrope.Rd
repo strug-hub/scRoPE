@@ -27,28 +27,17 @@ scrope(
   lrt_contrasts = NULL,
   lrt_include_scale = FALSE,
   lrt_details = FALSE,
-  keep_diagnostics = TRUE,
+  keep_diagnostics = FALSE,
   model = c("LN", "HL", "PGMM"),
   ln_estimator = "joint_ln",
   ln_operational_fallback = "none",
   pgmm_control = NULL,
   ln_recovery = c("auto", "none"),
-  hl_score_recovery = c("none", "stable")
+  hl_score_recovery = c("none", "stable"),
+  recovery = c("auto", "none")
 )
 }
 \arguments{
-\item{hl_score_recovery}{Experimental HL Score numerical policy. \code{"none"}
-(default) preserves native results. \code{"stable"} retries ambiguous finite
-full-chi Score roots using stable Gamma arithmetic and cold refinement,
-retaining all native roots, the original configuration and certification gates.
-Any failed cold evaluation withholds the retry; rejected warm evaluations are
-recorded in its failure ledger. Accepted native results are preserved. Requires \code{model="HL"}; used only
-for requested Score tests. This does not repair boundary fits, change Wald
-inference or establish finite-sample calibration. Full retry evidence is in
-the Score object's \code{numerical_recovery} diagnostics. When recovery is
-considered, a compact \code{hl_score_recovery} route table is retained even
-with \code{keep_diagnostics=FALSE}.}
-
 \item{count}{Gene-by-cell count matrix (dense matrix or `dgCMatrix`).}
 
 \item{id}{Vector of subject identifiers aligned with the columns of `count`.}
@@ -125,10 +114,11 @@ If neither optional test was requested, `TRUE` or a non-`NULL`
 `lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
 does not additionally request LRT or its details table.}
 
-\item{keep_diagnostics}{Logical; retain per-gene diagnostic objects. For HL,
-`FALSE` also suppresses optional solver histories and cross-gene retention
-of full fits; required scientific computations and public summaries remain
-unchanged (see [scrope_hl()]).}
+\item{keep_diagnostics}{Logical, default `FALSE`. Retain full native and
+recovered fits, donor arrays and detailed audit histories only when `TRUE`.
+Required acceptance checks still run in compact mode. Compact availability,
+native evidence, optimizer provenance and audit summaries remain available.
+This controls retention, not the numerical acceptance policy.}
 
 \item{model}{Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
@@ -148,7 +138,16 @@ by the other routes as a shared-signature compatibility argument.}
 is supported. `"legacy_post_pml"` raises an error. Unavailable joint-LN
 inference is never replaced with a legacy fit.}
 
-\item{ln_recovery}{JLN recovery policy: `"auto"` (default) retains accepted
+\item{pgmm_control}{PGMM main unconstrained `nlminb` budget: a named list
+with positive integer `iter.max` and/or `eval.max`. Missing entries default
+to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
+the earlier optimizer limits. This does not change tolerances, starts,
+constrained/profile fit controls, or retry policy, and is not a total
+fitting-work cap. It applies only to `model = "PGMM"`.}
+
+\item{ln_recovery}{Backward-compatible JLN recovery policy. An explicit value
+is used when `recovery` is omitted; conflicting explicit LN values are an
+error. Ignored by HL/PGMM. `"auto"` retains accepted
 native fits and attempts certified numerical refinement, dominated-start
 warning, fixed-positive-dispersion and identifiable whole-zero-donor limiting
 fits when needed. `"none"` preserves strict native behavior. Recovery requires
@@ -157,12 +156,29 @@ results. Ignored by HL/PGMM. Recovery supports coefficient donor-robust Wald
 tests only. Inspect `recovery$routes` and `recovery$coefficients` for working
 target, selection and coefficient-estimability limitations.}
 
-\item{pgmm_control}{PGMM main unconstrained `nlminb` budget: a named list
-with positive integer `iter.max` and/or `eval.max`. Missing entries default
-to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
-the earlier optimizer limits. This does not change tolerances, starts,
-constrained/profile fit controls, or retry policy, and is not a total
-fitting-work cap. It applies only to `model = "PGMM"`.}
+\item{hl_score_recovery}{Experimental HL Score numerical policy. `"none"`
+(default) preserves native results. `"stable"` retries ambiguous finite
+full-chi Score roots using stable Gamma arithmetic and cold refinement,
+retaining all native roots, the original configuration and certification
+gates. Any failed cold evaluation withholds the retry; rejected warm
+evaluations are recorded in its failure ledger. Accepted native results
+are preserved. Requires `model="HL"`;
+used only for requested Score tests. This does not repair boundary fits,
+change Wald inference or establish finite-sample calibration. Full retry
+evidence is in the Score object's `numerical_recovery` diagnostics. When
+recovery is considered, a compact `hl_score_recovery` route table is
+retained even with `keep_diagnostics=FALSE`.}
+
+\item{recovery}{Common recovery policy, `"auto"` by default or `"none"` for
+native-only estimates and inference. Supported HL/PGMM working recovery
+requires the default dispersion box and preserves the requested estimator.
+Whole-fit qualification can withhold a previously reported native PGMM
+scalar; original native outputs remain in `recovery$primary`. Recovered
+inference is coefficient-wise donor-robust Wald only. Free-dispersion HL
+nuisance limits remain point-only. Native optional tests are preserved for
+native-selected genes and segregated under `primary` for replaced genes.
+Use `availability`, `coefficient_availability` and `test_status` to aggregate
+selected results; `convergence` retains method-specific legacy meanings.}
 }
 \value{
 A list with elements `summary`, `overdispersion`, `convergence`,
@@ -226,7 +242,7 @@ acceptance rules before creating a tail. Raw `wP` is not a public
 ordinary likelihood-ratio test, and `p_naive_*` remains model-based Wald.
 
 Retained scalar-zero simulations show materially different calibration for
-cell- and subject-level predictors: cell-level 5\% rejection is near nominal
+cell- and subject-level predictors: cell-level 5% rejection is near nominal
 across the studied settings, while subject-level rejection is inflated,
 especially under strong hidden variation. Rates conditional on available
 results do not establish unconditional calibration. Numerical checks do not

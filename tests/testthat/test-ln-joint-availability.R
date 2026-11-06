@@ -445,6 +445,7 @@ test_that("compact descriptive provenance does not require raw diagnostics", {
     mincp = 1,
     ncore = 1L,
     keep_diagnostics = FALSE,
+    recovery = "none",
     ln_estimator = "joint_ln"
   )
   compact <- fit$provenance$per_gene
@@ -505,7 +506,7 @@ test_that("joint-LN output retains typed missing inference and expert detail", {
 
   availability_messages <- captured$messages[startsWith(
     captured$messages,
-    "Joint-LN inference was unavailable for"
+    "scRoPE LN recovery:"
   )]
   expect_length(availability_messages, 1L)
 })

@@ -15,7 +15,8 @@ scrope_working(count, id, pred = NULL, offset = NULL,
 \item{cpc}{Minimum counts-per-cell threshold for gene filtering.}
 \item{mincp}{Minimum number of nonzero cells required to keep a gene.}
 \item{keep_diagnostics}{Retain full native and recovery objects. The default
-retains compact acceptance and failure ledgers. Computation and acceptance
+retains compact acceptance/failure summaries and a bounded failure witness,
+without complete event ledgers or donor arrays. Computation and acceptance
 are unchanged; native fitting is sequential in this interface.}
 \item{verbose}{Print progress messages.}
 }
@@ -23,7 +24,8 @@ are unchanged; native fitting is sequential in this interface.}
 Runs the requested native estimator first, preserving its result in
 \code{primary}. An explicit call opts into separately labelled estimates
 from certified positive-dispersion working fits or identifiable limiting
-equations. Ordinary package defaults are unchanged.
+equations. Ordinary \code{scrope()} and \code{scrope_hl()} now assess eligible
+working routes automatically; \code{recovery="none"} selects native-only behavior.
 }
 \details{
 Recovery uses the default dispersion guards and fixed donor parameter
@@ -76,21 +78,24 @@ together with \code{scope} and \code{sampling_target} for the selected output.
 A reported coefficient variance does not establish joint covariance rank or
 calibration.
 
-Use \code{summary} for reported coefficients and uncertainty. Compact
-\code{beta_report}/\code{V_report} are unmasked diagnostic representatives;
-nonestimable entries must not be used as estimates. For recovered PGMM fits, compact
-\code{audit[[gene]]$fit} is the native input endpoint; selected full-system
-parameters/equations are at the top level of \code{diagnostics[[gene]]} when
-requested. HL's recovered \code{fit} contains its selected augmented state.
-Preserved native routes have no recovery state; full native fitting objects
-are in \code{primary} diagnostics when retained. On withheld routes, fixed values
-may describe an attempted mask rather than an available selected result.
-\code{failure} describes coefficient-level withholding separately from the
-fit's certificate. HL \code{history_audit} and \code{history_capture} report
-configuration identities, observations, replay counts and scope. On refusal,
-\code{history_audit$history_evidence} retains the augmented ledger, including
-generated pending events and overflow accounting. Top-level \code{history_evidence}
-is the original collector snapshot.
+Use \code{summary} for reported coefficients and uncertainty. Unmasked
+\code{beta_report}/\code{V_report} representatives are retained only in full
+recovery diagnostics; nonestimable entries are not reportable estimates.
+For recovered PGMM fits, selected full-system parameters and equations are at
+the top level of \code{diagnostics[[gene]]}; its \code{fit} is the native input
+endpoint. HL's recovered \code{fit} contains its selected augmented state.
+Native public results remain in \code{primary}; full fits are optional.
+On withheld routes, fixed values may describe an attempted mask rather than
+an available selected result. \code{failure} describes coefficient-level
+withholding separately from the fit's certificate.
+
+Compact HL audits retain identities, checked/generated/pending/dropped counts,
+limits, comparison summaries and one bounded failure witness. With
+\code{keep_diagnostics=TRUE}, \code{history_audit$observations} contains detailed
+processed observations and \code{history_audit$history_evidence} retains the
+augmented refusal ledger; top-level \code{history_evidence} is the original
+collector snapshot. Full event/replay ledgers are absent in compact mode.
+
 }
 \seealso{
 \code{\link{scrope}}, \code{\link{scrope_hl}}.

@@ -1,10 +1,18 @@
-# Explicit HL and PGMM working fits
+> Retention update: detailed audit observations, complete histories and full fits
+> are returned only with `keep_diagnostics=TRUE`. Compact mode retains resource
+> and acceptance summaries plus a bounded failure witness. Mandatory evidence is
+> still checked. Historical descriptions of retained event ledgers below refer
+> to detailed mode. The default public `scrope()`/`scrope_hl()` API now uses
+> automatic eligible recovery and compact retention.
 
-`scrope_working()` is an experimental, explicitly opt-in entry point. It first
+# HL and PGMM working fits
+
+`scrope_working()` is the explicit long-format working-fit entry point. It first
 runs the requested estimator and preserves that native result in `primary`.
 Supported recovery can supply an estimable coefficient from a refitted working
 model or a limiting face. It never switches between HL and PGMM. Ordinary
-`scrope()` recovery defaults are unchanged by this feature.
+`scrope()` now assesses the same eligible working routes automatically; use
+`recovery="none"` for native-only behavior. See [the common guide](automatic-recovery.md).
 
 ## Calling the interface
 
@@ -211,13 +219,14 @@ HL preserves an accepted native point when there is no unresolved face or
 recession. It retains the native inference flags; it does not impose the new
 recovery finite-difference audit on an already accepted native result.
 
-For recovered PGMM fits, compact `audit[[gene]]$fit` is the **native input endpoint**, not the
-selected recovered parameter vector. Selected public coordinates are in the
-masked `summary`; compact `beta_report`, `V_report`, fixed values and route are
-diagnostics. With full diagnostics, top-level `par`, `beta`, `A`, `U`, `V`,
-`mapping` and `fixed` describe the selected system. HL's recovered `fit` is its
-selected augmented fit. Preserved native routes have no selected recovery state;
-full native fitting objects are in `primary` diagnostics when retained.
+Selected public coordinates are in the masked `summary`. Unmasked
+`beta_report`/`V_report` and full system objects are available only with full
+diagnostics. For PGMM, top-level `par`, `beta`, `A`, `U`, `V`, `mapping` and `fixed`
+describe the selected recovered system; its nested `fit` is the native input
+endpoint. HL's recovered `fit` is its selected augmented state. Preserved native
+routes have no selected recovery state; full native fits are in `primary`
+diagnostics when retained. Compact audit output contains summaries, not these
+full fit objects or complete event/replay ledgers.
 Do not interchange these objects or coordinate systems.
 
 ## Inference assumptions and unsupported output

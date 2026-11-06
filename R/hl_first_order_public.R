@@ -162,6 +162,7 @@ hl_fo_public_scrope_hl <- function(
     hl_fo_public_contrasts(p, ctx$intcol, predictor_names, lrt_contrasts)
   } else list()
 
+  working_records <- if (!is.null(.fit_observer)) setNames(vector("list", length(gids)), as.character(gids)) else NULL
   gene_fits <- if (keep_diagnostics) vector("list", length(gids)) else NULL
   summary_rows <- vector("list", length(gids))
   overdispersion <- matrix(NA_real_, length(gids), 2L,
@@ -191,7 +192,7 @@ hl_fo_public_scrope_hl <- function(
     fit$gene_id <- gene_id
     fit$gene <- gene_name
     fit$design_transform <- ctx$design_transform
-    if (!is.null(.fit_observer)) .fit_observer(fit, prep, gene_id, history)
+    if (!is.null(.fit_observer)) working_records[[gg]] <- .fit_observer(fit, prep, gene_id, history)
     if (keep_diagnostics) gene_fits[[gg]] <- fit
     if (keep_diagnostics) test_objects[[gg]] <- list()
     if (keep_diagnostics) coefficient_wald[[gg]] <- list()
@@ -202,6 +203,28 @@ hl_fo_public_scrope_hl <- function(
         if (is.null(fit$fit_status)) fit$status else fit$fit_status,
         if (is.null(fit$fit_failure_reason)) fit$reason else fit$fit_failure_reason
       )
+      # Requested tests remain visible even when every unrestricted fit fails.
+      # A recovery adapter may subsequently replace coefficients, but these
+      # native test results must not disappear or be relabelled as recovered.
+      for(label in names(contrasts)) {
+        if(!paste0("wald_success_",label) %in% names(summary_rows[[gg]])) {
+          summary_rows[[gg]][[paste0("wald_success_",label)]] <- FALSE
+          summary_rows[[gg]][[paste0("wald_failure_",label)]] <- "unrestricted_fit_unavailable"
+        }
+        if(want_score) {
+          summary_rows[[gg]][[paste0("hl_score_adj_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("p_hl_score_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("hl_score_success_",label)]] <- FALSE
+          summary_rows[[gg]][[paste0("hl_score_failure_",label)]] <- "unrestricted_fit_unavailable"
+        }
+        if(want_lrt) {
+          summary_rows[[gg]][[paste0("hl_lrt_adj_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("p_hl_lrt_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("hl_lrt_success_",label)]] <- FALSE
+          summary_rows[[gg]][[paste0("hl_lrt_failure_",label)]] <- "objective_ratio_unsupported"
+          summary_rows[[gg]][[paste0("hl_lrt_method_",label)]] <- "unsupported"
+        }
+      }
       next
     }
 
@@ -442,5 +465,6 @@ hl_fo_public_scrope_hl <- function(
     )
   )
   if (length(score_recovery_rows)) result$hl_score_recovery <- do.call(rbind, score_recovery_rows)
+  if (!is.null(.fit_observer)) attr(result,".working_records") <- working_records
   result
 }

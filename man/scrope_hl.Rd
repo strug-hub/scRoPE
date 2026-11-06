@@ -26,23 +26,12 @@ scrope_hl(
   lrt_details = FALSE,
   adj_ridge_factor = 1e-08,
   adj_cond_limit = 1e+08,
-  keep_diagnostics = TRUE,
-  hl_score_recovery = c("none", "stable")
+  keep_diagnostics = FALSE,
+  hl_score_recovery = c("none", "stable"),
+  recovery = c("auto", "none")
 )
 }
 \arguments{
-\item{hl_score_recovery}{Experimental HL Score numerical policy. \code{"none"}
-(default) preserves native results. \code{"stable"} retries ambiguous finite
-full-chi Score roots using stable Gamma arithmetic and cold refinement,
-retaining all native roots, the original configuration and certification gates.
-Any failed cold evaluation withholds the retry; rejected warm evaluations are
-recorded in its failure ledger. Accepted native results are preserved. Requires \code{model="HL"}; used only
-for requested Score tests. This does not repair boundary fits, change Wald
-inference or establish finite-sample calibration. Full retry evidence is in
-the Score object's \code{numerical_recovery} diagnostics. When recovery is
-considered, a compact \code{hl_score_recovery} route table is retained even
-with \code{keep_diagnostics=FALSE}.}
-
 \item{count}{Gene-by-cell count matrix (dense matrix or `dgCMatrix`).}
 
 \item{id}{Vector of subject identifiers aligned with the columns of `count`.}
@@ -105,12 +94,36 @@ objective-ratio/LRT inference is unsupported.}
 implementation. A non-default value is ignored with a warning because
 objective-ratio/LRT inference is unsupported.}
 
-\item{keep_diagnostics}{Logical; defaults to `TRUE`, retaining full per-gene
-fits, solver histories and test objects. With `FALSE`, optional histories
-are not built and full fits/test objects are not accumulated across genes.
+\item{keep_diagnostics}{Logical; defaults to `FALSE`. `TRUE` retains full
+per-gene fits, solver histories and test objects. With `FALSE`, full fits
+and detailed audit rows are not accumulated across genes.
 Required solver, certification, covariance and requested test computations
 are unchanged; summaries, statuses/reasons, provenance, requested random
 effects and `hl_adj_details` remain available. `diagnostics` is `NULL`.}
+
+\item{hl_score_recovery}{Experimental HL Score numerical policy. `"none"`
+(default) preserves native results. `"stable"` retries ambiguous finite
+full-chi Score roots using stable Gamma arithmetic and cold refinement,
+retaining all native roots, the original configuration and certification
+gates. Any failed cold evaluation withholds the retry; rejected warm
+evaluations are recorded in its failure ledger. Accepted native results
+are preserved. Requires `model="HL"`;
+used only for requested Score tests. This does not repair boundary fits,
+change Wald inference or establish finite-sample calibration. Full retry
+evidence is in the Score object's `numerical_recovery` diagnostics. When
+recovery is considered, a compact `hl_score_recovery` route table is
+retained even with `keep_diagnostics=FALSE`.}
+
+\item{recovery}{Common recovery policy, `"auto"` by default or `"none"` for
+native-only estimates and inference. Supported HL/PGMM working recovery
+requires the default dispersion box and preserves the requested estimator.
+Whole-fit qualification can withhold a previously reported native PGMM
+scalar; original native outputs remain in `recovery$primary`. Recovered
+inference is coefficient-wise donor-robust Wald only. Free-dispersion HL
+nuisance limits remain point-only. Native optional tests are preserved for
+native-selected genes and segregated under `primary` for replaced genes.
+Use `availability`, `coefficient_availability` and `test_status` to aggregate
+selected results; `convergence` retains method-specific legacy meanings.}
 }
 \value{
 A list matching the structure of `scrope()` with the following HL

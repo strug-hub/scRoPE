@@ -28,7 +28,8 @@ test_that("native results and disabled research policies remain explicit", {
   fit <- research_call(f$ordinary)
   x <- f$ordinary$input
   native <- scrope(count = x$y, id = x$id, pred = x$X, offset = x$offset,
-    model = "LN", cpc = 0, mincp = 1L, ncore = 1L, verbose = FALSE)
+    model = "LN", cpc = 0, mincp = 1L, ncore = 1L, verbose = FALSE,
+    recovery = "none", keep_diagnostics = TRUE)
   expect_recovery_refit_table(fit$primary$summary, native$summary)
   expect_recovery_refit_table(fit$primary$overdispersion, native$overdispersion,
     numerical = c("Subject", "Cell"))

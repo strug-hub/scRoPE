@@ -35,9 +35,9 @@
 #' @param adj_cond_limit Compatibility argument for the former adjusted-LRT
 #'   implementation. A non-default value is ignored with a warning because
 #'   objective-ratio/LRT inference is unsupported.
-#' @param keep_diagnostics Logical; defaults to `TRUE`, retaining full per-gene
-#'   fits, solver histories and test objects. With `FALSE`, optional histories
-#'   are not built and full fits/test objects are not accumulated across genes.
+#' @param keep_diagnostics Logical; defaults to `FALSE`. `TRUE` retains full
+#'   per-gene fits, solver histories and test objects. With `FALSE`, full fits
+#'   and detailed audit rows are not accumulated across genes.
 #'   Required solver, certification, covariance and requested test computations
 #'   are unchanged; summaries, statuses/reasons, provenance, requested random
 #'   effects and `hl_adj_details` remain available. `diagnostics` is `NULL`.
@@ -75,9 +75,14 @@ scrope_hl <- function(
     lrt_details = FALSE,
     adj_ridge_factor = 1e-8,
     adj_cond_limit = 1e8,
-    keep_diagnostics = TRUE,
-    hl_score_recovery = c("none", "stable")) {
-  hl_fo_public_scrope_hl(
+    keep_diagnostics = FALSE,
+    hl_score_recovery = c("none", "stable"),
+    recovery = c("auto", "none")) {
+  recovery <- match.arg(recovery)
+  eligible <- scrope_recovery_default_box(min,max)
+  if (!is.logical(keep_diagnostics) || length(keep_diagnostics)!=1L || is.na(keep_diagnostics))
+    stop("keep_diagnostics must be TRUE or FALSE.")
+  result <- hl_fo_public_scrope_hl(
     count = count,
     id = id,
     pred = pred,
@@ -100,6 +105,10 @@ scrope_hl <- function(
     adj_ridge_factor = adj_ridge_factor,
     adj_cond_limit = adj_cond_limit,
     keep_diagnostics = keep_diagnostics,
-    hl_score_recovery = hl_score_recovery
+    hl_score_recovery = hl_score_recovery,
+    .fit_observer = if(recovery=="auto"&&eligible)working_observer("HL",keep_diagnostics) else NULL
   )
+  scrope_complete_working(result,"HL",recovery,eligible,keep_diagnostics,
+    controls=list(min=min,max=max,opt=opt,ncore=ncore,requested_tests=additional_tests,
+      lrt=lrt,hl_score_recovery=match.arg(hl_score_recovery)))
 }

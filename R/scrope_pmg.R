@@ -57,6 +57,64 @@ pmg_coefficient_wald <- function(beta, variance, optimizer_converged) {
   )
 }
 
+# A worker retains its full endpoint only until optional tests and recovery have
+# consumed it. This whitelist prevents donor arrays and constrained-fit trees
+# from accumulating in foreach's per-chunk result list when diagnostics are off.
+pmg_compact_gene_result <- function(fit) {
+  out <- fit[c("theta", "naive_cov", "robust_cov", "convergence", "optimizer", "loglik")]
+  raw <- fit[["raw"]]
+  if (is.null(raw)) raw <- fit[["raw_fit"]]
+  out$raw_fit <- list(convergence = raw[["convergence"]])
+  if (!is.null(fit$lrt)) {
+    summary_fields <- c("stat", "pval", "success", "adjusted_available",
+      "adjusted_failure_reason", "failure_reason", "scale", "wP", "wU", "qP",
+      "df", "method", "ridge", "fallback", "gate", "score_stat", "score_pval",
+      "score_ridge", "score_success", "score_failure")
+    out$lrt <- lapply(fit$lrt, function(res) res[intersect(names(res), summary_fields)])
+  }
+  out
+}
+
+# One row per gene remains available even when full diagnostics are discarded.
+# All entries are scalars or small optimizer-control/counter lists; this records
+# native endpoint evidence without changing its acceptance policy.
+pmg_fit_provenance <- function(fit, gene_id, gene, control) {
+  diagnostics <- fit$diagnostics
+  raw <- fit[["raw"]]
+  if (is.null(raw)) raw <- fit[["raw_fit"]]
+  value <- function(x, default) if (is.null(x) || !length(x)) default else x[[1L]]
+  row <- data.frame(
+    gene_id = gene_id,
+    gene = gene,
+    optimizer = fit$optimizer,
+    optimizer_success = pmg_optimizer_converged(fit),
+    raw_convergence = value(raw$convergence, NA_integer_),
+    raw_message = value(raw$message, NA_character_),
+    convergence = fit$convergence,
+    optimizer_iterations = value(diagnostics$optimizer_iterations, NA_integer_),
+    optimizer_calls_nlminb = value(diagnostics$optimizer_calls["nlminb"], NA_integer_),
+    optimizer_calls_bobyqa = value(diagnostics$optimizer_calls["bobyqa"], NA_integer_),
+    objective = value(diagnostics$objective, NA_real_),
+    gradient_max_abs = value(diagnostics$gradient_max_abs, NA_real_),
+    gradient_l2 = value(diagnostics$gradient_l2, NA_real_),
+    information_positive_definite = value(diagnostics$information_positive_definite, NA),
+    information_rcond = value(diagnostics$information_rcond, NA_real_),
+    max_abs_newton_step_scaled = value(diagnostics$max_abs_newton_step_scaled, NA_real_),
+    gradient_quadratic_lr_bound = value(diagnostics$gradient_quadratic_lr_bound, NA_real_),
+    model_covariance_finite = value(diagnostics$model_covariance_finite, NA),
+    sandwich_covariance_finite = value(diagnostics$sandwich_covariance_finite, NA),
+    active_all = value(diagnostics$active_all, NA),
+    boundary_any = value(diagnostics$boundary_any, NA),
+    retry_used = value(diagnostics$retry_used, NA),
+    use_average_objective = value(diagnostics$use_average_objective, NA),
+    stringsAsFactors = FALSE
+  )
+  row$requested_control <- I(list(control))
+  row$optimizer_control <- I(list(diagnostics$optimizer_control))
+  row$optimizer_evaluations <- I(list(diagnostics$optimizer_evaluations))
+  row
+}
+
 scrope_pmg_internal <- function(
     count,
     id,
@@ -278,23 +336,7 @@ scrope_pmg_internal <- function(
   }
 
   capture_working <- !is.null(.fit_observer)
-  compact_working <- capture_working && !keep_diagnostics
-  if (compact_working) {
-    if (ncore != 1L || want_score || want_lrt)
-      stop("Compact working observation supports sequential coefficient fits only.")
-    # Consume each opt-in fit before storing its small public-summary fields.
-    gene_results <- lapply(gid, function(gene_idx) {
-      posv <- call_posindy(count, gene_idx - 1, nind)
-      fit <- fit_gene_pmg_unconstrained(gene_idx, posv, ctx,
-        control = pgmm_control, keep_candidates = TRUE)
-      candidates <- fit$working_candidates
-      fit$working_candidates <- NULL
-      .fit_observer(fit, prep, gene_idx, candidates)
-      fit$per_subject_gradients <- fit$godambe <- NULL
-      fit
-    })
-  } else {
-    gene_results <- foreach(gene_idx = gid) %dorng% {
+  gene_results <- foreach(gene_idx = gid) %dorng% {
     posv <- call_posindy(count, gene_idx - 1, nind)
     fit <- if (capture_working) fit_gene_pmg_unconstrained(gene_idx, posv, ctx,
       control = pgmm_control, keep_candidates = TRUE) else
@@ -345,8 +387,17 @@ scrope_pmg_internal <- function(
       })
     }
 
-    fit
-    }
+    candidates <- fit$working_candidates
+    fit$working_candidates <- NULL
+    # The observer is pure: return its record from this worker, including on
+    # PSOCK, instead of relying on writes into a parent-process closure.
+    record <- if (capture_working) .fit_observer(fit, prep, gene_idx, candidates) else NULL
+    provenance <- pmg_fit_provenance(fit, gene_idx, gname[match(gene_idx, gid)], pgmm_control)
+    list(
+      fit = if (keep_diagnostics) fit else pmg_compact_gene_result(fit),
+      working_record = record,
+      provenance = provenance
+    )
   }
 
   if (ncore > 1) {
@@ -356,11 +407,14 @@ scrope_pmg_internal <- function(
     gc()
   }
 
-  if (capture_working && !compact_working) for (ii in seq_along(gene_results)) {
-    candidates <- gene_results[[ii]]$working_candidates
-    gene_results[[ii]]$working_candidates <- NULL
-    .fit_observer(gene_results[[ii]], prep, gid[ii], candidates)
-  }
+  working_records <- if (capture_working) {
+    stats::setNames(lapply(gene_results, `[[`, "working_record"), as.character(gid))
+  } else NULL
+  fit_provenance <- do.call(rbind, lapply(gene_results, `[[`, "provenance"))
+  rownames(fit_provenance) <- NULL
+  result_attributes <- attributes(gene_results)
+  gene_results <- lapply(gene_results, `[[`, "fit")
+  attributes(gene_results) <- result_attributes
 
   beta_mat <- t(vapply(gene_results, function(gr) gr$theta$beta, numeric(nb)))
   subvar_vec <- vapply(gene_results, function(gr) gr$theta$subVar, numeric(1))
@@ -610,7 +664,8 @@ scrope_pmg_internal <- function(
     overdispersion = overdisp_df,
     convergence = conv_vec,
     algorithm = algorithm_vec,
-    random_effect = NULL
+    random_effect = NULL,
+    fit_provenance = fit_provenance
   )
 
   if (keep_diagnostics) {
@@ -646,6 +701,7 @@ scrope_pmg_internal <- function(
           if (is.null(value) || length(value) == 0L) default else value[[1L]]
         }
         data.frame(
+          gene_id = gid[idx],
           gene = gname[idx],
           contrast = contrast_defs[[nm]]$display,
           stat = res$stat,
@@ -702,6 +758,7 @@ scrope_pmg_internal <- function(
       do.call(rbind, detail_rows)
     } else {
       data.frame(
+        gene_id = integer(0),
         gene = character(0),
         contrast = character(0),
         stat = numeric(0),
@@ -754,6 +811,7 @@ scrope_pmg_internal <- function(
     }
   }
 
+  if (capture_working) attr(result_list, ".working_records") <- working_records
   result_list
 }
 

@@ -71,10 +71,11 @@ scrope_psock_library_paths <- function() {
 #'   If neither optional test was requested, `TRUE` or a non-`NULL`
 #'   `lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
 #'   does not additionally request LRT or its details table.
-#' @param keep_diagnostics Logical; retain per-gene diagnostic objects. For HL,
-#'   `FALSE` also suppresses optional solver histories and cross-gene retention
-#'   of full fits; required scientific computations and public summaries remain
-#'   unchanged (see [scrope_hl()]).
+#' @param keep_diagnostics Logical, default `FALSE`. Retain full native and
+#'   recovered fits, donor arrays and detailed audit histories only when `TRUE`.
+#'   Required acceptance checks still run in compact mode. Compact availability,
+#'   native evidence, optimizer provenance and audit summaries remain available.
+#'   This controls retention, not the numerical acceptance policy.
 #' @param model Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 #'   `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
 #'   analyzed gene, and `"PGMM"` uses the exact Poisson-gamma mixed-model path.
@@ -190,7 +191,9 @@ scrope_psock_library_paths <- function() {
 #' They do not alter coefficients, dispersions, covariance, tests, or
 #' convergence.
 #'
-#' @param ln_recovery JLN recovery policy: `"auto"` (default) retains accepted
+#' @param ln_recovery Backward-compatible JLN recovery policy. An explicit value
+#'   is used when `recovery` is omitted; conflicting explicit LN values are an
+#'   error. Ignored by HL/PGMM. `"auto"` retains accepted
 #'   native fits and attempts certified numerical refinement, dominated-start
 #'   warning, fixed-positive-dispersion and identifiable whole-zero-donor limiting
 #'   fits when needed. `"none"` preserves strict native behavior. Recovery requires
@@ -198,6 +201,16 @@ scrope_psock_library_paths <- function() {
 #'   results. Ignored by HL/PGMM. Recovery supports coefficient donor-robust Wald
 #'   tests only. Inspect `recovery$routes` and `recovery$coefficients` for working
 #'   target, selection and coefficient-estimability limitations.
+#' @param recovery Common recovery policy, `"auto"` by default or `"none"` for
+#'   native-only estimates and inference. Supported HL/PGMM working recovery
+#'   requires the default dispersion box and preserves the requested estimator.
+#'   Whole-fit qualification can withhold a previously reported native PGMM
+#'   scalar; original native outputs remain in `recovery$primary`. Recovered
+#'   inference is coefficient-wise donor-robust Wald only. Free-dispersion HL
+#'   nuisance limits remain point-only. Native optional tests are preserved for
+#'   native-selected genes and segregated under `primary` for replaced genes.
+#'   Use `availability`, `coefficient_availability` and `test_status` to aggregate
+#'   selected results; `convergence` retains method-specific legacy meanings.
 #' @param hl_score_recovery Experimental HL Score numerical policy. `"none"`
 #'   (default) preserves native results. `"stable"` retries ambiguous finite
 #'   full-chi Score roots using stable Gamma arithmetic and cold refinement,
@@ -250,13 +263,16 @@ scrope <- function(
     lrt_contrasts = NULL,
     lrt_include_scale = FALSE,
     lrt_details = FALSE,
-    keep_diagnostics = TRUE,
+    keep_diagnostics = FALSE,
     model = c("LN", "HL", "PGMM"),
     ln_estimator = "joint_ln",
     ln_operational_fallback = "none",
     pgmm_control = NULL,
     ln_recovery = c("auto", "none"),
-    hl_score_recovery = c("none", "stable")) {
+    hl_score_recovery = c("none", "stable"),
+    recovery = c("auto", "none")) {
+  recovery_missing <- missing(recovery)
+  ln_recovery_missing <- missing(ln_recovery)
   hl_score_recovery <- match.arg(hl_score_recovery)
   ln_recovery <- match.arg(ln_recovery)
   cutoff_cell_missing <- missing(cutoff_cell)
@@ -283,6 +299,14 @@ scrope <- function(
     ), call. = FALSE)
   }
   model <- match.arg(model)
+  recovery <- scrope_recovery_policy(model,recovery,ln_recovery,
+    recovery_missing,ln_recovery_missing)
+  if (identical(model,"LN")) ln_recovery <- recovery
+  if (!is.logical(keep_diagnostics) || length(keep_diagnostics)!=1L || is.na(keep_diagnostics))
+    stop("keep_diagnostics must be TRUE or FALSE.")
+  working_eligible <- scrope_recovery_default_box(min,max)
+  working_observation <- if(model %in% c("HL","PGMM") && recovery=="auto" && working_eligible)
+    working_observer(model,keep_diagnostics) else NULL
   if (!identical(model, "HL") && !identical(hl_score_recovery, "none"))
     stop("hl_score_recovery applies only to model='HL'.")
   if (!identical(model, "PGMM") && !is.null(pgmm_control)) {
@@ -307,7 +331,7 @@ scrope <- function(
     if (!kappa_missing && !isTRUE(all.equal(kappa, 800))) {
       stop("kappa controls legacy LN refinement and cannot be set for model='HL'.")
     }
-    return(hl_fo_public_scrope_hl(
+    hl_result <- hl_fo_public_scrope_hl(
       count = count,
       id = id,
       pred = pred,
@@ -328,8 +352,12 @@ scrope <- function(
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
       keep_diagnostics = keep_diagnostics,
-      hl_score_recovery = hl_score_recovery
-    ))
+      hl_score_recovery = hl_score_recovery,
+      .fit_observer = working_observation
+    )
+    return(scrope_complete_working(hl_result,"HL",recovery,working_eligible,
+      keep_diagnostics,controls=list(min=min,max=max,opt=opt,ncore=ncore,
+        requested_tests=additional_tests,lrt=lrt,hl_score_recovery=hl_score_recovery)))
   }
 
   if (identical(model, "PGMM")) {
@@ -369,10 +397,14 @@ scrope <- function(
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
       keep_diagnostics = keep_diagnostics,
-      pgmm_control = pgmm_control
+      pgmm_control = pgmm_control,
+      .fit_observer = working_observation
     )
     pgmm_result$provenance <- pmg_public_provenance(pgmm_control)
-    return(pgmm_result)
+    return(scrope_complete_working(pgmm_result,"PGMM",recovery,working_eligible,
+      keep_diagnostics,controls=list(min=min,max=max,opt=opt,ncore=ncore,
+        pgmm_control=pgmm_control,requested_tests=additional_tests,lrt=lrt,
+        recovery_budget="reviewed_independent_working_refit_policy")))
   }
 
   if (identical(ln_estimator, "joint_ln") && isTRUE(allow_per_gene_switch)) {
@@ -676,6 +708,12 @@ scrope <- function(
     coef_internal_to_public = coef_internal_to_public
   )
 
+  recovery_enabled <- identical(as.numeric(min), c(1e-4, 1e-4)) &&
+    identical(as.numeric(max), c(10, 1000)) && identical(opt, "lbfgs")
+  if (!is.null(recovery_input)) {
+    colnames(recovery_input$pred) <- if (is.null(predn)) paste0("X", seq_len(nb)) else predn
+  }
+
   gene_results <- foreach(i = gid) %dorng% {
     (function() {
     posv <- call_posindy(count, i - 1, nind)
@@ -918,6 +956,9 @@ scrope <- function(
             score_failure_stage = if (joint_ln_route && want_score) score_res$failure_stage else NA_character_,
             score_test = if (want_score) score_res else NULL
           )
+          if (joint_ln_route && !keep_diagnostics) {
+            cache[[idx_nm]] <- ln_compact_optional(cache[[idx_nm]], lrt_details)
+          }
         }
         list(cache = cache, neg = neg_detected)
       }
@@ -989,9 +1030,18 @@ scrope <- function(
       unconstrained$lrt <- lrt_list
     }
 
-    unconstrained
+    ln_finalize_gene(unconstrained, keep_diagnostics,
+      keep_lrt_details = lrt_details, recovery_input = recovery_input,
+      gene_index = i, recovery_enabled = recovery_enabled)
     })()
   }
+
+  recovery_results <- if (!is.null(recovery_input)) {
+    lapply(gene_results, `[[`, "precomputed_recovery")
+  } else NULL
+  # The cached answer is an internal transport envelope, not native evidence.
+  # Remove it before building diagnostics or the preserved native public fit.
+  for (j in seq_along(gene_results)) gene_results[[j]]$precomputed_recovery <- NULL
 
   if (ncore > 1) {
     parallel::stopCluster(cls)
@@ -1002,7 +1052,7 @@ scrope <- function(
 
   re_mat <- do.call(cbind, lapply(gene_results, `[[`, "vec"))
   re_mat <- t(re_mat)
-  godambe_list <- lapply(gene_results, `[[`, "godambe")
+  godambe_list <- if (keep_diagnostics) lapply(gene_results, `[[`, "godambe") else NULL
   re_all <- as.data.frame(re_mat)
 
   beta_names <- paste0(
@@ -1626,7 +1676,7 @@ scrope <- function(
           if (is.null(value) || length(value) == 0L) default else value[[1L]]
         }
         data.frame(
-          gene_id = if (identical(ln_recovery, "auto")) gid[idx] else NULL,
+          gene_id = gid[idx],
           gene = gene_labels[idx],
           contrast = lrt_defs[[nm]]$label,
           stat = res$stat,
@@ -1697,6 +1747,7 @@ scrope <- function(
     })
     detail_rows <- Filter(Negate(is.null), detail_rows)
     result_list$lrt_details <- if (length(detail_rows) > 0) do.call(rbind, detail_rows) else data.frame(
+      gene_id = integer(0),
       gene = character(0),
       contrast = character(0),
       stat = numeric(0),
@@ -1770,13 +1821,16 @@ scrope <- function(
     )
     if (identical(ln_recovery, "auto")) {
       result_list <- ln_recovery_apply(result_list, gene_results, recovery_input,
-        enabled=identical(as.numeric(min), c(1e-4,1e-4)) &&
-          identical(as.numeric(max), c(10,1000)) && identical(opt,"lbfgs"),
-        keep_diagnostics=keep_diagnostics)
-    } else {
-      ln_availability_warn(result_list$availability, operational_fallback_requested=FALSE)
+        enabled=recovery_enabled, keep_diagnostics=keep_diagnostics,
+        recovery_results=recovery_results, .notify=FALSE)
     }
   }
 
-  return(result_list)
+  scrope_finish_recovery(result_list, "LN", ln_recovery,
+    eligible = scrope_recovery_default_box(min, max) && identical(opt, "lbfgs"),
+    skip_reason = if (recovery_enabled) NA_character_ else
+      "recovery_requires_default_box_and_lbfgs",
+    keep_diagnostics = keep_diagnostics,
+    controls = list(min=min, max=max, opt=opt, requested_tests=additional_tests),
+    notify = TRUE)
 }

@@ -14,7 +14,7 @@ wh_fixture <- local({
   saved
  }
 })
-wh_audit <- function(h,f)wh('working_hl_history_audit')(h,f)
+wh_audit <- function(h,f)wh('working_hl_history_audit')(h,f,keep_details=TRUE)
 
 test_that('installed history capture and audit work without attached utils', {
  d<-wh_fixture();input<-tempfile(fileext='.rds');script<-tempfile(fileext='.R')
@@ -28,7 +28,7 @@ test_that('installed history capture and audit work without attached utils', {
    'h<-scRoPE:::working_hl_history()',
    'fit<-scRoPE:::hl_fo_fit(data,active=integer(0),fixed_natural=c(sigma2=.4,phi=7),keep_diagnostics=FALSE,.history=h)',
    'stopifnot(fit$point_success,fit$covariance_success)',
-   's<-h$snapshot();a<-scRoPE:::working_hl_history_audit(s,fit)',
+   's<-h$snapshot();a<-scRoPE:::working_hl_history_audit(s,fit,keep_details=TRUE)',
    'expected<-sum(vapply(c(s$configurations,s$events),function(x)as.numeric(utils::object.size(x)),numeric(1)))',
    'stopifnot(a$success,identical(s$bytes,expected),!"package:utils"%in%search())',
    'cat("HISTORY_WITHOUT_ATTACHED_UTILS_VERIFIED\\n")'),script)
@@ -168,11 +168,13 @@ test_that('ordinary native results bypass new history vetoes even on ledger over
  x<-rnorm(length(id));z<-rep(rnorm(m),each=k)
  y<-rpois(length(id),exp(.3+.2*x+.1*z+rep(rnorm(m,0,.5),each=k)))
  X<-cbind(Intercept=1,x=x,z=z)
- native<-scrope(y,id,X,model='HL',cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE)
+ native<-scrope(y,id,X,model='HL',cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE,recovery='none')
  collector<-wh('working_hl_history')
  local_mocked_bindings(working_hl_history=function(...)collector(max_events=0L),.package='scRoPE')
  a<-scrope_working(y,id,X,model='HL',cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE)
- expect_identical(a$primary,native)
+ core<-c('summary','overdispersion','convergence','algorithm','random_effect')
+ expect_identical(a$primary[core],native[core])
+ expect_identical(a$primary$diagnostics$hl,native$diagnostics$hl)
  expect_identical(a$routes$route,'native')
  expect_true(a$routes$native_regular)
  expect_identical(a$summary$beta,as.numeric(native$summary[1,grep('^logFC_',names(native$summary))]))

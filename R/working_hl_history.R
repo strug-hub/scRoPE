@@ -72,21 +72,60 @@ working_hl_history_scalar <- function(config,event) {
 
 # Record identities are consistency checks, not authentication against a caller
 # forging both a record and its digest. No rounded-coordinate cache is used.
-working_hl_history_audit <- function(history,fit,max_replays=5000L) {
+working_hl_history_audit <- function(history,fit,max_replays=5000L,keep_details=TRUE) {
   began<-proc.time()[["elapsed"]];rows<-list();profiles<-scalars<-list()
   covariance<-TRUE;unique_replays<-0L;initial_retained<-history$retained
-  generated_evaluations<-0L
-  finish<-function(success,reason)list(success=success,reason=reason,
-    configurations=working_hl_history_config_summary(history),
-    covariance=covariance,observations=rows,unique_replays=unique_replays,
-    elapsed_seconds=proc.time()[["elapsed"]]-began,retained=history$retained,
-    observed=history$observed,dropped=history$observed-history$retained,
-    bytes=history$bytes,byte_accounting=history$byte_accounting,limits=history$limits,
-    initial_retained=initial_retained,generated_evaluations=generated_evaluations,
-    processed=length(rows),pending_event_ids=vapply(
-      history$events[setdiff(seq_along(history$events),seq_along(rows))],
-      function(x)if(length(x$id)==1L)as.integer(x$id) else NA_integer_,integer(1)),
-    history_evidence=if(!success)working_hl_history_compact(history) else NULL)
+  generated_evaluations<-0L;processed<-0L;current<-NULL;failure_configuration<-NULL
+  classifications<-setNames(integer(4L),c("failed_probe_without_profile",
+    "same_target_probe","projected_dispersion_probe","unclassified"))
+  maxima<-setNames(rep(NA_real_,6L),c("scalar_discrepancy","cold_profile_discrepancy",
+    "comparable_original_F_gap","replay_F_gap","point_agreement","covariance_agreement"))
+  # The current observation is sufficient for all existing gates. Retaining
+  # prior processed rows is optional; the mandatory input queue is unchanged.
+  retain_current<-function() {
+    if(is.null(current))return(invisible(NULL))
+    processed<<-processed+1L
+    if(isTRUE(keep_details))rows[[processed]]<<-current
+    classification<-current$classification
+    if(is.null(classification))classification<-"unclassified"
+    classifications[classification]<<-classifications[classification]+1L
+    values<-list(scalar_discrepancy=current$scalar_discrepancy,
+      cold_profile_discrepancy=current$cold_profile_discrepancy,
+      comparable_original_F_gap=if(isTRUE(current$scalar_comparable))current$original_F-fit$F else NULL,
+      replay_F_gap=if(!is.null(current$replay$F))current$replay$F-fit$F else NULL,
+      point_agreement=current$replay$comparison$agreement,
+      covariance_agreement=current$replay$comparison$covariance_agreement)
+    for(name in names(values)) {
+      value<-values[[name]]
+      if(is.numeric(value)&&length(value)==1L&&!is.na(value))
+        maxima[name]<<-if(is.na(maxima[name]))value else max(maxima[name],value)
+    }
+    current<<-NULL
+    invisible(NULL)
+  }
+  finish<-function(success,reason) {
+    witness<-if(!success)list(reason=reason,configuration=failure_configuration,
+      observation=current) else NULL
+    retain_current()
+    list(success=success,reason=reason,
+      configurations=working_hl_history_config_summary(history),
+      covariance=covariance,observations=if(isTRUE(keep_details))rows else NULL,
+      unique_replays=unique_replays,
+      elapsed_seconds=proc.time()[["elapsed"]]-began,retained=history$retained,
+      observed=history$observed,dropped=history$observed-history$retained,
+      bytes=history$bytes,byte_accounting=history$byte_accounting,limits=history$limits,
+      initial_retained=initial_retained,generated_evaluations=generated_evaluations,
+      processed=processed,pending_event_ids=if(isTRUE(keep_details))vapply(
+        history$events[setdiff(seq_along(history$events),seq_len(processed))],
+        function(x)if(length(x$id)==1L)as.integer(x$id) else NA_integer_,integer(1)) else NULL,
+      history_evidence=if(!success) {
+        if(isTRUE(keep_details))working_hl_history_compact(history) else
+          working_hl_history_summary(history)
+      } else NULL,
+      details_retained=isTRUE(keep_details),pending_events=length(history$events)-processed,
+      overflow=isTRUE(history$overflow),overflow_source=history$overflow_source,
+      classifications=classifications,maxima=maxima,failure_witness=witness)
+  }
 
   if(!identical(history$schema,1L)||isTRUE(history$overflow)||
      !identical(history$observed,history$retained)||history$retained!=length(history$events))
@@ -102,7 +141,10 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L) {
   }
   for(key in names(history$configurations)) {
     reason<-validate_configuration(key,history$configurations[[key]])
-    if(!is.null(reason))return(finish(FALSE,reason))
+    if(!is.null(reason)) {
+      failure_configuration<-key
+      return(finish(FALSE,reason))
+    }
   }
   target_data<-fit$data;target_data$inference_m<-NULL
   target_identity<-.hl_score_fingerprint(target_data)
@@ -110,16 +152,17 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L) {
   if(!identical(ids,seq_along(history$events)))return(finish(FALSE,"history_event_identity_mismatch"))
   i<-0L
   while(i<length(history$events)) {
+    retain_current()
     i<-i+1L
     event<-history$events[[i]];config<-history$configurations[[event$configuration]]
-    rows[[i]]<-event
+    current<-event
     if(is.null(config))return(finish(FALSE,"history_configuration_missing"))
     valid_rho<-is.numeric(event$rho)&&length(event$rho)==2L&&all(is.finite(event$rho))
     valid_beta<-is.numeric(event$beta)&&length(event$beta)==config$data$p&&all(is.finite(event$beta))
     finite_F<-is.numeric(event$F)&&length(event$F)==1L&&is.finite(event$F)
     required<-isTRUE(event$success)||finite_F||valid_beta
     if(!required) {
-      rows[[i]]$classification<-"failed_probe_without_profile"
+      current$classification<-"failed_probe_without_profile"
       next
     }
     if(!valid_rho||!valid_beta)return(finish(FALSE,"history_profile_coordinates_missing"))
@@ -136,11 +179,11 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L) {
       scalars[[scalar_key]]<-scalar
     }
     if(inherits(scalar,"error")) {
-      rows[[i]]$error<-conditionMessage(scalar)
+      current$error<-conditionMessage(scalar)
       return(finish(FALSE,"history_scalar_evaluation_failed"))
     }
     discrepancy<-if(finite_F)abs(event$F-scalar) else 0
-    rows[[i]]$original_F<-scalar;rows[[i]]$scalar_discrepancy<-discrepancy
+    current$original_F<-scalar;current$scalar_discrepancy<-discrepancy
     if(discrepancy>1e-8*(1+abs(scalar)))return(finish(FALSE,"history_scalar_mismatch"))
     rho<-event$rho;held<-setdiff(1:2,fit$active);rho[held]<-fit$rho_full[held]
     source_data<-config$data;source_data$inference_m<-NULL
@@ -148,11 +191,11 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L) {
       identical(event$rho,rho)&&
       identical(config$K,fit$K)&&identical(config$beta_star,fit$beta_star)&&isTRUE(config$constant)
     projected<-!comparable||!identical(config$active,fit$active)
-    rows[[i]]$classification<-if(projected)"projected_dispersion_probe" else "same_target_probe"
-    rows[[i]]$scalar_comparable<-comparable
-    rows[[i]]$selected_rho<-rho
-    rows[[i]]$selected_margin<-1e-10*(1+abs(fit$F))
-    if(comparable&&scalar>fit$F+rows[[i]]$selected_margin)
+    current$classification<-if(projected)"projected_dispersion_probe" else "same_target_probe"
+    current$scalar_comparable<-comparable
+    current$selected_rho<-rho
+    current$selected_margin<-1e-10*(1+abs(fit$F))
+    if(comparable&&scalar>fit$F+current$selected_margin)
       return(finish(FALSE,"history_better_original_profile"))
     key<-paste(sprintf("%a",rho),collapse=":")
     replay<-profiles[[key]]
@@ -193,7 +236,10 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L) {
             }
             for(name in names(extra$configurations)) {
               reason<-validate_configuration(name,extra$configurations[[name]])
-              if(!is.null(reason))return(finish(FALSE,reason))
+              if(!is.null(reason)) {
+                failure_configuration<-name
+                return(finish(FALSE,reason))
+              }
             }
             if(!isTRUE(refined$success))replay<-simpleError("Historical tied root refinement failed.") else {
               comparison<-working_hl_history_compare(refined$state,fit)
@@ -207,13 +253,13 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L) {
       profiles[[key]]<-replay
     }
     if(inherits(replay,"error")) {
-      rows[[i]]$error<-conditionMessage(replay)
+      current$error<-conditionMessage(replay)
       return(finish(FALSE,"history_required_replay_failed"))
     }
-    rows[[i]]$replay<-replay
+    current$replay<-replay
     if(comparable) {
       discrepancy<-max(hl_fo_sdisc(event$beta,replay$beta),hl_fo_sdisc(scalar,replay$F))
-      rows[[i]]$cold_profile_discrepancy<-discrepancy
+      current$cold_profile_discrepancy<-discrepancy
       if(!is.finite(discrepancy)||discrepancy>1e-8)
         return(finish(FALSE,"history_cold_profile_mismatch"))
     }
@@ -243,6 +289,21 @@ working_hl_history_config_summary <- function(history) {
 working_hl_history_compact <- function(history) {
   history$configurations<-working_hl_history_config_summary(history)
   history
+}
+
+# Resource and identity evidence for compact failures. Complete event histories
+# remain internal to the computation or are returned only in detailed mode.
+working_hl_history_summary <- function(history) {
+  fields<-c("schema","observed","retained","bytes","overflow","limits",
+    "execution","byte_accounting","overflow_source")
+  out<-history[intersect(fields,names(history))]
+  out$configurations<-working_hl_history_config_summary(history)
+  out$dropped<-history$observed-history$retained
+  out$event_count<-length(history$events)
+  out$event_id_bounds<-if(length(history$events))list(
+    first=history$events[[1L]]$id,last=history$events[[length(history$events)]]$id) else NULL
+  out$details_retained<-FALSE
+  out
 }
 
 working_hl_history_compare <- function(state,fit) {

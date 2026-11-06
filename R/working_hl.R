@@ -130,7 +130,8 @@ working_hl_refit <- function(data,native,keep_diagnostics=FALSE,history=NULL) {
   fixed<-numeric(0);fit<-native;face_evidence<-NULL
   if(is.null(history))return(list(success=FALSE,point_success=FALSE,reason="history_evidence_missing"))
   fail<-function(reason,...)list(success=FALSE,point_success=FALSE,reason=reason,fixed=fixed,
-    history_evidence=working_hl_history_compact(history$snapshot()),...)
+    history_evidence=if(isTRUE(keep_diagnostics))working_hl_history_compact(history$snapshot()) else
+      working_hl_history_summary(history$snapshot()),...)
   if(!isTRUE(native$point_success)) {
     if(!identical(native$fit_status,"outer_boundary"))return(fail(native$fit_status))
     faces<-native$boundary_faces
@@ -207,7 +208,7 @@ working_hl_refit <- function(data,native,keep_diagnostics=FALSE,history=NULL) {
       F=replay$F,selected_F=fit$F,delta=replay$F-fit$F,success=supported)
     if(!supported)return(fail("retained_endpoint_better_profile",fit=fit,terminal_audit=terminal_audit))
   }
-  history_audit<-working_hl_history_audit(history$snapshot(),fit)
+  history_audit<-working_hl_history_audit(history$snapshot(),fit,keep_details=keep_diagnostics)
   if(!isTRUE(history_audit$success))return(fail(history_audit$reason,fit=fit,history_audit=history_audit,
     terminal_audit=terminal_audit,competitors=competitors))
   competitor_covariance<-competitor_covariance&&history_audit$covariance

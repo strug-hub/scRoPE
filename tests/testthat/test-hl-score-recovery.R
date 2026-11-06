@@ -189,13 +189,24 @@ test_that("cold failures, wrong fixed states and actual guards cannot be bypasse
   expect_false(capped$success); expect_identical(capped$status,"score_recovery_evaluation_cap")
 })
 
+# Requested numerical-recovery controls are newly reported even when the
+# native result is preserved. Compare every other field without discarding
+# numerical results, statuses or diagnostic objects.
+.hsr_public_without_requested_score_policy <- function(x) {
+  x$provenance$recovery$controls$hl_score_recovery <- NULL
+  x
+}
+
 test_that("public opt-in preserves accepted outputs and rejects non-HL use", {
   f <- .hsr_fixture(); d <- f$data
   args <- list(count=matrix(d$y,1),id=d$subject,pred=d$X,offset=exp(d$log_offset),
-               cpc=0,mincp=1,verbose=FALSE,additional_tests="score",keep_diagnostics=FALSE)
+               cpc=0,mincp=1,verbose=FALSE,additional_tests="score",keep_diagnostics=FALSE,recovery="none")
   native <- do.call(scrope_hl,args)
   optin <- do.call(scrope_hl,c(args,list(hl_score_recovery="stable")))
-  expect_identical(optin,native)
+  expect_identical(optin$provenance$recovery$controls$hl_score_recovery, "stable")
+  expect_identical(native$provenance$recovery$controls$hl_score_recovery, "none")
+  expect_identical(.hsr_public_without_requested_score_policy(optin),
+                   .hsr_public_without_requested_score_policy(native))
   wrapper <- do.call(scrope,c(args,list(model="HL",hl_score_recovery="stable")))
   expect_identical(wrapper,optin)
   for(model in c("LN","PGMM")) expect_error(do.call(scrope,c(args,list(model=model,
@@ -227,7 +238,7 @@ test_that("full diagnostic native preservation and contrast bases remain valid",
 test_that("permuted and rescaled predictors map to the same tested null", {
   f <- .hsr_fixture(); d <- f$data
   args <- list(count=matrix(d$y,1),id=d$subject,pred=d$X,offset=exp(d$log_offset),
-    cpc=0,mincp=1,verbose=FALSE,additional_tests="score",keep_diagnostics=FALSE,
+    cpc=0,mincp=1,verbose=FALSE,additional_tests="score",keep_diagnostics=FALSE,recovery="none",
     hl_score_recovery="stable")
   base <- do.call(scrope_hl,args)
   args$pred <- cbind(w=3*d$X[,3],Intercept=2.5,x=d$X[,2]/4)
@@ -237,7 +248,11 @@ test_that("permuted and rescaled predictors map to the same tested null", {
   expect_equal(mapped$summary$logFC_x/4,base$summary$logFC_x,tolerance=2e-7)
   expect_equal(mapped$summary$logFC_w*3,base$summary$logFC_w,tolerance=2e-7)
   args$hl_score_recovery <- "none"
-  expect_identical(do.call(scrope_hl,args),mapped)
+  native <- do.call(scrope_hl,args)
+  expect_identical(native$provenance$recovery$controls$hl_score_recovery, "none")
+  expect_identical(mapped$provenance$recovery$controls$hl_score_recovery, "stable")
+  expect_identical(.hsr_public_without_requested_score_policy(native),
+                   .hsr_public_without_requested_score_policy(mapped))
 })
 
 test_that("every evaluated failure is recorded and a rejected cold trial is terminal", {
@@ -335,7 +350,7 @@ test_that("identity covers the executed native backend and native file contents"
     which<-match.arg(which)
     if(exists(which,cache,inherits=FALSE))return(cache[[which]])
     input<-dget(testthat::test_path("fixtures",paste0("hl-score-",which,".R")))
-    args<-c(input,list(model="HL",additional_tests="score",cpc=0,mincp=1,verbose=FALSE))
+    args<-c(input,list(model="HL",additional_tests="score",cpc=0,mincp=1,verbose=FALSE,recovery="none"))
     native<-do.call(scrope,c(args,list(keep_diagnostics=TRUE)))
     stable<-do.call(scrope,c(args,list(keep_diagnostics=TRUE,hl_score_recovery="stable")))
     compact<-do.call(scrope,c(args,list(keep_diagnostics=FALSE,hl_score_recovery="stable")))

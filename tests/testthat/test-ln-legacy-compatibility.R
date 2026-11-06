@@ -22,6 +22,12 @@ test_that("default and explicit joint LN preserve estimates and conditional mode
   default <- do.call(scrope, args)
   explicit <- do.call(scrope, c(args, list(ln_estimator = "joint_ln")))
   expect_identical(formals(scrope)$ln_estimator, "joint_ln")
+  expect_identical(formals(scrope)$keep_diagnostics, FALSE)
+  expect_identical(formals(scrope_hl)$keep_diagnostics, FALSE)
+  expect_identical(eval(formals(scrope)$recovery), c("auto", "none"))
+  expect_identical(eval(formals(scrope_hl)$recovery), c("auto", "none"))
+  expect_identical(default$recovery$mode, "auto")
+  expect_null(default$diagnostics)
   for (field in c("summary", "overdispersion", "random_effect", "convergence",
                   "algorithm", "availability")) {
     expect_identical(default[[field]], explicit[[field]])

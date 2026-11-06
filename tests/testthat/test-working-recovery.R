@@ -51,8 +51,17 @@ test_that("opt-in limiting outputs preserve native objects and disclose estimabi
   for(model in c("HL","PGMM")) {
     a<-working_call(d,model)
     b<-working_call(d,model,keep_diagnostics=TRUE)
-    native<-scrope(d$y,d$id,d$X,model=model,cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=FALSE)
-    expect_identical(a$primary,native)
+    native_warnings<-list()
+    native<-withCallingHandlers(scrope(d$y,d$id,d$X,model=model,cpc=0,mincp=1,
+      verbose=FALSE,keep_diagnostics=FALSE,recovery="none"),warning=function(w) {
+        native_warnings[[length(native_warnings)+1L]]<<-w
+        invokeRestart("muffleWarning")
+      })
+    attention<-native$availability$status %in% c("partial","point_only","unavailable")
+    expect_length(native_warnings,as.integer(any(attention)))
+    for(w in native_warnings)expect_s3_class(w,"scrope_recovery_warning")
+    core<-c("summary","overdispersion","convergence","algorithm","random_effect")
+    expect_identical(a$primary[core],native[core])
     expect_identical(a$summary,b$summary)
     expect_true(all(a$summary$route=="identifiable_nuisance_limit"))
     expect_false(a$summary$point_available[a$summary$coefficient=="region"])
@@ -143,10 +152,15 @@ test_that("regular native results stay exact and compact audits discard donor ar
   d<-list(y=d$y[keep],id=d$id[keep],X=d$X[keep,c("Intercept","x","z")])
   for(model in c("HL","PGMM")) {
     a<-working_call(d,model)
-    native<-scrope(d$y,d$id,d$X,model=model,cpc=0,mincp=1,keep_diagnostics=FALSE,verbose=FALSE)
-    expect_identical(a$primary,native)
+    native<-scrope(d$y,d$id,d$X,model=model,cpc=0,mincp=1,keep_diagnostics=FALSE,verbose=FALSE,recovery="none")
+    core<-c("summary","overdispersion","convergence","algorithm","random_effect")
+    expect_identical(a$primary[core],native[core])
     expect_null(a$audit[[1]]$native_certificate$influence)
     expect_null(a$audit[[1]]$native_certificate$V)
+    expect_false(a$audit[[1]]$retained_details)
+    expect_null(a$audit[[1]]$history_audit$observations)
+    expect_null(a$audit[[1]]$history_evidence$events)
+    expect_null(a$diagnostics)
     if(a$routes$native_regular) {
       expect_identical(a$summary$beta,as.numeric(native$summary[1,grep('^logFC_',names(native$summary))]))
       expect_identical(a$summary$robust_se,as.numeric(native$summary[1,grep('^se_robust_',names(native$summary))]))

@@ -132,17 +132,90 @@ working_recover <- function(model,y,X,id,offset,native,face,candidates=NULL,
   ans
 }
 
+working_assess_native <- function(model,native,prep,gene_id,candidates=NULL,
+                                  keep_diagnostics=FALSE,execution=NULL) {
+  began<-proc.time()[["elapsed"]];ctx<-prep$ctx;X<-ctx$pred_original
+  y<-as.numeric(prep$count[,gene_id]);exposure<-exp(ctx$offset)
+  face<-working_face_detect(y,X,ctx$id)
+  recession<-hl_fo_inner_recession(hl_fo_make_data(y,ctx$pred,ctx$offset,ctx$id,ctx$intcol),diag(ncol(X)))
+  unresolved<-isTRUE(face$success)||identical(face$reason,"partial_donor_face_outside_scope")||
+    isTRUE(recession$recession)||identical(recession$status,"nonattainment_check_failure")
+  native_certificate<-NULL
+  if(model=="PGMM"&&!unresolved) {
+    native_certificate<-tryCatch({
+      prob<-working_pmg_problem(y,X,ctx$id,exposure)
+      par<-c(native$theta$beta,log(native$theta$subVar))
+      working_pmg_certificate(prob$evaluate(par),prob,derivatives=FALSE)
+    },error=function(e)list(point=FALSE,covariance=FALSE,reason="native_certificate_error",
+                            error=conditionMessage(e)))
+  }
+  native_preservation<-NULL
+  if(model=="PGMM") {
+    variance<-diag(native$robust_cov_full)
+    finite_covariance<-length(variance)==length(native$diagnostics$newton_step)&&
+      all(is.finite(variance))&&all(variance>0)
+    displacement<-if(finite_covariance)max(abs(native$diagnostics$newton_step)/sqrt(variance)) else Inf
+    native_preservation<-list(policy="prototype_20261104_native_se_1e-3",
+      newton_in_se=displacement,limit=1e-3,
+      coordinate_displacement=native$diagnostics$max_abs_newton_step_scaled,
+      stricter_recovery_certificate=native_certificate$reason)
+  }
+  # Freeze the established native preservation rule. Recovery certification
+  # is deliberately stricter and is recorded diagnostically for native fits.
+  regular<-if(model=="HL")isTRUE(native$point_success)&&!unresolved else
+    pmg_optimizer_converged(native)&&!unresolved&&!isTRUE(native$diagnostics$boundary_any)&&
+    isTRUE(native$diagnostics$information_positive_definite)&&
+    isTRUE(is.finite(native$diagnostics$information_rcond)&&
+           native$diagnostics$information_rcond>=sqrt(.Machine$double.eps))&&
+    finite_covariance&&isTRUE(displacement<=1e-3)
+  ans<-if(regular)list(success=TRUE,point_success=TRUE,route="native",reason="preserved_native") else
+    if(unresolved&&!isTRUE(face$success))list(success=FALSE,reason="unsupported_or_unverified_nuisance_limit") else
+    tryCatch(working_recover(model,y,X,ctx$id,exposure,native,face,candidates,keep_diagnostics),
+      error=function(e) {
+        out<-list(success=FALSE,point_success=FALSE,reason="recovery_evaluation_error",error=conditionMessage(e))
+        if(model=="HL"&&!is.null(candidates))out$history_evidence<-working_hl_history_compact(candidates$snapshot())
+        out
+      })
+  if(model=="HL"&&!is.null(candidates)) {
+    snapshot<-candidates$snapshot()
+    ans$history_capture<-c(snapshot[c("schema","observed","retained","bytes","overflow","limits")],
+      list(policy=if(regular)"native_preservation_bypass" else "recovery_history_audit"))
+  }
+  ans$native_preservation<-native_preservation
+  ans$native_certificate<-native_certificate
+  ans$native_regular<-regular;ans$face<-face
+  if(!isTRUE(ans$success))ans$route<-"withheld"
+  ans$elapsed_seconds<-proc.time()[["elapsed"]]-began
+  ans$input_identity<-.hl_score_fingerprint(list(y=y,X=X,id=ctx$id,offset=exposure,
+                                                gene_id=gene_id,model=model))
+  ans$identity<-execution
+  ans$dimensions<-c(cells=length(y),donors=length(unique(ctx$id)),coefficients=ncol(X))
+  if(keep_diagnostics)ans else working_minimal_record(ans)
+}
+
+working_observer <- function(model,keep_diagnostics=FALSE) {
+  force(model);force(keep_diagnostics)
+  execution<-list(version=as.character(getNamespaceVersion("scRoPE")),
+    R=R.version.string,platform=R.version$platform,backend=.hl_score_execution_identity(),
+    policy="hl_pgmm_working_20261105")
+  function(native,prep,gene_id,candidates) {
+    working_assess_native(model,native,prep,gene_id,candidates,keep_diagnostics,execution)
+  }
+}
+
 #' Explicit working-target HL and PGMM recovery
 #'
 #' Runs the requested native estimator first, preserving its result in `primary`.
 #' An explicit call opts into separately labelled coefficient estimates from
 #' certified positive-dispersion working fits or identifiable limiting equations.
-#' Ordinary `scrope()` and `scrope_hl()` defaults are unchanged.
+#' Ordinary `scrope()` and `scrope_hl()` now use these eligible working routes
+#' automatically; `recovery="none"` selects their native-only behavior. This
+#' interface remains available for its explicit long-format working output.
 #' @inheritParams scrope
 #' @param model Either `"HL"` or `"PGMM"`; no switching between estimators.
 #' @param keep_diagnostics Retain full native and recovery objects when `TRUE`.
-#'   The default `FALSE` retains compact acceptance and failure ledgers while
-#'   avoiding stored donor arrays and verbose iteration traces across genes. Computation
+#'   The default `FALSE` retains compact acceptance/failure summaries and a
+#'   bounded failure witness, without full event ledgers, donor arrays or traces. Computation
 #'   and acceptance are unchanged. Native fitting is sequential in this interface.
 #' @details Recovery uses the default dispersion guards and fixed donor parameter
 #'   `sigma2=1e-4` and, for eligible HL cell boundaries, NB precision `phi=1000`.
@@ -172,76 +245,18 @@ scrope_working <- function(count,id,pred=NULL,offset=NULL,model=c("HL","PGMM"),
   model<-match.arg(model)
   if(!is.logical(keep_diagnostics)||length(keep_diagnostics)!=1L||is.na(keep_diagnostics))
     stop("keep_diagnostics must be TRUE or FALSE.")
-  records<-list();audits<-list();full<-list()
-  execution<-list(version=as.character(getNamespaceVersion("scRoPE")),
-    R=R.version.string,platform=R.version$platform,backend=.hl_score_execution_identity(),
-    policy="hl_pgmm_working_20261105")
-  observer<-function(native,prep,gene_id,candidates) {
-    began<-proc.time()[["elapsed"]];ctx<-prep$ctx;X<-ctx$pred_original
-    y<-as.numeric(prep$count[,gene_id]);exposure<-exp(ctx$offset)
-    face<-working_face_detect(y,X,ctx$id)
-    recession<-hl_fo_inner_recession(hl_fo_make_data(y,ctx$pred,ctx$offset,ctx$id,ctx$intcol),diag(ncol(X)))
-    unresolved<-isTRUE(face$success)||identical(face$reason,"partial_donor_face_outside_scope")||
-      isTRUE(recession$recession)||identical(recession$status,"nonattainment_check_failure")
-    native_certificate<-NULL
-    if(model=="PGMM"&&!unresolved) {
-      native_certificate<-tryCatch({
-        prob<-working_pmg_problem(y,X,ctx$id,exposure)
-        par<-c(native$theta$beta,log(native$theta$subVar))
-        working_pmg_certificate(prob$evaluate(par),prob,derivatives=FALSE)
-      },error=function(e)list(point=FALSE,covariance=FALSE,reason="native_certificate_error",
-                              error=conditionMessage(e)))
-    }
-    native_preservation<-NULL
-    if(model=="PGMM") {
-      variance<-diag(native$robust_cov_full)
-      finite_covariance<-length(variance)==length(native$diagnostics$newton_step)&&
-        all(is.finite(variance))&&all(variance>0)
-      displacement<-if(finite_covariance)max(abs(native$diagnostics$newton_step)/sqrt(variance)) else Inf
-      native_preservation<-list(policy="prototype_20261104_native_se_1e-3",
-        newton_in_se=displacement,limit=1e-3,
-        coordinate_displacement=native$diagnostics$max_abs_newton_step_scaled,
-        stricter_recovery_certificate=native_certificate$reason)
-    }
-    # Freeze the established native preservation rule. Recovery certification
-    # is deliberately stricter and is recorded diagnostically for native fits.
-    regular<-if(model=="HL")isTRUE(native$point_success)&&!unresolved else
-      pmg_optimizer_converged(native)&&!unresolved&&!isTRUE(native$diagnostics$boundary_any)&&
-      isTRUE(native$diagnostics$information_positive_definite)&&
-      isTRUE(is.finite(native$diagnostics$information_rcond)&&
-             native$diagnostics$information_rcond>=sqrt(.Machine$double.eps))&&
-      finite_covariance&&isTRUE(displacement<=1e-3)
-    ans<-if(regular)list(success=TRUE,point_success=TRUE,route="native",reason="preserved_native") else
-      if(unresolved&&!isTRUE(face$success))list(success=FALSE,reason="unsupported_or_unverified_nuisance_limit") else
-      tryCatch(working_recover(model,y,X,ctx$id,exposure,native,face,candidates,keep_diagnostics),
-        error=function(e) {
-          out<-list(success=FALSE,point_success=FALSE,reason="recovery_evaluation_error",error=conditionMessage(e))
-          if(model=="HL"&&!is.null(candidates))out$history_evidence<-working_hl_history_compact(candidates$snapshot())
-          out
-        })
-    if(model=="HL"&&!is.null(candidates)) {
-      snapshot<-candidates$snapshot()
-      ans$history_capture<-c(snapshot[c("schema","observed","retained","bytes","overflow","limits")],
-        list(policy=if(regular)"native_preservation_bypass" else "recovery_history_audit"))
-    }
-    ans$native_preservation<-native_preservation
-    ans$native_certificate<-native_certificate
-    ans$native_regular<-regular;ans$face<-face
-    if(!isTRUE(ans$success))ans$route<-"withheld"
-    ans$elapsed_seconds<-proc.time()[["elapsed"]]-began
-    ans$input_identity<-.hl_score_fingerprint(list(y=y,X=X,id=ctx$id,offset=exposure,
-                                                  gene_id=gene_id,model=model))
-    ans$identity<-execution
-    key<-as.character(gene_id)
-    records[[key]]<<-ans[c("success","point_success","inference_available","route","reason","fixed",
-      "estimable","beta_report","V_report","sampling_target","inference_reason","native_regular","elapsed_seconds")]
-    audits[[key]]<<-working_compact_audit(ans)
-    if(keep_diagnostics)full[[key]]<<-ans
-  }
   args<-list(count=count,id=id,pred=pred,offset=offset,cpc=cpc,mincp=mincp,
-             keep_diagnostics=keep_diagnostics,verbose=verbose,.fit_observer=observer)
+             keep_diagnostics=keep_diagnostics,verbose=verbose,
+             .fit_observer=working_observer(model,keep_diagnostics))
   primary<-if(model=="HL")do.call(hl_fo_public_scrope_hl,args) else do.call(scrope_pmg_internal,args)
+  records<-attr(primary,".working_records");attr(primary,".working_records")<-NULL
   if(model=="PGMM")primary$provenance<-pmg_public_provenance(pmg_resolve_control())
+  working_selected_output(primary,records,model,keep_diagnostics)
+}
+
+working_selected_output <- function(primary,records,model,keep_diagnostics=FALSE) {
+  audits<-lapply(records,function(a)if(keep_diagnostics)working_compact_audit(a) else a$audit)
+  full<-if(keep_diagnostics)records else NULL
   labels<-sub("^logFC_","",grep("^logFC_",names(primary$summary),value=TRUE))
   rows<-routes<-list()
   for(j in seq_len(nrow(primary$summary))) {
@@ -253,7 +268,7 @@ scrope_working <- function(count,id,pred=NULL,offset=NULL,model=c("HL","PGMM"),
     for(k in seq_along(labels)) {
       nm<-labels[k];native_available<-isTRUE(s[[paste0("wald_success_",nm)]])
       beta<-if(regular)s[[paste0("logFC_",nm)]] else if(recovered)a$beta_report[k] else NA_real_
-      se<-if(regular)s[[paste0("se_robust_",nm)]] else if(recovered)sqrt(max(0,a$V_report[k,k])) else NA_real_
+      se<-if(regular)s[[paste0("se_robust_",nm)]] else if(recovered)sqrt(max(0,if(!is.null(a$variance_report))a$variance_report[k] else a$V_report[k,k])) else NA_real_
       estimable<-if(regular)TRUE else recovered&&isTRUE(a$estimable[k])
       point<-estimable&&is.finite(beta)
       cov<-if(regular)is.finite(se)&&se>0 else point&&isTRUE(a$inference_available)&&is.finite(se)&&se>0
@@ -289,7 +304,7 @@ scrope_working <- function(count,id,pred=NULL,offset=NULL,model=c("HL","PGMM"),
   }
   list(summary=do.call(rbind,rows),routes=do.call(rbind,routes),primary=primary,audit=audits,
        diagnostics=if(keep_diagnostics)full else NULL,
-       provenance=list(model=model,policy=execution$policy,execution=execution,
+       provenance=list(model=model,policy="hl_pgmm_working_20261105",execution=if(length(records))records[[1]]$identity else NULL,
          coefficient_coordinates=if(model=="HL")"original_design" else "centered_unit_intercept_original_slope_units",
          recovery_capabilities=c(coefficient_robust_wald=TRUE,score=FALSE,lrt=FALSE),
          limitations=c("working_targets","outcome_selected_routes","no_selective_coverage_guarantee",

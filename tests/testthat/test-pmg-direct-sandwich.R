@@ -89,7 +89,7 @@ test_that("public PGMM covariance maps predictor permutations and nonunit interc
   mu <- exp(1+.23*(x-4)-.2*(z+1))*omega
   y <- matrix(qpois((((seq_along(id)*29)%%67)+.5)/68,mu),1L)
   args <- list(count=y,id=id,pred=cbind(x=x,Intercept=2,z=z),model="PGMM",
-               cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE)
+               cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE,recovery="none")
   base <- do.call(scrope,args)
   args$pred <- cbind(z=-2.3*z,Intercept=-2.5,x=x/4)
   mapped <- do.call(scrope,args)
