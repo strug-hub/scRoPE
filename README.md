@@ -232,6 +232,7 @@ Legacy LN and its fallback are retired; they are never silently redirected.
 - [Additional synthetic and Seurat examples](inst/examples/README.md).
 - [Methods, contrasts and migration](inst/guides/methods-and-migration.md).
 - [Changes](NEWS.md) · [validation](tests/validation/README-workable-version-smoke.md)
+- [Numerical test policy](tests/NUMERICAL_TESTING.md): exact preservation, independent refits and cross-platform error budgets
   · [report an issue](https://github.com/strug-hub/scRoPE/issues).
 
 ## Acknowledgments and citation

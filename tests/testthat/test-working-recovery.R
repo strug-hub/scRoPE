@@ -19,6 +19,13 @@ working_fixture <- function(combined=FALSE) {
 }
 working_call <- function(d,model,...)scrope_working(d$y,d$id,d$X,model=model,
   cpc=0,mincp=1,verbose=FALSE,...)
+working_expect_native_core <- function(actual,expected) {
+  exact<-c("convergence","algorithm","random_effect")
+  expect_identical(actual[exact],expected[exact])
+  expect_recovery_refit_table(actual$summary,expected$summary)
+  expect_recovery_refit_table(actual$overdispersion,expected$overdispersion,
+    numerical=intersect(c("Subject","Cell"),names(expected$overdispersion)))
+}
 
 test_that('working fixtures are invariant to caller RNG kind and restore state', {
   local({
@@ -60,9 +67,11 @@ test_that("opt-in limiting outputs preserve native objects and disclose estimabi
     attention<-native$availability$status %in% c("partial","point_only","unavailable")
     expect_length(native_warnings,as.integer(any(attention)))
     for(w in native_warnings)expect_s3_class(w,"scrope_recovery_warning")
-    core<-c("summary","overdispersion","convergence","algorithm","random_effect")
-    expect_identical(a$primary[core],native[core])
-    expect_identical(a$summary,b$summary)
+    working_expect_native_core(a$primary,native)
+    # These are independent recovery fits; discrete output and missingness
+    # stay exact while only the named fitted values receive a roundoff budget.
+    expect_recovery_refit_table(a$summary,b$summary,
+      numerical=c("beta","robust_se","p_value"))
     expect_true(all(a$summary$route=="identifiable_nuisance_limit"))
     expect_false(a$summary$point_available[a$summary$coefficient=="region"])
     expect_false(any(a$summary$selection_adjusted))
@@ -153,8 +162,7 @@ test_that("regular native results stay exact and compact audits discard donor ar
   for(model in c("HL","PGMM")) {
     a<-working_call(d,model)
     native<-scrope(d$y,d$id,d$X,model=model,cpc=0,mincp=1,keep_diagnostics=FALSE,verbose=FALSE,recovery="none")
-    core<-c("summary","overdispersion","convergence","algorithm","random_effect")
-    expect_identical(a$primary[core],native[core])
+    working_expect_native_core(a$primary,native)
     expect_null(a$audit[[1]]$native_certificate$influence)
     expect_null(a$audit[[1]]$native_certificate$V)
     expect_false(a$audit[[1]]$retained_details)
@@ -162,8 +170,9 @@ test_that("regular native results stay exact and compact audits discard donor ar
     expect_null(a$audit[[1]]$history_evidence$events)
     expect_null(a$diagnostics)
     if(a$routes$native_regular) {
-      expect_identical(a$summary$beta,as.numeric(native$summary[1,grep('^logFC_',names(native$summary))]))
-      expect_identical(a$summary$robust_se,as.numeric(native$summary[1,grep('^se_robust_',names(native$summary))]))
+      # Exact preservation is checked against the native fit from this call.
+      expect_identical(a$summary$beta,as.numeric(a$primary$summary[1,grep('^logFC_',names(a$primary$summary))]))
+      expect_identical(a$summary$robust_se,as.numeric(a$primary$summary[1,grep('^se_robust_',names(a$primary$summary))]))
     }
   }
 })
@@ -246,8 +255,9 @@ test_that("recovered coefficient refusals do not inherit a fit certificate label
     expect_identical(x$failure,change$reason)
     expect_true(is.na(x$robust_se)&&is.na(x$p_value))
     expect_identical(altered$primary,normal$primary)
-    expect_identical(altered$summary[altered$summary$coefficient!="x",],
-      normal$summary[normal$summary$coefficient!="x",])
+    expect_recovery_refit_table(altered$summary[altered$summary$coefficient!="x",],
+      normal$summary[normal$summary$coefficient!="x",],
+      numerical=c("beta","robust_se","p_value"))
     expect_identical(x$point_available,is.null(change$beta)||is.finite(change$beta))
     if(identical(change$reason,"nonfinite_wald_statistic"))expect_true(x$covariance_available)
   }
@@ -261,7 +271,7 @@ test_that("recovered coefficient refusals do not inherit a fit certificate label
     expected<-if(fit_reason=="certified")"working_covariance_unavailable" else fit_reason
     expect_false(any(altered$summary$available))
     expect_identical(unique(altered$summary$failure[altered$summary$estimable]),expected)
-    expect_identical(altered$summary$beta,normal$summary$beta)
+    expect_recovery_refit_numeric(altered$summary$beta,normal$summary$beta,absolute=1e-12)
     expect_identical(altered$primary,normal$primary)
   }
 })
