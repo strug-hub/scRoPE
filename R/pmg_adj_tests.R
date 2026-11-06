@@ -56,6 +56,27 @@ pmg_robust_wald <- function(unconstrained,
     ))
   }
 
+  # Singular donor meat can still give valid scalar variances. It cannot
+  # support a full-rank joint contrast by adding artificial ridge variance.
+  # Normalize by contrast SDs so this gate does not reject tiny positive
+  # variances merely because the coefficient units differ.
+  contrast_rank_ok <- tryCatch({
+    if (!nrow(cov_psi) || any(!is.finite(cov_psi)) || any(diag(cov_psi) <= 0)) {
+      FALSE
+    } else {
+      sd <- sqrt(diag(cov_psi))
+      values <- eigen(cov_psi / outer(sd, sd), symmetric = TRUE,
+                      only.values = TRUE)$values
+      all(is.finite(values)) &&
+        min(values) > 10 * nrow(cov_psi) * .Machine$double.eps * max(abs(values))
+    }
+  }, error = function(e) FALSE)
+  if (!contrast_rank_ok) {
+    return(list(stat = NA_real_, delta = delta, variance = cov_psi,
+                ridge = NA_real_, method = NA_character_, success = FALSE,
+                failure_reason = normalise_failure("singular_cov", "wald")))
+  }
+
   cov_inv_info <- invert_with_ridge(
     cov_psi,
     cond_limit = cond_limit,
@@ -267,6 +288,19 @@ pmg_adjusted_contrasts <- function(ctx,
       ridge_factor = ridge_factor,
       cond_limit = cond_limit
     )
+    # Shared LRT code may propose a Wald fallback independently. Apply the
+    # same PGMM acceptance gate instead of exposing a ridge-based joint test
+    # that the direct Wald path correctly withholds.
+    if (lrt_res$method %in% c("wald", "wald_ridge", "lrt_raw") &&
+        !isTRUE(lrt_res$adjusted_available) && !isTRUE(wald_res$success)) {
+      lrt_res$success <- FALSE
+      lrt_res$adjusted_available <- FALSE
+      lrt_res$adjusted_failure_reason <- normalise_failure(wald_res$failure_reason, "lrt")
+      lrt_res$failure_reason <- lrt_res$adjusted_failure_reason
+      lrt_res$wP_adjusted <- NA_real_
+      lrt_res$method <- "lrt_fail"
+      lrt_res$fallback <- FALSE
+    }
     df <- nrow(def$L)
 
     results[[idx]] <- list(

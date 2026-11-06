@@ -198,6 +198,18 @@ scrope_psock_library_paths <- function() {
 #'   results. Ignored by HL/PGMM. Recovery supports coefficient donor-robust Wald
 #'   tests only. Inspect `recovery$routes` and `recovery$coefficients` for working
 #'   target, selection and coefficient-estimability limitations.
+#' @param hl_score_recovery Experimental HL Score numerical policy. `"none"`
+#'   (default) preserves native results. `"stable"` retries ambiguous finite
+#'   full-chi Score roots using stable Gamma arithmetic and cold refinement,
+#'   retaining all native roots, the original configuration and certification
+#'   gates. Any failed cold evaluation withholds the retry; rejected warm
+#'   evaluations are recorded in its failure ledger. Accepted native results
+#'   are preserved. Requires `model="HL"`;
+#'   used only for requested Score tests. This does not repair boundary fits,
+#'   change Wald inference or establish finite-sample calibration. Full retry
+#'   evidence is in the Score object's `numerical_recovery` diagnostics. When
+#'   recovery is considered, a compact `hl_score_recovery` route table is
+#'   retained even with `keep_diagnostics=FALSE`.
 #' @param pgmm_control PGMM main unconstrained `nlminb` budget: a named list
 #'   with positive integer `iter.max` and/or `eval.max`. Missing entries default
 #'   to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
@@ -243,7 +255,9 @@ scrope <- function(
     ln_estimator = "joint_ln",
     ln_operational_fallback = "none",
     pgmm_control = NULL,
-    ln_recovery = c("auto", "none")) {
+    ln_recovery = c("auto", "none"),
+    hl_score_recovery = c("none", "stable")) {
+  hl_score_recovery <- match.arg(hl_score_recovery)
   ln_recovery <- match.arg(ln_recovery)
   cutoff_cell_missing <- missing(cutoff_cell)
   kappa_missing <- missing(kappa)
@@ -269,6 +283,8 @@ scrope <- function(
     ), call. = FALSE)
   }
   model <- match.arg(model)
+  if (!identical(model, "HL") && !identical(hl_score_recovery, "none"))
+    stop("hl_score_recovery applies only to model='HL'.")
   if (!identical(model, "PGMM") && !is.null(pgmm_control)) {
     stop("pgmm_control applies only to model='PGMM'.")
   }
@@ -311,7 +327,8 @@ scrope <- function(
       lrt_contrasts = lrt_contrasts,
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
-      keep_diagnostics = keep_diagnostics
+      keep_diagnostics = keep_diagnostics,
+      hl_score_recovery = hl_score_recovery
     ))
   }
 
@@ -354,27 +371,7 @@ scrope <- function(
       keep_diagnostics = keep_diagnostics,
       pgmm_control = pgmm_control
     )
-    pgmm_result$provenance <- list(
-      schema_version = 2L,
-      route = "PGMM",
-      requested_model = "PGMM",
-      effective_model = "PGMM",
-      estimator = "pgmm_exact_marginal",
-      optimizer = list(
-        primary_backend = "nlminb",
-        main_control = pgmm_control,
-        scope = "main_unconstrained_fit",
-        retry_requested = FALSE
-      ),
-      model_covariance = "pgmm_observed_information",
-      robust_covariance = "pgmm_donor_sandwich",
-      test_capabilities = data.frame(
-        test = c("wald", "score", "lrt"),
-        public_available = rep(TRUE, 3L),
-        status = rep("available_when_requested", 3L),
-        stringsAsFactors = FALSE
-      )
-    )
+    pgmm_result$provenance <- pmg_public_provenance(pgmm_control)
     return(pgmm_result)
   }
 

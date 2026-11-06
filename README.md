@@ -22,11 +22,12 @@ side by side**.
 
 ## Automatic JLN recovery
 
-This 0.3.1.9000 development candidate adds `scrope(..., ln_recovery = "auto")` as the
-LN default. It keeps accepted ordinary JLN fits, then tries supported numerical,
+This candidate builds on the merged JLN recovery implementation, with
+`scrope(..., ln_recovery = "auto")` as the LN default. It keeps accepted ordinary JLN fits, then tries supported numerical,
 warning, fixed-dispersion and identifiable limiting-face routes when needed.
-Use `ln_recovery = "none"` for strict native behavior. HL and PGMM are unchanged.
-The candidate is under draft patch review and is not a released version.
+Use `ln_recovery = "none"` for strict native JLN behavior. This option applies
+to LN; the separate HL/PGMM working-fit interface below is explicitly opt-in.
+The combined candidate is under review and has not been released.
 
 ```r
 fit <- scrope(count, id, pred, offset = exposure, model = "LN")
@@ -49,6 +50,33 @@ routes/faces are not selectively calibrated; equality to a scientific target
 and FDR control are not established. Finite-donor undercoverage has been observed.
 See [the recovery guide](inst/doc/jln-recovery.md) for assumptions and evidence.
 
+## Opt-in HL and PGMM working fits
+
+The review candidate adds `scrope_working()` for supported HL/PGMM numerical
+refits, fixed-positive-dispersion working models and identifiable whole-zero-donor
+limits. Existing HL/PGMM recovery defaults are unchanged, and the estimators are
+never switched automatically.
+
+```r
+working <- scrope_working(count, id, pred, offset = exposure, model = "HL")
+working$summary[, c("coefficient", "beta", "robust_se", "p_value",
+                    "point_available", "available", "route", "scope")]
+working$routes   # fixed values and per-gene route
+native <- working$primary
+```
+
+Read `available` together with `scope`, `sampling_target` and the route's fixed
+parameters. HL limits with free donor dispersion remain point-only, with all
+recovered SEs and p-values missing. A numerical certificate does not establish
+coverage, target equality or validity after route selection. The installed
+[HL/PGMM guide](inst/doc/hl-pgmm-working-recovery.md) explains exact API changes,
+coordinate conventions, diagnostics and limitations.
+
+This candidate also includes the separately reviewed PGMM direct-sandwich/rank
+repair and optional HL Score retry. The latter is requested through
+`scrope(..., model="HL", additional_tests="score", hl_score_recovery="stable")`;
+its default remains `"none"`, and it does not add Wald recovery.
+
 ## Installation
 
 Install the maintained version from GitHub. With R ≥ 4.1 and an
@@ -60,10 +88,19 @@ remotes::install_github("strug-hub/scRoPE")
 library(scRoPE)
 ```
 
-This installs the default `main` branch, which contains the merged 0.3.0 source.
-To test the automatic-recovery candidate under review, install its branch
-explicitly with
-`remotes::install_github("strug-hub/scRoPE@codex/jln-public-recovery-review")`.
+This installs the remote default branch, not this unpublished local HL/PGMM
+review candidate. To inspect the candidate, install its provided source archive
+into a private library in a fresh R session:
+
+```r
+review_lib <- file.path(tempdir(), "scrope-review-library")
+dir.create(review_lib, showWarnings = FALSE)
+install.packages("/path/to/scRoPE_0.3.1.9000.tar.gz", repos = NULL,
+                 type = "source", lib = review_lib)
+.libPaths(c(review_lib, .libPaths()))
+library(scRoPE)
+```
+
 Package dependencies are listed in [DESCRIPTION](DESCRIPTION).
 
 ## Quick start: 24 genes in one fit

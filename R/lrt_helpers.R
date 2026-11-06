@@ -315,6 +315,97 @@ compute_scalar_profile_quantities <- function(full_score,
   )
 }
 
+# An unregularized factor with a dimensionless numerical-rank check. Tiny
+# positive variances are not rejected merely because of their measurement units.
+profile_lrt_spd_factor <- function(mat) {
+  if (!is.matrix(mat) || nrow(mat) == 0L || nrow(mat) != ncol(mat) ||
+      any(!is.finite(mat)) || any(diag(mat) <= 0)) return(NULL)
+  sd <- sqrt(diag(mat))
+  corr <- sweep(sweep(mat, 1L, sd, "/"), 2L, sd, "/")
+  corr <- 0.5 * (corr + t(corr))
+  if (any(!is.finite(corr))) return(NULL)
+  ev <- tryCatch(eigen(corr, symmetric = TRUE, only.values = TRUE)$values,
+                 error = function(e) NULL)
+  if (is.null(ev) || any(!is.finite(ev)) ||
+      min(ev) <= 10 * nrow(mat) * .Machine$double.eps * max(abs(ev))) return(NULL)
+  factor <- tryCatch(chol(corr), error = function(e) NULL)
+  if (is.null(factor)) return(NULL)
+  list(sd = sd, factor = factor)
+}
+
+# Used only by the formerly undefined joint small-quadratic branch. The scalar
+# multiplier and ordinary positive-quadratic path retain their existing policy.
+joint_profile_lrt_small <- function(u, A, B, H_lambda, H_eff,
+                                    unregularized_profile, raw_lr,
+                                    unconstrained, constrained, L, b) {
+  out <- list(defined = FALSE, mode = "unavailable", reason = NA_character_,
+              scale = NA_real_, statistic = NA_real_, raw_lr = raw_lr,
+              normalized_qP = NA_real_, normalized_wU = NA_real_)
+  reject <- function(reason) { out$reason <- reason; out }
+  if (!isTRUE(unregularized_profile)) return(reject("regularized_or_missing_profile"))
+  if (is.null(profile_lrt_spd_factor(H_lambda)) ||
+      is.null(profile_lrt_spd_factor(H_eff))) return(reject("nonpositive_profile_curvature"))
+  a <- profile_lrt_spd_factor(A)
+  v <- profile_lrt_spd_factor(B)
+  if (is.null(a)) return(reject("deficient_model_covariance"))
+  if (is.null(v)) return(reject("deficient_robust_covariance"))
+  if (length(raw_lr) != 1L || !is.finite(raw_lr) || raw_lr < 0)
+    return(reject("invalid_unclamped_lr"))
+  if (!length(u) || any(!is.finite(u))) return(reject("nonfinite_profile_direction"))
+  size <- max(abs(u))
+  if (size > 0) {
+    direction <- as.numeric(u) / size
+    quadratic <- function(f) sum(forwardsolve(t(f$factor), direction / f$sd)^2)
+    out$normalized_qP <- quadratic(a)
+    out$normalized_wU <- quadratic(v)
+    scale <- out$normalized_wU / out$normalized_qP
+    statistic <- raw_lr * scale
+    if (!is.finite(scale) || scale <= 0 || !is.finite(statistic) || statistic < 0)
+      return(reject("nonfinite_normalized_adjustment"))
+    out$scale <- scale
+    out$statistic <- statistic
+    out$mode <- "normalized_direction"
+  } else {
+    # The statistic extends continuously to zero at a regular coincident null
+    # fit. The direction-dependent multiplier itself has no unique zero limit.
+    if (raw_lr != 0) return(reject("zero_direction_nonzero_lr"))
+    same_state <- function(x, y) {
+      xx <- unlist(x, use.names = TRUE)
+      yy <- unlist(y, use.names = TRUE)
+      is.list(x) && is.list(y) && is.numeric(xx) && is.numeric(yy) &&
+        length(xx) == nrow(H_eff) + nrow(H_lambda) &&
+        length(x$beta) == nrow(H_eff) && length(y$beta) == nrow(H_eff) &&
+        all(is.finite(xx)) && all(is.finite(yy)) &&
+        identical(names(xx), names(yy)) && isTRUE(all.equal(x, y, tolerance = 0))
+    }
+    if (!same_state(unconstrained$theta, constrained$theta))
+      return(reject("noncoincident_parameter_states"))
+    uses_ln <- function(fit) length(fit$loglik_ln) == 1L && is.finite(fit$loglik_ln)
+    if (uses_ln(unconstrained) || uses_ln(constrained)) {
+      # Legacy LN objects can retain an objective-specific state separately
+      # from their final theta. Matching theta alone does not bind that LR.
+      if (!uses_ln(unconstrained) || !uses_ln(constrained) ||
+          !same_state(unconstrained$theta_ln, constrained$theta_ln) ||
+          !same_state(unconstrained$theta, unconstrained$theta_ln))
+        return(reject("noncoincident_objective_states"))
+    }
+    gate_u <- extract_lrt_gate(unconstrained)
+    if (!all(vapply(gate_u[c("converged", "interior", "nuisance_interior")],
+                    isTRUE, logical(1)))) return(reject("unaccepted_unconstrained_fit"))
+    beta <- unconstrained$theta$beta
+    if (length(b) != nrow(L) || any(!is.finite(L)) || any(!is.finite(b)))
+      return(reject("invalid_null"))
+    residual <- as.numeric(L %*% beta - b)
+    bound <- 32 * .Machine$double.eps * as.numeric(abs(L) %*% abs(beta) + abs(b))
+    if (any(!is.finite(residual)) || any(!is.finite(bound)) || any(abs(residual) > bound))
+      return(reject("coincident_fit_misses_null"))
+    out$statistic <- 0
+    out$mode <- "coincident_zero_extension"
+  }
+  out$defined <- TRUE
+  out
+}
+
 compute_profile_lrt <- function(unconstrained,
                                 constrained,
                                 L,
@@ -349,6 +440,7 @@ compute_profile_lrt <- function(unconstrained,
   loglik_uncon <- pick_loglik(unconstrained)
   loglik_con <- pick_loglik(constrained)
   wP <- 2 * (loglik_uncon - loglik_con)
+  wP_unclamped <- wP
   if (!is.na(wP) && wP < 0 && abs(wP) <= 1e-6) {
     wP <- 0
   }
@@ -720,6 +812,7 @@ compute_profile_lrt <- function(unconstrained,
   }
   negative_raw_lr <- is.finite(wP) && wP < -1e-6
 
+  joint_small <- NULL
   if (is.finite(wU_val) && is.finite(qP_val) && abs(qP_val) > .Machine$double.eps) {
     scale_candidate <- wU_val / qP_val
     if (is.finite(scale_candidate) && scale_candidate > 0) {
@@ -737,6 +830,19 @@ compute_profile_lrt <- function(unconstrained,
     } else {
       method <- "lrt_fail"
     }
+  } else if (nrow(L) > 1L) {
+    joint_small <- joint_profile_lrt_small(
+      profile_score, Hpsi, Gpsi, H_lambda, H_beta_dot_lambda,
+      unregularized_profile = isTRUE(H_lambda_inv_info$success) &&
+        isTRUE(H_beta_dot_lambda_inv_info$success) &&
+        isTRUE(H_lambda_inv_info$ridge == 0) &&
+        isTRUE(H_beta_dot_lambda_inv_info$ridge == 0),
+      raw_lr = wP_unclamped, unconstrained = unconstrained,
+      constrained = constrained, L = L, b = b
+    )
+    scale <- joint_small$scale
+    wP_adj <- joint_small$statistic
+    if (!joint_small$defined) method <- "lrt_fail"
   } else {
     h_val <- as.numeric(Hpsi)
     g_val <- as.numeric(Gpsi)
@@ -782,6 +888,12 @@ compute_profile_lrt <- function(unconstrained,
     "profiled_curvature_positive",
     "scale_positive"
   )
+  if (!is.null(joint_small)) {
+    diagnostics$small_quadratic <- joint_small
+    diagnostics$adjustment_defined <- joint_small$defined
+    required_gate_fields <- c(setdiff(required_gate_fields, "scale_positive"),
+                              "adjustment_defined")
+  }
   if (has_model_specific_gate) {
     required_gate_fields <- c(
       required_gate_fields,
@@ -811,6 +923,8 @@ compute_profile_lrt <- function(unconstrained,
     } else if (!diagnostics$profiled_curvature_positive) {
       adjusted_failure_reason <- normalise_failure("nonpositive_curvature", "lrt")
     } else if (has_model_specific_gate && !diagnostics$profiled_variability_positive) {
+      adjusted_failure_reason <- normalise_failure("undefined_adjustment", "lrt")
+    } else if (!is.null(joint_small) && !joint_small$defined) {
       adjusted_failure_reason <- normalise_failure("undefined_adjustment", "lrt")
     } else if (!diagnostics$scale_positive) {
       adjusted_failure_reason <- normalise_failure("nonpositive_scale", "lrt")
@@ -849,7 +963,14 @@ compute_profile_lrt <- function(unconstrained,
     wP_adj <- 0
   }
 
-  if (!adjusted_available || !is.finite(wP_adj) || wP_adj < 0) {
+  if ((!adjusted_available || !is.finite(wP_adj) || wP_adj < 0) &&
+      !is.null(joint_small)) {
+    # Callers form p-values from any finite wP_adjusted. An undefined new joint
+    # case must not silently reappear as a raw-LR or ridge-Wald p-value.
+    wP_adj <- NA_real_
+    scale <- NA_real_
+    method <- "lrt_fail"
+  } else if (!adjusted_available || !is.finite(wP_adj) || wP_adj < 0) {
     beta_diff <- as.matrix(L %*% beta_hat - b)
     wald_cov_raw <- if (!is.null(unconstrained$robust_cov) &&
       all(dim(unconstrained$robust_cov) == c(nb, nb))) {

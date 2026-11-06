@@ -75,7 +75,8 @@ scrope_hl <- function(
     lrt_details = FALSE,
     adj_ridge_factor = 1e-8,
     adj_cond_limit = 1e8,
-    keep_diagnostics = TRUE) {
+    keep_diagnostics = TRUE,
+    hl_score_recovery = c("none", "stable")) {
   hl_fo_public_scrope_hl(
     count = count,
     id = id,
@@ -98,6 +99,7 @@ scrope_hl <- function(
     lrt_details = lrt_details,
     adj_ridge_factor = adj_ridge_factor,
     adj_cond_limit = adj_cond_limit,
-    keep_diagnostics = keep_diagnostics
+    keep_diagnostics = keep_diagnostics,
+    hl_score_recovery = hl_score_recovery
   )
 }

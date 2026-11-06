@@ -951,6 +951,20 @@ hl_fo_profile_evaluate <- function(data, rho_active, rho_template, active,
     }
     subjects[[ii]] <- hl_fo_contract_subject(ss, transform)
   }
+  # A verified whole-zero-donor limit retains the prior/Laplace contribution
+  # of each vanished donor. Inner beta equations are unaffected by these donors.
+  zero_donors <- data$zero_donors
+  if (!is.null(zero_donors) && zero_donors > 0L) {
+    empty <- hl_fo_subject_raw(numeric(0), matrix(0, 0L, data$p), numeric(0),
+      beta = inner$beta, eta = exp(rho_full[1L]) / 2, rho_full = rho_full,
+      include_laplace_constant = include_laplace_constant)
+    if (!isTRUE(empty$ok)) return(empty)
+    empty <- hl_fo_contract_subject(empty, transform)
+    subjects <- c(subjects, rep(list(empty), zero_donors))
+    # Keep the retained-cell data valid for cold reevaluation. Inference
+    # counts the original donors, including these explicit empty contributors.
+    data$inference_m <- data$m + zero_donors
+  }
   augmented <- hl_fo_augmented_state(subjects, ncol(K), length(active))
   if (!isTRUE(augmented$success)) {
     return(augmented)
@@ -1138,13 +1152,17 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
                                        constraint_rhs = numeric(0),
                                        inner_acceptance_tier = "derivative",
                                        recession_check = NULL,
-                                       keep_diagnostics = TRUE) {
+                                       keep_diagnostics = TRUE,
+                                       .history = NULL, .history_source = "native") {
   if (is.null(recession_check)) {
     recession_check <- hl_fo_make_recession_check(data, K)
   }
   cache <- list()
   trace <- list()
   evaluation_count <- 0L
+  phase <- "outer"
+  configuration <- if (!is.null(.history)) .history$register(
+    data, active, beta_star, K, include_laplace_constant, rho_template) else NULL
   evaluate <- function(rho, cold = FALSE) {
     nearest <- NULL
     if (!cold && length(cache)) {
@@ -1153,7 +1171,7 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
     }
     beta_start <- if (is.null(nearest)) seed_beta else nearest$beta
     eta_start <- if (is.null(nearest)) NULL else nearest$eta
-    ans <- hl_fo_profile_evaluate(
+    ans <- tryCatch(hl_fo_profile_evaluate(
       data = data,
       rho_active = rho,
       rho_template = rho_template,
@@ -1167,8 +1185,21 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
       inner_acceptance_tier = inner_acceptance_tier,
       recession_check = recession_check,
       keep_diagnostics = keep_diagnostics
-    )
+    ), error=function(e) {
+      if (!is.null(.history)) {
+        full_rho <- as.numeric(rho_template); full_rho[active] <- rho
+        .history$record(configuration,full_rho,
+          list(success=FALSE,status="evaluation_error",reason=conditionMessage(e)),cold,
+          paste(.history_source,phase,evaluation_count+1L,sep=":"))
+      }
+      stop(e)
+    })
     evaluation_count <<- evaluation_count + 1L
+    if (!is.null(.history)) {
+      full_rho <- as.numeric(rho_template); full_rho[active] <- rho
+      .history$record(configuration, full_rho, ans, cold,
+                      paste(.history_source, phase, evaluation_count, sep=":"))
+    }
     if (keep_diagnostics) {
       reconstruction <- if (isTRUE(ans$success))
         as.numeric(ans$beta - beta_star - K %*% ans$gamma) else NULL
@@ -1204,6 +1235,7 @@ hl_fo_make_outer_evaluator <- function(data, rho_template, active, beta_star, K,
   }
   list(
     evaluate = evaluate,
+    mark = function(source) { phase <<- source; invisible(NULL) },
     cache = function() cache,
     trace = function() trace,
     count = function() evaluation_count
@@ -1216,7 +1248,7 @@ hl_fo_optimize_outer_start <- function(start, lower, upper, evaluator,
   invalid_consecutive <- 0L
   invalid_guard_faces <- character(0)
   start_count <- evaluator$count()
-  current <- evaluator$evaluate(start)
+  current <- hl_fo_history_evaluate(evaluator,start,source="start")
   if (!isTRUE(current$success)) {
     terminal_inner <- current$status %in% c(
       "mode_failure", "inner_rank_deficient", "inner_no_finite_root",
@@ -1241,7 +1273,7 @@ hl_fo_optimize_outer_start <- function(start, lower, upper, evaluator,
       # before it is admitted to the candidate set.  Selection therefore uses
       # the same fully cold-replayed derivative state that final certification
       # must reproduce, without relaxing the 1e-8 replay discrepancy gate.
-      cold_candidate <- evaluator$evaluate(current$rho, cold = TRUE)
+      cold_candidate <- hl_fo_history_evaluate(evaluator,current$rho,cold=TRUE,source="stationary_replay")
       if (!isTRUE(cold_candidate$success)) {
         return(list(
           success = FALSE,
@@ -1290,7 +1322,7 @@ hl_fo_optimize_outer_start <- function(start, lower, upper, evaluator,
       if (!is.null(polish_step) && all(is.finite(polish_step))) {
         polish_rho <- current$rho + polish_step
         if (all(polish_rho > lower) && all(polish_rho < upper)) {
-          polished <- evaluator$evaluate(polish_rho)
+          polished <- hl_fo_history_evaluate(evaluator,polish_rho,source="total_gradient_polish")
           if (isTRUE(polished$success)) {
             polished_station <- hl_fo_outer_stationarity(polished)
             if (keep_diagnostics) trust_trace[[length(trust_trace) + 1L]] <- list(
@@ -1360,7 +1392,7 @@ hl_fo_optimize_outer_start <- function(start, lower, upper, evaluator,
       }
       next
     }
-    trial <- evaluator$evaluate(proposal)
+    trial <- hl_fo_history_evaluate(evaluator,proposal,source="trust_proposal")
     if (!isTRUE(trial$success)) {
       radius <- radius / 4
       invalid_consecutive <- invalid_consecutive + 1L
@@ -1463,7 +1495,7 @@ hl_fo_polish_cold_outer <- function(state, evaluator, lower, upper,
     for (reduction in 0:12) {
       proposal <- current$rho + factor * newton
       if (all(proposal > lower) && all(proposal < upper)) {
-        trial <- evaluator$evaluate(proposal, cold = TRUE)
+        trial <- hl_fo_history_evaluate(evaluator,proposal,cold=TRUE,source="cold_polish")
         if (isTRUE(trial$success)) {
           trial_stationarity <- hl_fo_outer_stationarity(trial)
           improved <- trial_stationarity$scaled_score < stationarity$scaled_score ||
@@ -1523,12 +1555,12 @@ hl_fo_rank_limit_diagnostics <- function(data, k_free, q,
                                          J = NULL) {
   augmented_dimension <- 2L * as.integer(k_free) + as.integer(q)
   list(
-    subject_count = data$m,
+    subject_count = if (is.null(data$inference_m)) data$m else data$inference_m,
     augmented_dimension = augmented_dimension,
     J_rank = if (is.null(J)) NA_integer_ else hl_fo_matrix_rank(J),
-    J_rank_bound = min(augmented_dimension, data$m - 1L),
+    J_rank_bound = min(augmented_dimension, (if (is.null(data$inference_m)) data$m else data$inference_m) - 1L),
     asymptotic_calibration = "chi_square_subject_clusters",
-    small_subject_rank_limited = data$m - 1L < augmented_dimension
+    small_subject_rank_limited = (if (is.null(data$inference_m)) data$m else data$inference_m) - 1L < augmented_dimension
   )
 }
 
@@ -1640,7 +1672,7 @@ hl_fo_finalize_state <- function(state, constraint_C = NULL, constraint_rhs = NU
     }
     displacement <- abs(delta) / sqrt(diag(Vz))
     diagnostics$statistical_displacement <- displacement
-    diagnostics$statistical_displacement_limit <- min(1e-3, state$data$m^(-1 / 4))
+    diagnostics$statistical_displacement_limit <- min(1e-3, diagnostics$subject_count^(-1 / 4))
     if (max(displacement) > diagnostics$statistical_displacement_limit) {
       state$covariance_success <- FALSE
       state$covariance_status <- "covariance_invalid"
@@ -1717,7 +1749,8 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
                              guard_max = c(10, 1000), seed = NULL,
                              include_laplace_constant = TRUE,
                              constraint_C = NULL, constraint_rhs = NULL,
-                             keep_diagnostics = TRUE) {
+                             keep_diagnostics = TRUE,
+                             .history = NULL, .history_source = "native") {
   active <- as.integer(active)
   if (any(!active %in% 1:2) || anyDuplicated(active) || is.unsorted(active)) {
     stop("active dispersion indices must be an ordered subset of c(1, 2).")
@@ -1817,9 +1850,10 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
       include_laplace_constant, constraint_C, constraint_rhs,
       inner_acceptance_tier = "statistical",
       recession_check = recession_check,
-      keep_diagnostics = keep_diagnostics
+      keep_diagnostics = keep_diagnostics,
+      .history = .history, .history_source = paste0(.history_source,":fixed")
     )
-    state <- evaluator$evaluate(numeric(0), cold = TRUE)
+    state <- hl_fo_history_evaluate(evaluator,numeric(0),cold=TRUE,source="fixed_profile")
     if (!isTRUE(state$success)) {
       state$point_success <- FALSE
       state$fit_status <- state$status
@@ -1841,7 +1875,8 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
       data, rho_template, active, beta_star, K, seed$beta,
       include_laplace_constant, constraint_C, constraint_rhs,
       recession_check = recession_check,
-      keep_diagnostics = keep_diagnostics
+      keep_diagnostics = keep_diagnostics,
+      .history = .history, .history_source = paste0(.history_source,":round",round)
     )
     starts <- hl_fo_outer_starts(primary, lower, upper)
     runs <- lapply(starts, hl_fo_optimize_outer_start,
@@ -1974,9 +2009,10 @@ hl_fo_fit_affine <- function(data, beta_star = rep(0, data$p), K = diag(data$p),
     data, selected$rho_full, active, beta_star, K, seed$beta,
     include_laplace_constant, constraint_C, constraint_rhs,
     recession_check = recession_check,
-    keep_diagnostics = keep_diagnostics
+    keep_diagnostics = keep_diagnostics,
+    .history = .history, .history_source = paste0(.history_source,":final")
   )
-  cold <- cold_evaluator$evaluate(selected$rho, cold = TRUE)
+  cold <- hl_fo_history_evaluate(cold_evaluator,selected$rho,cold=TRUE,source="final_cold")
   if (isTRUE(cold$success)) {
     polished_cold <- hl_fo_polish_cold_outer(
       cold, cold_evaluator,
@@ -2042,7 +2078,8 @@ hl_fo_fit <- function(data, C = NULL, rhs = numeric(0),
                       guard_min = c(1e-4, 1e-4),
                       guard_max = c(10, 1000), seed = NULL,
                       include_laplace_constant = TRUE,
-                      keep_diagnostics = TRUE) {
+                      keep_diagnostics = TRUE,
+                      .history = NULL, .history_source = "native") {
   active_idx <- if (is.character(active)) match(active, c("tau", "xi")) else
     as.integer(active)
   if (anyNA(active_idx)) stop("active must select tau and/or xi.")
@@ -2071,7 +2108,8 @@ hl_fo_fit <- function(data, C = NULL, rhs = numeric(0),
     constraint_C = if (is.null(C)) NULL else if (is.null(dim(C)))
       matrix(C, nrow = 1L) else as.matrix(C),
     constraint_rhs = rhs,
-    keep_diagnostics = keep_diagnostics
+    keep_diagnostics = keep_diagnostics,
+    .history = .history, .history_source = .history_source
   )
   if (is.null(fit$certification)) {
     fit$certification <- hl_fo_rank_limit_diagnostics(

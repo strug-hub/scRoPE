@@ -81,7 +81,7 @@ scrope_pmg_internal <- function(
     lrt_include_scale = FALSE,
     lrt_details = FALSE,
     keep_diagnostics = TRUE,
-    pgmm_control = NULL) {
+    pgmm_control = NULL, .fit_observer = NULL) {
   pgmm_control <- pmg_resolve_control(pgmm_control)
 
   if (output_re) {
@@ -277,9 +277,28 @@ scrope_pmg_internal <- function(
     }, add = TRUE)
   }
 
-  gene_results <- foreach(gene_idx = gid) %dorng% {
+  capture_working <- !is.null(.fit_observer)
+  compact_working <- capture_working && !keep_diagnostics
+  if (compact_working) {
+    if (ncore != 1L || want_score || want_lrt)
+      stop("Compact working observation supports sequential coefficient fits only.")
+    # Consume each opt-in fit before storing its small public-summary fields.
+    gene_results <- lapply(gid, function(gene_idx) {
+      posv <- call_posindy(count, gene_idx - 1, nind)
+      fit <- fit_gene_pmg_unconstrained(gene_idx, posv, ctx,
+        control = pgmm_control, keep_candidates = TRUE)
+      candidates <- fit$working_candidates
+      fit$working_candidates <- NULL
+      .fit_observer(fit, prep, gene_idx, candidates)
+      fit$per_subject_gradients <- fit$godambe <- NULL
+      fit
+    })
+  } else {
+    gene_results <- foreach(gene_idx = gid) %dorng% {
     posv <- call_posindy(count, gene_idx - 1, nind)
-    fit <- fit_gene_pmg_unconstrained(gene_idx, posv, ctx, control = pgmm_control)
+    fit <- if (capture_working) fit_gene_pmg_unconstrained(gene_idx, posv, ctx,
+      control = pgmm_control, keep_candidates = TRUE) else
+      fit_gene_pmg_unconstrained(gene_idx, posv, ctx, control = pgmm_control)
 
     if ((want_score || want_lrt) && length(contrast_payload) > 0L) {
       adj_res <- pmg_adjusted_contrasts(
@@ -327,6 +346,7 @@ scrope_pmg_internal <- function(
     }
 
     fit
+    }
   }
 
   if (ncore > 1) {
@@ -334,6 +354,12 @@ scrope_pmg_internal <- function(
     cluster_open <- FALSE
     plan(sequential)
     gc()
+  }
+
+  if (capture_working && !compact_working) for (ii in seq_along(gene_results)) {
+    candidates <- gene_results[[ii]]$working_candidates
+    gene_results[[ii]]$working_candidates <- NULL
+    .fit_observer(gene_results[[ii]], prep, gid[ii], candidates)
   }
 
   beta_mat <- t(vapply(gene_results, function(gr) gr$theta$beta, numeric(nb)))
@@ -729,4 +755,29 @@ scrope_pmg_internal <- function(
   }
 
   result_list
+}
+
+# Shared metadata; working primary remains an ordinary native result.
+pmg_public_provenance <- function(pgmm_control) {
+  list(
+      schema_version = 2L,
+      route = "PGMM",
+      requested_model = "PGMM",
+      effective_model = "PGMM",
+      estimator = "pgmm_exact_marginal",
+      optimizer = list(
+        primary_backend = "nlminb",
+        main_control = pgmm_control,
+        scope = "main_unconstrained_fit",
+        retry_requested = FALSE
+      ),
+      model_covariance = "pgmm_observed_information",
+      robust_covariance = "pgmm_donor_sandwich",
+      test_capabilities = data.frame(
+        test = c("wald", "score", "lrt"),
+        public_available = rep(TRUE, 3L),
+        status = rep("available_when_requested", 3L),
+        stringsAsFactors = FALSE
+      )
+    )
 }

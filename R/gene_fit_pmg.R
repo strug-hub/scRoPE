@@ -103,7 +103,8 @@ fit_gene_pmg_unconstrained <- function(gene_index,
                                        start = NULL,
                                        control = NULL,
                                        retry = FALSE,
-                                       use_average_objective = FALSE) {
+                                       use_average_objective = FALSE,
+                                       keep_candidates = FALSE) {
   with(ctx, {
     default_start <- c(pmg_initial_beta(posv, ctx), 1)
     lower <- c(rep(-100, nb), min[1])
@@ -166,6 +167,14 @@ fit_gene_pmg_unconstrained <- function(gene_index,
     }
 
     optimizer_calls <- c(nlminb = 0L, bobyqa = 0L)
+    working_attempts <- list()
+    record_attempt <- function(start, result, error = NULL) {
+      if (isTRUE(keep_candidates)) working_attempts[[length(working_attempts)+1L]] <<-
+        list(start = start, par = if (is.null(result)) NULL else result$par,
+             optimizer = if (is.null(result)) NA_character_ else result$optimizer,
+             raw = if (is.null(result)) NULL else result$raw, error = error)
+      result
+    }
     run_nlminb <- function(start_value, control_value) {
       optimizer_calls[["nlminb"]] <<- optimizer_calls[["nlminb"]] + 1L
       tryCatch({
@@ -180,22 +189,24 @@ fit_gene_pmg_unconstrained <- function(gene_index,
           args$control <- control_value
         }
         ref <- do.call(nlminb, args)
-        list(par = ref$par, optimizer = "nlminb", raw = ref,
+        result <- list(par = ref$par, optimizer = "nlminb", raw = ref,
              control = utils::modifyList(list(iter.max = 150L, eval.max = 200L),
                                          if (is.null(control_value)) list() else control_value))
-      }, error = function(e) NULL)
+        record_attempt(start_value, result)
+      }, error = function(e) record_attempt(start_value, NULL, conditionMessage(e)))
     }
 
     run_bobyqa <- function(start_value) {
       optimizer_calls[["bobyqa"]] <<- optimizer_calls[["bobyqa"]] + 1L
       tryCatch({
-        pmg_run_bobyqa(
+        result <- pmg_run_bobyqa(
           start = start_value,
           objective = obj_fn,
           lower = lower,
           upper = upper
         )
-      }, error = function(e) NULL)
+        record_attempt(start_value, result)
+      }, error = function(e) record_attempt(start_value, NULL, conditionMessage(e)))
     }
 
     control_list <- list(if (is.null(control)) list() else control)
@@ -291,7 +302,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
 
     robust_out <- tryCatch(
       {
-        compute_sandwich_variance2(
+        pmg_sandwich_covariance(
           eval_at_opt,
           nb = nb,
           compute_full = TRUE
@@ -348,7 +359,7 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       per_subject_gradients = eval_at_opt$per_subject_gradients
     )
 
-    list(
+    result <- list(
       theta = list(
         beta = fit$par[seq_len(nb)],
         subVar = fit$par[nb + 1L]
@@ -396,6 +407,8 @@ fit_gene_pmg_unconstrained <- function(gene_index,
       optimizer = fit$optimizer,
       raw_fit = fit$raw
     )
+    if (isTRUE(keep_candidates)) result$working_candidates <- working_attempts
+    result
   })
 }
 

@@ -26,10 +26,23 @@ scrope_hl(
   lrt_details = FALSE,
   adj_ridge_factor = 1e-08,
   adj_cond_limit = 1e+08,
-  keep_diagnostics = TRUE
+  keep_diagnostics = TRUE,
+  hl_score_recovery = c("none", "stable")
 )
 }
 \arguments{
+\item{hl_score_recovery}{Experimental HL Score numerical policy. \code{"none"}
+(default) preserves native results. \code{"stable"} retries ambiguous finite
+full-chi Score roots using stable Gamma arithmetic and cold refinement,
+retaining all native roots, the original configuration and certification gates.
+Any failed cold evaluation withholds the retry; rejected warm evaluations are
+recorded in its failure ledger. Accepted native results are preserved. Requires \code{model="HL"}; used only
+for requested Score tests. This does not repair boundary fits, change Wald
+inference or establish finite-sample calibration. Full retry evidence is in
+the Score object's \code{numerical_recovery} diagnostics. When recovery is
+considered, a compact \code{hl_score_recovery} route table is retained even
+with \code{keep_diagnostics=FALSE}.}
+
 \item{count}{Gene-by-cell count matrix (dense matrix or `dgCMatrix`).}
 
 \item{id}{Vector of subject identifiers aligned with the columns of `count`.}

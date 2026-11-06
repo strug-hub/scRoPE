@@ -579,7 +579,8 @@ hl_fo_score_null_fit <- function(data, R, rhs = NULL,
                                  guard_min = c(1e-4, 1e-4),
                                  guard_max = c(10, 1000),
                                  include_laplace_constant = TRUE,
-                                 keep_diagnostics = TRUE) {
+                                 keep_diagnostics = TRUE,
+                                 .context_callback = NULL) {
   reduced <- .hl_fo_reduce_contrast(R, rhs)
   if (!isTRUE(reduced$ok)) {
     return(.hl_fo_score_root_failure(
@@ -675,6 +676,13 @@ hl_fo_score_null_fit <- function(data, R, rhs = NULL,
     keep_diagnostics = keep_diagnostics
   )
   starts <- hl_fo_outer_starts(primary, lower, upper)
+  if (is.function(.context_callback)) .context_callback(list(
+    data = data, R = R_use, rhs = rhs_use, active = active_idx,
+    rho_template = rho_template, beta_star = affine$beta_star, K = affine$K,
+    C_R = C_R, seed_beta = seed$beta, lower = lower, upper = upper,
+    starts = starts, include_laplace_constant = include_laplace_constant,
+    requested_guard_min = guard_min, requested_guard_max = guard_max,
+    fixed_natural = fixed_natural))
   if (isTRUE(keep_diagnostics)) {
     runs <- lapply(starts, hl_fo_score_optimize_start,
                    lower = lower, upper = upper, evaluator = evaluator)
@@ -777,7 +785,20 @@ hl_fo_score_test <- function(data, R, rhs = NULL,
                              fixed_natural = numeric(0),
                              constrained_fit = NULL,
                              include_laplace_constant = TRUE,
-                             keep_diagnostics = TRUE) {
+                             keep_diagnostics = TRUE,
+                             recovery = c("none", "stable"),
+                             .context_callback = NULL) {
+  recovery <- match.arg(recovery)
+  if (identical(recovery, "stable")) {
+    record <- hl_fo_score_record(data, R, rhs, unrestricted_fit, guard_min, guard_max,
+      active, fixed_natural, constrained_fit, include_laplace_constant, keep_diagnostics)
+    attempt <- hl_fo_score_retry(record)
+    value <- attempt$value
+    if (!identical(attempt$route, "preserved_native")) {
+      value$numerical_recovery <- attempt[setdiff(names(attempt), "value")]
+    }
+    return(value)
+  }
   null <- hl_fo_score_null_fit(
     data = data,
     R = R,
@@ -789,7 +810,8 @@ hl_fo_score_test <- function(data, R, rhs = NULL,
     guard_min = guard_min,
     guard_max = guard_max,
     include_laplace_constant = include_laplace_constant,
-    keep_diagnostics = keep_diagnostics
+    keep_diagnostics = keep_diagnostics,
+    .context_callback = .context_callback
   )
   if (!isTRUE(null$success)) return(null)
 
