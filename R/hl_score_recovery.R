@@ -54,9 +54,15 @@
                      value = TRUE), method = "radix")
   functions <- lapply(names, function(n) {
     f <- get(n, ns, inherits = FALSE)
-    if (is.function(f)) list(formals = formals(f), body = body(f)) else NULL
+    if (!is.function(f)) return(NULL)
+    # Retained source references contain mutable srcfile environments. Reading
+    # their lazily loaded source lines (for example during trace()) can change
+    # serialized metadata without changing the executed expressions. Strip only
+    # source references from a copy; preserve formals, code and other attributes.
+    f <- utils::removeSource(f)
+    list(formals = formals(f), body = body(f))
   })
-  .hl_score_fingerprint(list(schema = 2L, R = R.version$version.string,
+  .hl_score_fingerprint(list(schema = 3L, R = R.version$version.string,
                             execution = .hl_score_execution_identity(),
                             platform = R.version$platform,
                             packages = lapply(c("scRoPE", "nloptr", "tools"), getNamespaceVersion),

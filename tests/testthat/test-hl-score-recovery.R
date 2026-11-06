@@ -289,6 +289,89 @@ test_that("every evaluated failure is recorded and a rejected cold trial is term
   expect_false(certified)
 })
 
+# Inspect the exact inputs to the implementation seal without maintaining a
+# second copy of its schema. These diagnostics are also available in disposable
+# child processes, where the loaded implementation may differ from the parent.
+.hsr_implementation_probe <- function() {
+  implementation <- getFromNamespace(".hl_score_implementation", "scRoPE")
+  e <- new.env(parent = environment(implementation))
+  e$.hl_score_fingerprint <- identity
+  environment(implementation) <- e
+  parts <- implementation()
+  fingerprint <- getFromNamespace(".hl_score_fingerprint", "scRoPE")
+  list(implementation = fingerprint(parts),
+       components = vapply(parts, fingerprint, character(1)),
+       functions = vapply(parts$functions, fingerprint, character(1)),
+       numerical_libraries = parts$numerical_libraries,
+       execution = parts$execution)
+}
+
+.hsr_verify_replay <- function(rec, parent) {
+  retry <- getFromNamespace("hl_fo_score_retry", "scRoPE")(rec)
+  if (identical(retry$route, "preserved_native")) return(invisible(retry))
+  fingerprint <- getFromNamespace(".hl_score_fingerprint", "scRoPE")
+  child <- tryCatch(.hsr_implementation_probe(), error = conditionMessage)
+  cat("HL_REPLAY_DIAGNOSTICS\n")
+  print(list(status = retry$status, route = retry$route,
+    recorded_payload = rec$identity, replayed_payload = fingerprint(rec$payload),
+    recorded_implementation = rec$payload$implementation,
+    parent_implementation = parent$implementation,
+    child_implementation = if (is.list(child)) child$implementation else child))
+  if (is.list(child)) {
+    print(cbind(parent = parent$components, child = child$components))
+    changed <- union(names(parent$functions), names(child$functions))
+    changed <- changed[!vapply(changed, function(n)
+      identical(parent$functions[n], child$functions[n]), logical(1))]
+    print(list(changed_functions = cbind(parent = parent$functions[changed],
+                                         child = child$functions[changed]),
+      parent_numerical_libraries = parent$numerical_libraries,
+      child_numerical_libraries = child$numerical_libraries,
+      recorded_execution = rec$payload$execution,
+      parent_execution = parent$execution, child_execution = child$execution))
+  }
+  stop("Saved HL record refused before native-library mutation: ", retry$status)
+}
+
+test_that("implementation ignores source metadata but binds executable expressions", {
+  implementation <- .hsr(".hl_score_implementation")
+  ns <- new.env(parent = environment(implementation))
+  e <- new.env(parent = environment(implementation))
+  environment(implementation) <- e
+  lines <- c("function(x = 1) {", "  x + 1", "}")
+  src <- srcfilecopy("identity-fixture.R", lines)
+  fn <- eval(parse(text = lines, srcfile = src, keep.source = TRUE))
+  environment(fn) <- ns
+  ns$hl_fo_score_test <- e$hl_fo_score_test <- fn
+  # Reproduce installed keep-source laziness without depending on how this
+  # particular test installation was built. Forcing lines changes serialization
+  # of source metadata, but neither the executable body nor its defaults.
+  delayedAssign("lines", c("function(x = 1) {", "  x + 1", "}"),
+                eval.env = baseenv(), assign.env = src)
+  source_before <- serialize(body(fn), NULL, version = 2)
+  before <- implementation()
+  expect_identical(serialize(body(fn), NULL, version = 2), source_before)
+  expect_identical(getSrcLines(src, 1L, 3L), lines)
+  expect_false(identical(serialize(body(fn), NULL, version = 2), source_before))
+  expect_identical(implementation(), before)
+  src$filename <- "another source display path.R"
+  expect_identical(implementation(), before)
+
+  changed <- fn
+  body(changed) <- quote({ x + 2 })
+  ns$hl_fo_score_test <- changed
+  expect_false(identical(implementation(), before))
+  changed <- fn
+  formals(changed)$x <- 2
+  ns$hl_fo_score_test <- changed
+  expect_false(identical(implementation(), before))
+  changed <- fn
+  attr(body(changed), "semantic_marker") <- "must remain bound"
+  ns$hl_fo_score_test <- changed
+  expect_false(identical(implementation(), before))
+  ns$hl_fo_score_test <- fn
+  expect_identical(implementation(), before)
+})
+
 test_that("identity covers the executed native backend and native file contents", {
   exec <- .hsr(".hl_score_execution_identity")()
   expect_identical(exec$inner,"compiled")
@@ -309,14 +392,26 @@ test_that("identity covers the executed native backend and native file contents"
   exec$native_libraries$scRoPE$md5 <- "different native build under identical R code"
   expect_false(identical(before,implementation()))
 
+  # Source inspection is a real trigger in retained-source installations. The
+  # full retention tests also exercise trace()/untrace() before these replays.
+  before <- .hsr(".hl_score_implementation")()
+  src <- attr(body(.hsr("hl_fo_fit")), "srcfile")
+  if (!is.null(src)) invisible(getSrcLines(src, 1L, 1L))
+  expect_identical(.hsr(".hl_score_implementation")(), before)
+
   # Unload only in a disposable R process: it must invalidate a saved record,
   # while a fresh all-fixed R-backend record is valid and preserves its native result.
   rec <- .hsr_record(integer(0));rds<-tempfile(fileext=".rds");script<-tempfile(fileext=".R")
-  on.exit(unlink(c(rds,script)),add=TRUE);saveRDS(rec,rds)
+  on.exit(unlink(c(rds,script)),add=TRUE)
+  saveRDS(list(record=rec,parent=.hsr_implementation_probe()),rds)
   lib <- dirname(getNamespaceInfo(asNamespace("scRoPE"),"path"))
   quote_r <- function(x)paste(deparse(x),collapse="")
-  writeLines(c(sprintf('library(scRoPE,lib.loc=%s)',quote_r(lib)),
-    sprintf('rec<-readRDS(%s)',quote_r(rds)),
+  child_setup <- c(sprintf('library(scRoPE,lib.loc=%s)',quote_r(lib)),
+    paste('.hsr_implementation_probe <-',paste(deparse(.hsr_implementation_probe),collapse="\n")),
+    paste('.hsr_verify_replay <-',paste(deparse(.hsr_verify_replay),collapse="\n")),
+    sprintf('bundle<-readRDS(%s);rec<-bundle$record',quote_r(rds)),
+    '.hsr_verify_replay(rec,bundle$parent)')
+  writeLines(c(child_setup,
     'before<-scRoPE:::.hl_score_execution_identity()',
     'stopifnot(before$inner=="compiled",scRoPE:::hl_fo_score_retry(rec)$route=="preserved_native")',
     'dll_path<-getLoadedDLLs()[["scRoPE"]][["path"]];dyn.unload(dll_path)',
@@ -333,8 +428,7 @@ test_that("identity covers the executed native backend and native file contents"
   out <- system2(file.path(R.home("bin"),"Rscript"),c("--vanilla",shQuote(script)),stdout=TRUE,stderr=TRUE)
   expect_null(attr(out,"status"),info=paste(out,collapse="\n"))
   expect_true(any(grepl("BACKEND_SWITCH_VERIFIED",out)),info=paste(out,collapse="\n"))
-  writeLines(c(sprintf('library(scRoPE,lib.loc=%s)',quote_r(lib)),
-    sprintf('rec<-readRDS(%s)',quote_r(rds)),
+  writeLines(c(child_setup,
     'stopifnot(scRoPE:::hl_fo_score_retry(rec)$route=="preserved_native")',
     'path<-getLoadedDLLs()[["nloptr"]][["path"]];dyn.unload(path);dyn.load(path)',
     'stopifnot(scRoPE:::hl_fo_score_retry(rec)$status=="score_recovery_implementation_unavailable")',
