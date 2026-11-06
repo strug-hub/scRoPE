@@ -684,7 +684,7 @@ test_that("boundary, non-R0, and uncertified constrained fits stay unavailable",
         b = 0
       ))
     )$fit,
-    "Joint-LN inference was unavailable for 1 gene"
+    "scRoPE LN recovery:.*1 unavailable"
   )
   constrained_boundary <- boundary$diagnostics$raw[[1L]]$lrt$boundary$constrained
   boundary_score <- constrained_boundary$ln_joint$score_diagnostic
