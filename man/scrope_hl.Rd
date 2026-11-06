@@ -48,7 +48,9 @@ scrope_hl(
 The current first-order HL route uses its dedicated deterministic solver;
 requesting non-default `"trust"` is ignored with a warning.}
 
-\item{verbose}{Logical; print progress messages.}
+\item{verbose}{Logical; print progress and method-specific informational
+messages. `FALSE` does not suppress the classified recovery/availability
+warning or other native warnings.}
 
 \item{cpc}{Minimum counts-per-cell threshold for gene filtering.}
 
@@ -126,7 +128,7 @@ Use `availability`, `coefficient_availability` and `test_status` to aggregate
 selected results; `convergence` retains method-specific legacy meanings.}
 }
 \value{
-A list matching the structure of `scrope()` with the following HL
+A list matching the shared structure of `scrope()` with the following HL
   additions: the summary gains columns `se_robust_*`, `wald_stat_*`,
   `p_robust_*`, and their success/failure flags
   (`wald_success_*`, `wald_failure_*`). Optional score/LRT requests append
@@ -140,6 +142,35 @@ A list matching the structure of `scrope()` with the following HL
 }
 \description{
 Fits the corrected first-order nested sc-RoPE HL estimator for every gene.
-The output mirrors the core structure of `scrope()` while retaining the
-estimator state and subject-level caches required for robust HL inference.
+The output mirrors the core structure of `scrope()`. Full estimator state
+and subject-level caches are retained only with `keep_diagnostics=TRUE`;
+compact output still reports the required inference and acceptance checks.
+}
+\section{Shared status and warning contract}{
+
+Like \code{\link{scrope}}, this function returns `availability`,
+`coefficient_availability` and `test_status` in native-only and compact modes.
+Gene `status` is `"available"`, `"available_with_limitations"`, `"partial"`,
+`"point_only"` or `"unavailable"`; coefficient status omits `"partial"`.
+Test `availability_status` is `"available"`, `"available_with_limitations"`,
+`"unsupported"` or `"unavailable"`. Use coefficient/test success flags and
+keep source, route and target labels instead of filtering by `convergence`.
+
+HL's legacy `convergence` is `1` for an accepted native point fit even when
+covariance fails, and `-25` otherwise. Recovery preserves that code; the
+selected output can therefore have available Wald inference despite a
+negative native code. `recovery$primary`, when present, retains the native
+result. Free-dispersion nuisance limits remain point-only with missing SEs
+and p-values; numerical availability does not establish calibration.
+
+The common warning class `scrope_recovery_warning`, code
+`"scrope_recovery_summary"`, aggregates selected recovery or incomplete
+coefficient Wald availability even with `verbose=FALSE` or
+`recovery="none"`. Other native warnings and verbose optional-test messages
+remain separate. See \code{\link{scrope}} for complete code meanings,
+filtering examples and warning counts.
+}
+
+\seealso{
+\code{\link{scrope}} for the shared status contract and filtering examples.
 }

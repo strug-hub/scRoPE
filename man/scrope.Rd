@@ -55,7 +55,9 @@ route. The corrected first-order HL route uses its dedicated solver, and
 PGMM uses its exact-route optimisers; those routes warn when `"trust"` is
 supplied.}
 
-\item{verbose}{Logical; print progress messages.}
+\item{verbose}{Logical; print progress and method-specific informational
+messages. `FALSE` does not suppress the classified recovery/availability
+warning or other native warnings.}
 
 \item{cpc}{Minimum counts-per-cell threshold for gene filtering.}
 
@@ -181,12 +183,16 @@ Use `availability`, `coefficient_availability` and `test_status` to aggregate
 selected results; `convergence` retains method-specific legacy meanings.}
 }
 \value{
-A list with elements `summary`, `overdispersion`, `convergence`,
-  `algorithm`, optional `random_effect`, `diagnostics`, optional
-  route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-  and, for joint-LN, `recovery` (automatic mode), the one-row-per-gene
-  `availability` table and per-test
-  `test_status`. No legacy operational fallback component is generated.
+For every model, a list containing selected `summary`,
+  `overdispersion`, legacy `convergence` and `algorithm`, the one-row-per-gene
+  `availability` table, `coefficient_availability`, per-test `test_status`,
+  recovery policy metadata in `recovery`, and structured `provenance`.
+  When recovery is assessed, `recovery` also retains native `primary` and
+  route/coefficient records. Shared availability tables remain present in
+  native-only and compact modes. Full `diagnostics` require
+  `keep_diagnostics=TRUE`. Other outputs include optional `random_effect`,
+  route-specific `lrt_details` or `hl_adj_details`, and native PGMM
+  `fit_provenance`. No legacy operational fallback component is generated.
 }
 \description{
 Fits sc-RoPE working-likelihood models for multi-subject single-cell data
@@ -259,15 +265,14 @@ reproduction requires the exact preserved package version recorded for the
 analysis (0.2.5.9005 or earlier); explicit legacy requests are never redirected
 to joint-LN.
 
-For joint-LN, `availability` gives exactly one row per analyzed gene/request:
-`"inference"` when all coefficient Wald results are available,
-`"partial_inference"` when only some are available, or `"unavailable"`.
-Inspect `recovery$routes` for the estimator and its limitations and
-`recovery$coefficients` for individual coefficient availability. These tables
-remain available with `keep_diagnostics = FALSE`. A finite endpoint alone
-does not establish inference. One consolidated warning reports recovery or
-unavailable native inference.
-Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
+Joint-LN additionally retains the compatibility column
+`availability$availability`, including `"inference"`, `"partial_inference"`
+and `"unavailable"`. These are separate from the shared
+`availability$status` values described below. Use
+`coefficient_availability` to select available coefficients, including a
+focal contrast in a partially estimable limiting fit. A finite endpoint
+alone does not establish inference. LN-specific columns also include
+`gene_id`, `gene`, `estimator`, `certified_root`,
 `inference_status`, `strict_inference_status`,
 `enabled_inference_status`, `resolution_status`, `inference_source`,
 `newly_enabled`, `availability_transition`, `resolution_policy_version`,
@@ -275,7 +280,7 @@ Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
 `estimate_source`, `attention_flag`, and `technical_code`. The compact
 `provenance$per_gene` table also retains strict and enabled route codes,
 failure reasons, policy identity, mode, and active veto classes. Under
-automatic recovery, `recovery$primary` retains the unchanged native result,
+automatic recovery, `recovery$primary` retains the native estimates and tests,
 including its original failure reasons and veto classes. Earlier
 `route`, `inference_available`, and `failure_reason` fields are retained for
 compatibility.
@@ -291,4 +296,102 @@ With `output_re = TRUE`, joint-LN donor modes are auxiliary fixed-beta
 conditional PML predictions evaluated at the plug-in joint-LN parameters.
 They do not alter coefficients, dispersions, covariance, tests, or
 convergence.
+}
+\section{Shared availability and selected results}{
+
+For LN, HL and PGMM, `availability$status` is `"available"` when all
+coefficient Wald results are available from the native fit,
+`"available_with_limitations"` when all are available from recovery,
+`"partial"` when some are available, `"point_only"` when accepted points
+but no coefficient Wald results are available, or `"unavailable"`.
+`coefficient_availability$status` uses the same values except `"partial"`.
+Gene `selected_source` and coefficient `source` use `"native"`, `"recovery"`
+or `"unavailable"`; a native-only failure can have source `"native"` and
+status `"unavailable"`. Route names and detailed reasons remain method-specific.
+
+Coefficient rows separate `point_available`, `covariance_available`,
+`statistic_available`, `reference_available`, `interval_available`, `available`
+and `estimable`. `available` requires Wald success and a finite p-value;
+`statistic_available` also checks a finite statistic. Interval availability
+requires an accepted point, covariance and a finite positive reported SE;
+it does not establish interval coverage. Gene rows count point, covariance
+and Wald coefficients separately, alongside `total_coefficients`.
+
+`test_status$availability_status` uses `"available"`,
+`"available_with_limitations"`, `"unsupported"` or `"unavailable"`.
+Keep the separate method-specific `test_status$status`, including native
+LN's `"experimental_asymptotic"` label. Use `success` and `failure_reason`
+for individual tests. Optional-test failure does not erase coefficient Wald
+availability; unrequested optional tests are not fabricated as failures.
+`summary$test_status` is `"ok"` or a comma-separated list of failed test
+families, not a convergence code.
+
+These shared tables remain available with `recovery="none"` and
+`keep_diagnostics=FALSE`. `summary` and the common tables describe the
+selected output. When recovery is assessed, `recovery$primary` preserves
+native estimates/tests and `availability$native_convergence` records the
+original code. Recovery selects a whole fit; never combine native and
+recovered coefficients as though their targets were identical. The three
+free-dispersion HL limits retain estimable points but no recovered SEs or
+p-values, with reason `"hl_limit_sampling_target_unresolved"`.
+Availability is numerical qualification, not established calibration;
+retain route, source, sampling target and selection limitations downstream.
+}
+
+\section{Legacy numeric convergence}{
+
+`convergence` retains method-specific meanings. Native joint-LN uses `1`
+for available inference and `-70` for withheld inference; accepted recovery
+sets `1`, including partially estimable results. HL uses `1` for an accepted
+native point fit (even if covariance fails), and `-25` otherwise. PGMM uses
+`1` as its positive composite code, `-50` for optimizer rejection, `-25` for
+wholly unavailable model covariance, and `-27` for missing robust covariance
+when otherwise positive; `-25` can override `-50`. HL/PGMM recovery leaves
+that original native code unchanged. A positive code does not qualify every
+coefficient. Do not filter all models with `convergence == 1`.
+
+PGMM `fit_provenance$raw_convergence` is a backend code: `nlminb` accepts `0`,
+whereas `bobyqa` accepts `1:4`; codes `5/6` are budget stops. Interpret it
+together with `optimizer` and `optimizer_success`. These native fields are
+not selected-recovery success indicators and remain present in compact mode.
+}
+
+\section{Recovery warnings}{
+
+The shared warning condition has classes `scrope_recovery_warning`, `warning`
+and `condition`, with `code="scrope_recovery_summary"`. At most one aggregate
+is emitted per public call when any gene selects recovery or is `"partial"`,
+`"point_only"` or `"unavailable"`. It is independent of `verbose` and
+diagnostic retention, and can report unavailable native-only results with
+`recovery="none"`. Optional-test failure alone does not trigger it when
+native coefficient Wald is complete. The preserved native component is not
+warned about a second time.
+
+Its `counts` vector names are `genes`, `recovered`, `all_wald`, `partial_wald`,
+`point_only` and `unavailable`, across analyzed genes. `recovered` includes
+point-only recovery and overlaps the availability categories; it is not a
+count of successful tests. These are fields of the warning condition, not
+columns in the fit. Other native control/optional-test warnings and verbose
+informational messages retain their own behavior. The separate research
+wrappers retain their own reporting contracts. See the installed guide at
+\code{system.file("doc", "automatic-recovery.md", package="scRoPE")} for
+complete filtering examples and selective handling of this warning class.
+}
+
+\examples{
+data(sample_data)
+design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
+fit <- scrope(sample_data$count[1L, , drop = FALSE], sample_data$sid,
+              pred = design, offset = sample_data$offset, model = "PGMM",
+              recovery = "none", additional_tests = "score",
+              keep_diagnostics = FALSE, verbose = FALSE, ncore = 1L)
+# Numerical availability, not a calibration claim or convergence-code filter.
+wald <- subset(fit$coefficient_availability,
+               available & statistic_available & reference_available)
+wald[, c("gene", "coefficient", "p_value", "source", "route")]
+native_wald <- subset(wald, source == "native")
+point_only <- subset(fit$coefficient_availability, point_available & !available)
+optional <- subset(fit$test_status, test \%in\% c("score", "lrt") & success)
+optional[, c("gene", "contrast", "test", "status", "availability_status")]
+
 }

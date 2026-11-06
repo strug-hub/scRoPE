@@ -45,6 +45,38 @@ route/fixed-parameter information, optimizer provenance and audit summaries;
 mandatory scientific checks still run. The legacy `convergence` vector keeps its
 method-specific meaning and is not the common availability indicator.
 
+For all three models, `fit$availability$status` is `available` (all coefficient
+Wald results from the native fit), `available_with_limitations` (all from a
+recovered fit), `partial` (some), `point_only` (points but no Wald results), or
+`unavailable`. Coefficient rows use the same statuses except `partial`.
+`fit$test_status$availability_status` uses `available`,
+`available_with_limitations`, `unsupported` or `unavailable`; its separate
+`status` column retains method-specific labels, including LN's
+`experimental_asymptotic` label. These tables remain present with
+`recovery = "none"` and `keep_diagnostics = FALSE`.
+
+```r
+# Select numerically available coefficient Wald results, including partial genes.
+wald <- subset(fit$coefficient_availability,
+               available & statistic_available & reference_available)
+native_wald <- subset(wald, source == "native")
+point_only <- subset(fit$coefficient_availability, point_available & !available)
+optional <- subset(fit$test_status, test %in% c("score", "lrt") & success)
+```
+
+Inspect `source`, `route`, `sampling_target` and method-specific test status
+before interpretation; availability does not establish calibration. Do not
+filter all models by `fit$convergence == 1`: HL's code can indicate a point fit
+without covariance, and HL/PGMM recovery retains the original native code.
+
+The classified warning `scrope_recovery_warning`, code
+`scrope_recovery_summary`, summarizes recovery and coefficient availability
+once per call when needed, including with `verbose = FALSE`. It also warns for
+native-only unavailable results; optional-test failure alone does not trigger
+this summary when native coefficient Wald is complete. Other native warnings
+and verbose progress messages retain their own behavior. The linked guide gives
+the exact counts, convergence-code meanings and selective warning handling.
+
 Recovery selects a whole fit. In particular, the reviewed PGMM qualification
 checks can replace or withhold previously reported native scalar results;
 coefficients from different fits are never mixed. Recovered inference supports
@@ -126,12 +158,14 @@ fit$availability
 `se_robust_x` and `p_robust_x` are its donor-robust standard error and Wald
 p-value. The corresponding model-based results are `se_x` and `p_naive_x`.
 P-values test a zero coefficient, without multiple-testing adjustment.
-`availability == "inference"` indicates that all coefficient Wald results are
-available; it can include recovered working-target fits. Use
-`fit$recovery$routes` to identify the estimator and its limitations, and
-`fit$recovery$coefficients` to select available coefficients, including those
-from a `partial_inference` limiting fit. For strict native JLN, set
-`ln_recovery = "none"`.
+`fit$availability$status` is `"available"` or `"available_with_limitations"`
+when all coefficient Wald results are available, and `"partial"` when only
+some are. Use `fit$coefficient_availability` to select the coefficient of
+interest and retain its route/target labels. The separate LN compatibility
+column `fit$availability$availability` retains `"inference"` and
+`"partial_inference"`; those are not the common cross-model status values.
+For strict native JLN, set `recovery = "none"` (or the compatible
+`ln_recovery = "none"`).
 
 Recorded benchmark: **about 11 seconds** for a serial fit on an M3 Max
 MacBook with R 4.5.2; timing depends on hardware and software.
