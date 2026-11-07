@@ -22,12 +22,11 @@ side by side**.
 
 ## Automatic recovery and compact results
 
-This local review candidate uses `recovery = "auto"` for LN, HL and PGMM.
+scRoPE uses `recovery = "auto"` for LN, HL and PGMM.
 It preserves qualified native fits, then attempts the reviewed numerical,
 fixed-dispersion or identifiable limiting routes for the requested estimator.
 Use `recovery = "none"` for native-only behavior. Existing explicit LN
 `ln_recovery` calls remain supported; conflicting explicit policies are errors.
-The candidate has not been released.
 
 ```r
 fit <- scrope(count, id, pred, offset = exposure, model = "HL") # or LN / PGMM
@@ -111,16 +110,17 @@ remotes::install_github("strug-hub/scRoPE")
 library(scRoPE)
 ```
 
-This installs the remote default branch, not this unpublished local HL/PGMM
-review candidate. To inspect the candidate, install its provided source archive
-into a private library in a fresh R session:
+This installs the current default branch, which can advance beyond a numbered
+release. Record `packageVersion("scRoPE")` and the source revision for reproducible
+analyses. To install a downloaded release source archive into a private library,
+start a fresh R session:
 
 ```r
-review_lib <- file.path(tempdir(), "scrope-review-library")
-dir.create(review_lib, showWarnings = FALSE)
-install.packages("/path/to/scRoPE_0.3.1.9000.tar.gz", repos = NULL,
-                 type = "source", lib = review_lib)
-.libPaths(c(review_lib, .libPaths()))
+release_lib <- file.path(tempdir(), "scrope-release-library")
+dir.create(release_lib, showWarnings = FALSE)
+install.packages("/path/to/scRoPE_0.4.0.tar.gz", repos = NULL,
+                 type = "source", lib = release_lib)
+.libPaths(c(release_lib, .libPaths()))
 library(scRoPE)
 ```
 

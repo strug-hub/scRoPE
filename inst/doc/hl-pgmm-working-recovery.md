@@ -132,7 +132,7 @@ In the matched HLCA panel, REQ038/NHERF1, REQ039/NHERF2 and REQ040/SLC26A9 are
 the three point-only cases. Subsequent research derived an explicitly hypothetical
 fixed-face covariance-upper-bound reference and studied limited symmetric null
 simulations. That reference, its intervals and any finite-donor adjustment are
-**not part of this package candidate**. The research does not establish general
+**not part of this package**. The research does not establish general
 selection-adjusted coverage or scientific-target equality for those HLCA cases.
 
 ## Numerical checks and their scope
