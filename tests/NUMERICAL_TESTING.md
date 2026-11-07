@@ -74,6 +74,16 @@ changes, and material relative errors even for tiny entries.
 
 ## Mathematical accuracy and future failures
 
+Nested solvers need an accuracy check below their parent solver's acceptance
+scale. Individually admissible donor residuals can combine into an inadmissible
+HL profile-score error. `test-hl-inner-accuracy.R` retains the numerical inputs
+of a failed required cold profile, checks both implementations against independent
+bracketed donor roots, and includes a state whose unpolished score falsely suggests
+convergence. It also checks that positive objective roundoff cannot override
+negative or unresolved line-integral evidence, and that polishing, backtracking
+and iteration budgets still refuse unsuccessful solves. These are production
+accuracy regressions; a refit comparator cannot replace them.
+
 For accuracy against an independent formula, derivative, solution or frozen
 reference, use a problem-specific error budget. Refit agreement alone cannot
 prove accuracy. Existing examples include `helper-pmg-portability.R`, which

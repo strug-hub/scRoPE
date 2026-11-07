@@ -566,29 +566,34 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
 
   trace <- if (keep_diagnostics) vector("list", max_iter) else list()
   for (iter in seq_len(max_iter)) {
-    S <- as.numeric(crossprod(K, current$S_beta))
-    B <- crossprod(K, current$B_beta %*% K)
-    B_sym <- 0.5 * (B + t(B))
-    eig_neg_B <- tryCatch(eigen(-B_sym, symmetric = TRUE, only.values = TRUE)$values,
-                          error = function(e) rep(NA_real_, k_free))
-    if (any(!is.finite(eig_neg_B)) || min(eig_neg_B) <= 0 ||
-        hl_fo_matrix_rank(B) < k_free) {
-      return(list(success = FALSE, status = "weak_curvature",
-                  reason = "inner_curvature_not_positive_definite",
-                  gamma = gamma, beta = current$beta, eta = current$eta,
-                  B = B, curvature = eig_neg_B, trace = Filter(Negate(is.null), trace)))
+    geometry <- hl_fo_inner_geometry(current, K, beta_star)
+    if (!isTRUE(geometry$success)) {
+      geometry$trace <- Filter(Negate(is.null), trace)
+      return(geometry)
     }
-    delta <- tryCatch(solve(B, -S), error = function(e) NULL)
-    score_solve <- tryCatch(solve(-B, S), error = function(e) NULL)
-    if (is.null(delta) || is.null(score_solve)) {
-      return(list(success = FALSE, status = "weak_curvature",
-                  reason = "inner_linear_solve_failed", B = B))
+    # Reserve one percent of the current score/step scale for nested donor
+    # error. Near acceptance this is one percent of the unchanged 1e-10 gates.
+    score_budget <- 0.01 * max(1e-10, geometry$score_metric)
+    step_budget <- 0.01 * max(1e-10, geometry$step_metric)
+    polished <- hl_fo_polish_inner_modes(data, current, rho_full, K, beta_star,
+                                        score_budget, step_budget, geometry = geometry)
+    if (!isTRUE(polished$success)) {
+      polished$trace <- Filter(Negate(is.null), trace)
+      return(polished)
     }
-    score_metric <- sqrt(max(0, sum(S * score_solve)))
-    step_metric <- max(abs(delta)) / (1 + max(abs(gamma)))
+    current <- polished$state
+    geometry <- polished$geometry
+    S <- geometry$S
+    B <- geometry$B
+    delta <- geometry$delta
+    score_metric <- geometry$score_metric
+    step_metric <- geometry$step_metric
     if (keep_diagnostics) trace[[iter]] <- list(
       iteration = iter, P = current$P, score_metric = score_metric,
-      step_metric = step_metric, min_curvature = min(eig_neg_B)
+      step_metric = step_metric, min_curvature = geometry$min_curvature,
+      mode_score_error = current$mode_accuracy$score_error,
+      mode_step_error = current$mode_accuracy$step_error,
+      mode_polish_rounds = current$mode_accuracy$rounds
     )
     # Prefer derivative-grade polishing because total outer derivatives can
     # amplify an otherwise admissible beta-score residual.  The closed
@@ -597,8 +602,8 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
     # It is used only by fixed-dispersion profiles and separately cold-
     # certified full-chi Score states.
     acceptance <- hl_fo_inner_acceptance_decision(
-      score_metric = score_metric,
-      step_metric = step_metric,
+      score_metric = score_metric + current$mode_accuracy$score_error,
+      step_metric = step_metric + current$mode_accuracy$step_error,
       iteration = iter,
       max_iter = max_iter,
       acceptance_tier = acceptance_tier
@@ -636,41 +641,32 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
       trial <- hl_fo_inner_quantities(
         data, compose(gamma_trial), rho_full, eta_start = current$eta
       )
-      if (isTRUE(trial$success) && is.finite(trial$P)) {
-        direct_gain <- trial$P - current$P
-        if (direct_gain >= 1e-4 * step * directional) {
-          accepted <- TRUE
-          armijo_method <- "direct_profile_criterion"
-          break
-        }
-        # Near a root the true O(||delta||^2) ascent can be smaller than one
-        # ulp of the O(m) criterion.  In that cancellation regime evaluate the
-        # same profiled criterion difference as the line integral of its
-        # ordinary analytic score, using a fully mode-reprofiled Simpson
-        # midpoint.  This is an Armijo check on P, not a score-only acceptance
-        # or an objective surrogate.
-        cancellation_tolerance <- 64 * .Machine$double.eps *
-          (1 + abs(current$P) + abs(trial$P))
-        if (abs(direct_gain) <= cancellation_tolerance) {
+      displacement <- gamma_trial - gamma
+      decision <- hl_fo_inner_armijo(current, trial, K, displacement)
+      if (isTRUE(decision$needs_integral)) {
+        trial_polished <- hl_fo_polish_inner_modes(
+          data, trial, rho_full, K, beta_star, score_budget, step_budget
+        )
+        if (isTRUE(trial_polished$success)) {
+          trial <- trial_polished$state
           midpoint <- hl_fo_inner_quantities(
-            data,
-            compose(gamma + 0.5 * step * delta),
-            rho_full,
+            data, compose(gamma + 0.5 * displacement), rho_full,
             eta_start = current$eta
           )
-          if (isTRUE(midpoint$success)) {
-            directional_mid <- sum(as.numeric(crossprod(K, midpoint$S_beta)) * delta)
-            directional_trial <- sum(as.numeric(crossprod(K, trial$S_beta)) * delta)
-            integrated_gain <- step *
-              (directional + 4 * directional_mid + directional_trial) / 6
-            if (is.finite(integrated_gain) &&
-                integrated_gain >= 1e-4 * step * directional) {
-              accepted <- TRUE
-              armijo_method <- "profile_score_integral"
-              break
-            }
+          midpoint_polished <- hl_fo_polish_inner_modes(
+            data, midpoint, rho_full, K, beta_star, score_budget, step_budget
+          )
+          if (isTRUE(midpoint_polished$success)) {
+            decision <- hl_fo_inner_armijo(current, trial, K, displacement,
+                                           midpoint_polished$state)
           }
         }
+      }
+      if (isTRUE(decision$accepted)) {
+        accepted <- TRUE
+        armijo_method <- decision$method
+        integrated_gain <- decision$integrated_gain
+        break
       }
       step <- step / 2
     }
@@ -679,11 +675,17 @@ hl_fo_solve_inner <- function(data, rho_full, beta_star, K, beta_start,
     if (keep_diagnostics) trace[[iter]]$armijo_method <- armijo_method
     if (keep_diagnostics) trace[[iter]]$armijo_integrated_gain <- integrated_gain
     if (!accepted) {
+      # A stricter line search can refuse before finalization. Preserve the
+      # established weak-curvature diagnosis when its existing condition-number
+      # gate already fails; this changes only the classification of a refusal.
+      B_rcond <- tryCatch(rcond(-B), error = function(e) NA_real_)
+      weak_condition <- is.finite(B_rcond) && B_rcond < sqrt(.Machine$double.eps)
       return(list(
         success = FALSE,
-        status = "inner_no_convergence",
+        status = if (weak_condition) "weak_curvature" else "inner_no_convergence",
         reason = "inner_armijo_failure",
         gamma = gamma, beta = current$beta, eta = current$eta,
+        B_rcond = B_rcond,
         trace = Filter(Negate(is.null), trace)
       ))
     }

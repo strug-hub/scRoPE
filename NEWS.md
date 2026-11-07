@@ -1,5 +1,6 @@
 ## Automatic recovery and shared availability (local review candidate)
 
+- Refine converged HL donor modes when their combined residuals can affect the inner profile score. Bound this extra work, preserve the score and step limits, and require accurately reprofiled Armijo evidence when objective subtraction is dominated by roundoff. Required history replay and covariance safeguards remain in force.
 - Make `recovery="auto"` the ordinary `scrope()` policy for LN, HL and PGMM; `recovery="none"` selects native-only behavior. `scrope_hl()` has the same policy. This supersedes the earlier opt-in-only HL/PGMM stage below; the candidate is not a published release.
 - Default detailed fit/history retention to `keep_diagnostics=FALSE`. Common gene, coefficient and test availability tables remain available in compact and native-only modes.
 - Unify `availability$status`, `coefficient_availability$status` and `test_status$availability_status`, with separate point, covariance, statistic, reference and interval flags. Preserve method-specific test labels and the original native numeric convergence and optimizer-code meanings; use the shared tables to select inference.
