@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 60
     env:
       R_KEEP_PKG_SOURCE: yes
+      SCROPE_HL_HISTORY_DIAGNOSTICS: "true"
       _R_CHECK_FORCE_SUGGESTS_: "true"
       _R_CHECK_CRAN_INCOMING_: "false"
     steps:
