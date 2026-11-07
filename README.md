@@ -33,10 +33,9 @@ analyses. Dependencies are listed in [DESCRIPTION](DESCRIPTION).
 ## Quick start
 
 The bundled `toy_data` contains 24 synthetic genes from **200 donors × 40 cells**,
-with two balanced cell conditions. The default Joint-LN (JLN) engine fits a
-common condition effect and donor random intercepts. Half the genes also have
-simulated donor-specific condition effects that are deliberately omitted from
-the fitted model.
+with two balanced cell conditions. The default Joint-LN (JLN) engine includes
+donor random intercepts and a common condition effect. It omits donor-specific
+condition slopes, which are present in the generating model for half the genes.
 
 ```r
 library(scRoPE)
@@ -48,12 +47,31 @@ fit <- scrope(
   ncore = 1, cpc = 0, mincp = 1, verbose = FALSE
 )
 
-# Estimates and both uncertainty calculations for all 24 genes.
-fit$summary[, c(
-  "gene", "logFC_x", "se_x", "se_robust_x",
-  "p_naive_x", "p_robust_x"
-)]
-fit$availability
+# Show three rows; fit$summary retains all 24 genes.
+show_genes <- c("reference_null_1", "reference_up", "omitted_null_1")
+print(fit$summary[match(show_genes, fit$summary$gene), c(
+  "gene", "logFC_x", "se_x", "se_robust_x", "p_naive_x", "p_robust_x"
+)], row.names = FALSE, digits = 3)
+```
+
+Output with scRoPE 0.4.0:
+
+```text
+             gene logFC_x   se_x se_robust_x p_naive_x p_robust_x
+ reference_null_1  0.0467 0.0254      0.0270  6.55e-02   8.38e-02
+     reference_up  0.3961 0.0254      0.0253  6.82e-55   3.31e-55
+   omitted_null_1 -0.1326 0.0278      0.0750  1.81e-06   7.72e-02
+```
+
+All 24 genes have complete native Wald results in this run:
+
+```r
+table(fit$availability$status)
+```
+
+```text
+available
+       24
 ```
 
 Counts have genes in rows and cells in columns; `id` identifies each cell's
@@ -66,6 +84,13 @@ Here, `logFC_x` is the estimated natural-log contrast between conditions.
 `se_x` and `p_naive_x` give model-based Wald uncertainty; `se_robust_x` and
 `p_robust_x` give donor-robust Wald uncertainty. P-values test a zero coefficient
 and have no multiple-testing adjustment.
+
+For `omitted_null_1`, the generating condition effect is zero. Both uncertainty
+calculations use the same estimate, −0.133. The donor-robust SE is 0.075 versus
+0.028 model-based, giving p-values of 0.077 and 1.8 × 10⁻⁶, respectively.
+This illustrates different uncertainty around the same fitted coefficient when
+donor slopes are omitted. One simulated dataset does not establish calibration
+or show that robust uncertainty corrects coefficient bias.
 
 ![Model-based and donor-robust intervals for all 24 synthetic genes](man/figures/toy24-overview.png)
 
