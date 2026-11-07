@@ -1,6 +1,6 @@
 # Methods, inference availability and migration
 
-This guide accompanies the scRoPE 0.3.1.9000 development candidate. Start with
+This guide accompanies scRoPE 0.4.0. Start with
 [the package quick start](../../README.md) for the 24-gene omitted-slope example.
 The additional route examples below use the separate, smaller `sample_data`
 teaching object (8 genes, 30 donors); they do not use `toy_data`.
@@ -17,11 +17,14 @@ design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
 inferential tests. The default engine is joint-LN. Coefficient-wise Wald
 results require no additional-test option.
 
-Joint-LN uses `ln_recovery = "auto"` by default. Accepted native fits retain
+LN, HL and PGMM use `recovery = "auto"` by default. Qualified native fits retain
 the outputs below. Supported recovered rows return donor-robust coefficient
-Wald inference only; their model-based SE, Score/Pace results and random
-effects remain unavailable. Use `ln_recovery = "none"` for strict native
-behavior. Recovery does not apply to HL or PGMM.
+Wald inference only; their model-based SE, optional Score/LRT results and random
+effects remain unavailable. Free-donor-dispersion HL limits remain point-only.
+Use `recovery = "none"` for native-only fitting; existing explicit LN
+`ln_recovery` policies remain supported. See the
+[common recovery guide](../doc/automatic-recovery.md) for qualification,
+availability, retention and custom-control behavior.
 
 | Engine | Model-based output | Donor-robust output | Optional requests |
 |:--|:--|:--|:--|
@@ -61,7 +64,7 @@ Coordinate conventions and test-specific details are described below.
 JLN offers two explicitly requested **experimental, asymptotic** tests:
 the donor-robust efficient Score and the Pace-adjusted working-objective ratio.
 The default call still returns coefficient-wise model-based and donor-robust
-Wald inference only. This candidate exposes existing diagnostic statistics;
+Wald inference when qualified. These optional tests expose diagnostic statistics;
 the request does not change the fitted coefficients or Wald calculation.
 
 - `additional_tests = "score"` requests robust Score.
@@ -189,6 +192,16 @@ population target because JLN reports a sample-centered intercept.
 
 ## Specialist and compatibility interfaces
 
+- `scrope_jln_research()` preserves the earlier opt-in JLN research rule for
+  reproducibility. It starts from strict native fits and can assess the
+  corroborated search-warning and fixed-positive-dispersion routes; it does
+  not include the newer limiting-face route. This remains a research
+  compatibility interface, not the ordinary analysis workflow. Its working
+  targets need not equal scientific targets, automatic selection is not
+  selectively calibrated, and finite-donor undercoverage has been observed.
+  See `?scrope_jln_research` and the
+  [function reference](../../man/scrope_jln_research.Rd) for inputs, gates,
+  outputs and limitations.
 - Internal PGMM point/grid **relative-profile likelihood** functions support
   scalar fixed-effect targets, with ordinary and robust profiles. They are
   implemented development tools in `R/pgmm_profile.R`, not exported package
@@ -312,7 +325,7 @@ Historical reproduction requires the exact original version and settings,
 including its source changes. The retained simulations used multiple versions
 (.9001, .9004 and .9005); a version label or the older public Git checkout alone
 is not sufficient provenance. Switching an earlier default call to this
-candidate intentionally changes its estimator and can change its results.
+version can change its estimator and results.
 
 For current results, inspect per-coefficient availability and route limitations;
 a `partial_inference` gene can have an available scientific coefficient.
@@ -583,13 +596,16 @@ The returned object also contains:
 
 - `overdispersion`: fitted working-model overdispersion parameters;
 - `convergence` and `algorithm`: per-gene fitting status;
-- `availability`: one joint-LN status row per analyzed gene/request;
-- `recovery`: in automatic JLN mode, route and coefficient tables, the original
-  native result, and detailed recovery diagnostics when requested;
-- `test_status`: JLN per-test availability and failure reasons, retained even
+- `availability`: one shared status row per analyzed gene/request;
+- `coefficient_availability`: per-coefficient point, covariance, statistic,
+  reference and interval availability, with source/route/target labels;
+- `recovery`: when recovery is assessed, route disclosures and the original
+  native result, with detailed recovery diagnostics when requested;
+- `test_status`: per-test availability and failure reasons, retained even
   when detailed diagnostic objects are omitted;
 - `provenance`: estimator definition and technical information about each fit;
-- `diagnostics`: detailed per-gene fitting and robust-inference information;
+- `diagnostics`: detailed per-gene fitting and robust-inference information
+  when `keep_diagnostics = TRUE` (the default is `FALSE`);
 - `lrt_details`: optional tidy likelihood-ratio diagnostics;
 - `random_effect`: retained donor predictions for JLN/HL when
   `output_re = TRUE`; PGMM warns and returns `NULL` for this request.
