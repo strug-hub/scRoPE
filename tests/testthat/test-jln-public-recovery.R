@@ -2,7 +2,7 @@ test_that("default recovery preserves successful native estimates and supports s
   fx<-readRDS(test_path('fixtures','jln-research.rds'))
   for(nm in c('ordinary','zero','warning','corner')){
     x<-fx[[nm]]$input
-    a<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE))
+    a<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE))
     n<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,ln_recovery='none'))
     expect_recovery_refit_table(a$recovery$primary$summary,n$summary)
     expect_recovery_refit_table(a$recovery$primary$overdispersion,n$overdispersion,
@@ -21,7 +21,7 @@ test_that("default recovery preserves successful native estimates and supports s
 
 test_that("whole-zero-donor face reports only identifiable coefficients", {
   x<-readRDS(test_path('fixtures','jln-face.rds'))
-  a<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE))
+  a<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE))
   expect_identical(a$recovery$routes$route,'identifiable_nuisance_limit')
   f<-a$recovery$diagnostics[[1]]$result
   expect_identical(f$face$estimable,c(FALSE,TRUE,FALSE,TRUE))
@@ -110,7 +110,7 @@ test_that("recovery never presents native optional tests or random effects as re
 
 test_that("local refinement resolves an all-free root and rejects unrelated failures", {
   x<-readRDS(test_path('fixtures','jln-research.rds'))$ordinary$input
-  n<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,ln_recovery='none'))
+  n<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,ln_recovery='none',keep_diagnostics=TRUE))
   primary<-list(joint=n$diagnostics$raw[[1]]$ln_joint)
   dat<-scRoPE:::ln_research_context(x$y,x$X,x$id,x$offset)
   r<-primary$joint$candidate_records[[1]]
@@ -130,7 +130,7 @@ test_that("local refinement resolves an all-free root and rejects unrelated fail
 
 test_that("a known better full competitor prevents a misleading limiting report", {
   x<-readRDS(test_path('fixtures','jln-face-competitor.rds'))
-  f<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE))
+  f<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=TRUE))
   expect_identical(f$recovery$routes$route,'withheld')
   expect_identical(f$recovery$routes$reason,'reduced_root_worse_than_known_full_candidate')
   face<-f$recovery$diagnostics[[1]]$face_audit

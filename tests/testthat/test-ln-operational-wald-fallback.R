@@ -627,7 +627,7 @@ test_that("none preserves primary and never invokes legacy fallback helpers", {
   )
   fx <- ln_joint_test_fixture()
   args <- list(count = fx$count, id = fx$id, pred = fx$pred, offset = fx$offset,
-               verbose = FALSE, cpc = 0, mincp = 1, output_re = TRUE)
+               verbose = FALSE, cpc = 0, mincp = 1, output_re = TRUE, recovery = "none")
   set.seed(20260721)
   default <- do.call(scrope, args)
   set.seed(20260721)
@@ -651,10 +651,10 @@ test_that("unavailable joint LN never triggers a hidden legacy fallback", {
   fx <- ln_joint_test_fixture()
   captured <- ln_operational_capture_warnings(scrope(
     fx$count, fx$id, pred = fx$pred, offset = fx$offset,
-    verbose = FALSE, cpc = 0, mincp = 1
+    verbose = FALSE, cpc = 0, mincp = 1, recovery = "none"
   ))
   fit <- captured$value
-  expect_true(any(grepl("inference was unavailable", captured$messages)))
+  expect_true(any(grepl("scRoPE LN recovery: 0/1 genes recovered", captured$messages, fixed = TRUE)))
   expect_identical(fit$availability$availability, "unavailable")
   expect_false(fit$availability$inference_supported)
   expect_false("operational_fallback" %in% names(fit))

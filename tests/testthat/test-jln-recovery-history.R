@@ -1,6 +1,6 @@
 history_native <- function(x) {
   f <- suppressWarnings(scrope(x$y, x$id, x$X, offset = x$offset,
-    cpc = 0, mincp = 1, verbose = FALSE, ln_recovery = "none"))
+    cpc = 0, mincp = 1, verbose = FALSE, recovery = "none", keep_diagnostics = TRUE))
   list(success = FALSE, joint = f$diagnostics$raw[[1]]$ln_joint)
 }
 

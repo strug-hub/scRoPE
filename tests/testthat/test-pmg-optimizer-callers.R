@@ -2,7 +2,7 @@ test_that("PGMM callers preserve raw status and covariance failures independentl
   run_case <- function(caller, backend, raw_code, covariance, newton_error = FALSE) {
     env <- new.env(parent = baseenv())
     for (name in c("pmg_optimizer_converged", "pmg_run_bobyqa", "pmg_initial_beta",
-                   "pmg_vector_norms", "pmg_reduced_mapping",
+                   "pmg_vector_norms", "pmg_reduced_mapping", "pmg_sandwich_covariance",
                    "fit_gene_pmg_unconstrained", "fit_gene_pmg_constrained")) {
       fun <- getFromNamespace(name, "scRoPE")
       environment(fun) <- env

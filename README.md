@@ -20,34 +20,85 @@ side by side**.
 - **Fits into an R workflow:** dense or sparse counts, Seurat and
   SingleCellExperiment conversion, per-gene diagnostics and optional residuals.
 
-## Automatic JLN recovery
+## Automatic recovery and compact results
 
-This 0.3.1.9000 development candidate adds `scrope(..., ln_recovery = "auto")` as the
-LN default. It keeps accepted ordinary JLN fits, then tries supported numerical,
-warning, fixed-dispersion and identifiable limiting-face routes when needed.
-Use `ln_recovery = "none"` for strict native behavior. HL and PGMM are unchanged.
-The candidate is under draft patch review and is not a released version.
+This local review candidate uses `recovery = "auto"` for LN, HL and PGMM.
+It preserves qualified native fits, then attempts the reviewed numerical,
+fixed-dispersion or identifiable limiting routes for the requested estimator.
+Use `recovery = "none"` for native-only behavior. Existing explicit LN
+`ln_recovery` calls remain supported; conflicting explicit policies are errors.
+The candidate has not been released.
 
 ```r
-fit <- scrope(count, id, pred, offset = exposure, model = "LN")
+fit <- scrope(count, id, pred, offset = exposure, model = "HL") # or LN / PGMM
 fit$summary
-fit$recovery$routes        # route, fixed values, working target and cautions
-fit$recovery$coefficients  # availability of each individual coefficient
-native <- fit$recovery$primary
+fit$availability               # one selected-result status per gene
+fit$coefficient_availability   # separate point, covariance and Wald availability
+fit$test_status                # requested tests, including unsupported results
+native <- fit$recovery$primary # original native results, when recovery was assessed
+strict <- scrope(count, id, pred, model = "HL", recovery = "none")
 ```
 
-For recovered rows, donor-robust coefficient Wald results use the sandwich of
-the actual free estimating equations. Model-based SE, optional Score/LRT and
-random effects remain unavailable for those rows. A limiting fit can report a
-slope while leaving its intercept or nuisance coefficient missing. Recovery
-currently requires the default dispersion box and L-BFGS-B; other settings keep
-native results. The limiting route additionally requires a first unit intercept,
-a unique separating direction and removal of whole all-zero donors.
+Detailed fits and audit histories are off by default. Set
+`keep_diagnostics = TRUE` to retain them. Compact output keeps native evidence,
+route/fixed-parameter information, optimizer provenance and audit summaries;
+mandatory scientific checks still run. The legacy `convergence` vector keeps its
+method-specific meaning and is not the common availability indicator.
 
-Fixed-dispersion and limiting-face results concern working targets. Data-selected
-routes/faces are not selectively calibrated; equality to a scientific target
-and FDR control are not established. Finite-donor undercoverage has been observed.
-See [the recovery guide](inst/doc/jln-recovery.md) for assumptions and evidence.
+For all three models, `fit$availability$status` is `available` (all coefficient
+Wald results from the native fit), `available_with_limitations` (all from a
+recovered fit), `partial` (some), `point_only` (points but no Wald results), or
+`unavailable`. Coefficient rows use the same statuses except `partial`.
+`fit$test_status$availability_status` uses `available`,
+`available_with_limitations`, `unsupported` or `unavailable`; its separate
+`status` column retains method-specific labels, including LN's
+`experimental_asymptotic` label. These tables remain present with
+`recovery = "none"` and `keep_diagnostics = FALSE`.
+
+```r
+# Select numerically available coefficient Wald results, including partial genes.
+wald <- subset(fit$coefficient_availability,
+               available & statistic_available & reference_available)
+native_wald <- subset(wald, source == "native")
+point_only <- subset(fit$coefficient_availability, point_available & !available)
+optional <- subset(fit$test_status, test %in% c("score", "lrt") & success)
+```
+
+Inspect `source`, `route`, `sampling_target` and method-specific test status
+before interpretation; availability does not establish calibration. Do not
+filter all models by `fit$convergence == 1`: HL's code can indicate a point fit
+without covariance, and HL/PGMM recovery retains the original native code.
+
+The classified warning `scrope_recovery_warning`, code
+`scrope_recovery_summary`, summarizes recovery and coefficient availability
+once per call when needed, including with `verbose = FALSE`. It also warns for
+native-only unavailable results; optional-test failure alone does not trigger
+this summary when native coefficient Wald is complete. Other native warnings
+and verbose progress messages retain their own behavior. The linked guide gives
+the exact counts, convergence-code meanings and selective warning handling.
+
+Recovery selects a whole fit. In particular, the reviewed PGMM qualification
+checks can replace or withhold previously reported native scalar results;
+coefficients from different fits are never mixed. Recovered inference supports
+coefficient-wise donor-robust Wald results only. Model-based SEs, arbitrary
+joint contrasts, optional Score/LRT and random effects remain native-only.
+The three free-dispersion HL nuisance limits remain point-only.
+
+Working recovery requires the default dispersion box. Custom boxes retain
+native behavior and disclose skipped recovery. Custom `pgmm_control` still
+controls the main native optimizer; recovery has its own recorded policy.
+Fixed-dispersion and limiting-face targets need not equal the scientific target.
+Route selection is not adjusted for, and general finite-sample calibration or
+FDR control is not established.
+
+`scrope_working()` remains available for explicit long-format HL/PGMM results.
+The separate `hl_score_recovery="stable"` option retries eligible native HL
+Score ambiguity; it requires `additional_tests="score"` and defaults to `"none"`.
+It does not supply Wald recovery.
+
+See the [common API and retention guide](inst/doc/automatic-recovery.md),
+[JLN guide](inst/doc/jln-recovery.md), and
+[HL/PGMM technical guide](inst/doc/hl-pgmm-working-recovery.md).
 
 ## Installation
 
@@ -60,10 +111,19 @@ remotes::install_github("strug-hub/scRoPE")
 library(scRoPE)
 ```
 
-This installs the default `main` branch, which contains the merged 0.3.0 source.
-To test the automatic-recovery candidate under review, install its branch
-explicitly with
-`remotes::install_github("strug-hub/scRoPE@codex/jln-public-recovery-review")`.
+This installs the remote default branch, not this unpublished local HL/PGMM
+review candidate. To inspect the candidate, install its provided source archive
+into a private library in a fresh R session:
+
+```r
+review_lib <- file.path(tempdir(), "scrope-review-library")
+dir.create(review_lib, showWarnings = FALSE)
+install.packages("/path/to/scRoPE_0.3.1.9000.tar.gz", repos = NULL,
+                 type = "source", lib = review_lib)
+.libPaths(c(review_lib, .libPaths()))
+library(scRoPE)
+```
+
 Package dependencies are listed in [DESCRIPTION](DESCRIPTION).
 
 ## Quick start: 24 genes in one fit
@@ -98,12 +158,14 @@ fit$availability
 `se_robust_x` and `p_robust_x` are its donor-robust standard error and Wald
 p-value. The corresponding model-based results are `se_x` and `p_naive_x`.
 P-values test a zero coefficient, without multiple-testing adjustment.
-`availability == "inference"` indicates that all coefficient Wald results are
-available; it can include recovered working-target fits. Use
-`fit$recovery$routes` to identify the estimator and its limitations, and
-`fit$recovery$coefficients` to select available coefficients, including those
-from a `partial_inference` limiting fit. For strict native JLN, set
-`ln_recovery = "none"`.
+`fit$availability$status` is `"available"` or `"available_with_limitations"`
+when all coefficient Wald results are available, and `"partial"` when only
+some are. Use `fit$coefficient_availability` to select the coefficient of
+interest and retain its route/target labels. The separate LN compatibility
+column `fit$availability$availability` retains `"inference"` and
+`"partial_inference"`; those are not the common cross-model status values.
+For strict native JLN, set `recovery = "none"` (or the compatible
+`ln_recovery = "none"`).
 
 Recorded benchmark: **about 11 seconds** for a serial fit on an M3 Max
 MacBook with R 4.5.2; timing depends on hardware and software.
@@ -170,6 +232,7 @@ Legacy LN and its fallback are retired; they are never silently redirected.
 - [Additional synthetic and Seurat examples](inst/examples/README.md).
 - [Methods, contrasts and migration](inst/guides/methods-and-migration.md).
 - [Changes](NEWS.md) · [validation](tests/validation/README-workable-version-smoke.md)
+- [Numerical test policy](tests/NUMERICAL_TESTING.md): exact preservation, independent refits and cross-platform error budgets
   · [report an issue](https://github.com/strug-hub/scRoPE/issues).
 
 ## Acknowledgments and citation

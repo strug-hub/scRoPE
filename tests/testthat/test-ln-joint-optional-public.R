@@ -7,7 +7,7 @@
     fit <- function(tests = character(0), keep = TRUE, contrasts = NULL) {
       scrope(fx$count, fx$id, pred = fx$pred, offset = fx$offset,
              verbose = FALSE, cpc = 0, mincp = 1, ncore = 1L,
-             ln_estimator = "joint_ln", ln_operational_fallback = "none",
+             ln_estimator = "joint_ln", recovery = "none", ln_operational_fallback = "none",
              additional_tests = tests, lrt_details = "lrt" %in% tests,
              lrt_contrasts = contrasts, keep_diagnostics = keep)
     }

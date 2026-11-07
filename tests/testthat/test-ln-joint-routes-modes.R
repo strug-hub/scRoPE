@@ -5,7 +5,7 @@ test_that("joint LN R2 removes every analytic covariance and Wald field", {
       output_re = TRUE,
       additional_tests = c("score", "lrt")
     ),
-    "Joint-LN inference was unavailable for 1 gene"
+    "scRoPE LN recovery: 0/1 genes recovered"
   )
   fit <- result$fit
   provenance <- fit$provenance$per_gene

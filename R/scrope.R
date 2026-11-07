@@ -27,7 +27,9 @@ scrope_psock_library_paths <- function() {
 #'   route. The corrected first-order HL route uses its dedicated solver, and
 #'   PGMM uses its exact-route optimisers; those routes warn when `"trust"` is
 #'   supplied.
-#' @param verbose Logical; print progress messages.
+#' @param verbose Logical; print progress and method-specific informational
+#'   messages. `FALSE` does not suppress the classified recovery/availability
+#'   warning or other native warnings.
 #' @param cpc Minimum counts-per-cell threshold for gene filtering.
 #' @param mincp Minimum number of non-zero cells required to keep a gene.
 #' @param ncore Number of cores for parallel processing.
@@ -71,10 +73,11 @@ scrope_psock_library_paths <- function() {
 #'   If neither optional test was requested, `TRUE` or a non-`NULL`
 #'   `lrt_contrasts` also activates LRT. Score-only plus `lrt_details = TRUE`
 #'   does not additionally request LRT or its details table.
-#' @param keep_diagnostics Logical; retain per-gene diagnostic objects. For HL,
-#'   `FALSE` also suppresses optional solver histories and cross-gene retention
-#'   of full fits; required scientific computations and public summaries remain
-#'   unchanged (see [scrope_hl()]).
+#' @param keep_diagnostics Logical, default `FALSE`. Retain full native and
+#'   recovered fits, donor arrays and detailed audit histories only when `TRUE`.
+#'   Required acceptance checks still run in compact mode. Compact availability,
+#'   native evidence, optimizer provenance and audit summaries remain available.
+#'   This controls retention, not the numerical acceptance policy.
 #' @param model Explicit fitting route. `"LN"` uses the LN NBGMM pipeline,
 #'   `"HL"` uses the corrected first-order nested HL NBGMM pipeline for every
 #'   analyzed gene, and `"PGMM"` uses the exact Poisson-gamma mixed-model path.
@@ -157,15 +160,14 @@ scrope_psock_library_paths <- function() {
 #' analysis (0.2.5.9005 or earlier); explicit legacy requests are never redirected
 #' to joint-LN.
 #'
-#' For joint-LN, `availability` gives exactly one row per analyzed gene/request:
-#' `"inference"` when all coefficient Wald results are available,
-#' `"partial_inference"` when only some are available, or `"unavailable"`.
-#' Inspect `recovery$routes` for the estimator and its limitations and
-#' `recovery$coefficients` for individual coefficient availability. These tables
-#' remain available with `keep_diagnostics = FALSE`. A finite endpoint alone
-#' does not establish inference. One consolidated warning reports recovery or
-#' unavailable native inference.
-#' Columns include `gene_id`, `gene`, `estimator`, `certified_root`,
+#' Joint-LN additionally retains the compatibility column
+#' `availability$availability`, including `"inference"`, `"partial_inference"`
+#' and `"unavailable"`. These are separate from the shared
+#' `availability$status` values described below. Use
+#' `coefficient_availability` to select available coefficients, including a
+#' focal contrast in a partially estimable limiting fit. A finite endpoint
+#' alone does not establish inference. LN-specific columns also include
+#' `gene_id`, `gene`, `estimator`, `certified_root`,
 #' `inference_status`, `strict_inference_status`,
 #' `enabled_inference_status`, `resolution_status`, `inference_source`,
 #' `newly_enabled`, `availability_transition`, `resolution_policy_version`,
@@ -173,7 +175,7 @@ scrope_psock_library_paths <- function() {
 #' `estimate_source`, `attention_flag`, and `technical_code`. The compact
 #' `provenance$per_gene` table also retains strict and enabled route codes,
 #' failure reasons, policy identity, mode, and active veto classes. Under
-#' automatic recovery, `recovery$primary` retains the unchanged native result,
+#' automatic recovery, `recovery$primary` retains the native estimates and tests,
 #' including its original failure reasons and veto classes. Earlier
 #' `route`, `inference_available`, and `failure_reason` fields are retained for
 #' compatibility.
@@ -190,7 +192,9 @@ scrope_psock_library_paths <- function() {
 #' They do not alter coefficients, dispersions, covariance, tests, or
 #' convergence.
 #'
-#' @param ln_recovery JLN recovery policy: `"auto"` (default) retains accepted
+#' @param ln_recovery Backward-compatible JLN recovery policy. An explicit value
+#'   is used when `recovery` is omitted; conflicting explicit LN values are an
+#'   error. Ignored by HL/PGMM. `"auto"` retains accepted
 #'   native fits and attempts certified numerical refinement, dominated-start
 #'   warning, fixed-positive-dispersion and identifiable whole-zero-donor limiting
 #'   fits when needed. `"none"` preserves strict native behavior. Recovery requires
@@ -198,6 +202,28 @@ scrope_psock_library_paths <- function() {
 #'   results. Ignored by HL/PGMM. Recovery supports coefficient donor-robust Wald
 #'   tests only. Inspect `recovery$routes` and `recovery$coefficients` for working
 #'   target, selection and coefficient-estimability limitations.
+#' @param recovery Common recovery policy, `"auto"` by default or `"none"` for
+#'   native-only estimates and inference. Supported HL/PGMM working recovery
+#'   requires the default dispersion box and preserves the requested estimator.
+#'   Whole-fit qualification can withhold a previously reported native PGMM
+#'   scalar; original native outputs remain in `recovery$primary`. Recovered
+#'   inference is coefficient-wise donor-robust Wald only. Free-dispersion HL
+#'   nuisance limits remain point-only. Native optional tests are preserved for
+#'   native-selected genes and segregated under `primary` for replaced genes.
+#'   Use `availability`, `coefficient_availability` and `test_status` to aggregate
+#'   selected results; `convergence` retains method-specific legacy meanings.
+#' @param hl_score_recovery Experimental HL Score numerical policy. `"none"`
+#'   (default) preserves native results. `"stable"` retries ambiguous finite
+#'   full-chi Score roots using stable Gamma arithmetic and cold refinement,
+#'   retaining all native roots, the original configuration and certification
+#'   gates. Any failed cold evaluation withholds the retry; rejected warm
+#'   evaluations are recorded in its failure ledger. Accepted native results
+#'   are preserved. Requires `model="HL"`;
+#'   used only for requested Score tests. This does not repair boundary fits,
+#'   change Wald inference or establish finite-sample calibration. Full retry
+#'   evidence is in the Score object's `numerical_recovery` diagnostics. When
+#'   recovery is considered, a compact `hl_score_recovery` route table is
+#'   retained even with `keep_diagnostics=FALSE`.
 #' @param pgmm_control PGMM main unconstrained `nlminb` budget: a named list
 #'   with positive integer `iter.max` and/or `eval.max`. Missing entries default
 #'   to 500 each. Use `list(iter.max = 150L, eval.max = 200L)` to reproduce
@@ -205,12 +231,107 @@ scrope_psock_library_paths <- function() {
 #'   constrained/profile fit controls, or retry policy, and is not a total
 #'   fitting-work cap. It applies only to `model = "PGMM"`.
 #'
-#' @return A list with elements `summary`, `overdispersion`, `convergence`,
-#'   `algorithm`, optional `random_effect`, `diagnostics`, optional
-#'   route-specific `lrt_details` or `hl_adj_details`, structured `provenance`,
-#'   and, for joint-LN, `recovery` (automatic mode), the one-row-per-gene
-#'   `availability` table and per-test
-#'   `test_status`. No legacy operational fallback component is generated.
+#' @section Shared availability and selected results:
+#' For LN, HL and PGMM, `availability$status` is `"available"` when all
+#' coefficient Wald results are available from the native fit,
+#' `"available_with_limitations"` when all are available from recovery,
+#' `"partial"` when some are available, `"point_only"` when accepted points
+#' but no coefficient Wald results are available, or `"unavailable"`.
+#' `coefficient_availability$status` uses the same values except `"partial"`.
+#' Gene `selected_source` and coefficient `source` use `"native"`, `"recovery"`
+#' or `"unavailable"`; a native-only failure can have source `"native"` and
+#' status `"unavailable"`. Route names and detailed reasons remain method-specific.
+#'
+#' Coefficient rows separate `point_available`, `covariance_available`,
+#' `statistic_available`, `reference_available`, `interval_available`, `available`
+#' and `estimable`. `available` requires Wald success and a finite p-value;
+#' `statistic_available` also checks a finite statistic. Interval availability
+#' requires an accepted point, covariance and a finite positive reported SE;
+#' it does not establish interval coverage. Gene rows count point, covariance
+#' and Wald coefficients separately, alongside `total_coefficients`.
+#'
+#' `test_status$availability_status` uses `"available"`,
+#' `"available_with_limitations"`, `"unsupported"` or `"unavailable"`.
+#' Keep the separate method-specific `test_status$status`, including native
+#' LN's `"experimental_asymptotic"` label. Use `success` and `failure_reason`
+#' for individual tests. Optional-test failure does not erase coefficient Wald
+#' availability; unrequested optional tests are not fabricated as failures.
+#' `summary$test_status` is `"ok"` or a comma-separated list of failed test
+#' families, not a convergence code.
+#'
+#' These shared tables remain available with `recovery="none"` and
+#' `keep_diagnostics=FALSE`. `summary` and the common tables describe the
+#' selected output. When recovery is assessed, `recovery$primary` preserves
+#' native estimates/tests and `availability$native_convergence` records the
+#' original code. Recovery selects a whole fit; never combine native and
+#' recovered coefficients as though their targets were identical. The three
+#' free-dispersion HL limits retain estimable points but no recovered SEs or
+#' p-values, with reason `"hl_limit_sampling_target_unresolved"`.
+#' Availability is numerical qualification, not established calibration;
+#' retain route, source, sampling target and selection limitations downstream.
+#'
+#' @section Legacy numeric convergence:
+#' `convergence` retains method-specific meanings. Native joint-LN uses `1`
+#' for available inference and `-70` for withheld inference; accepted recovery
+#' sets `1`, including partially estimable results. HL uses `1` for an accepted
+#' native point fit (even if covariance fails), and `-25` otherwise. PGMM uses
+#' `1` as its positive composite code, `-50` for optimizer rejection, `-25` for
+#' wholly unavailable model covariance, and `-27` for missing robust covariance
+#' when otherwise positive; `-25` can override `-50`. HL/PGMM recovery leaves
+#' that original native code unchanged. A positive code does not qualify every
+#' coefficient. Do not filter all models with `convergence == 1`.
+#'
+#' PGMM `fit_provenance$raw_convergence` is a backend code: `nlminb` accepts `0`,
+#' whereas `bobyqa` accepts `1:4`; codes `5/6` are budget stops. Interpret it
+#' together with `optimizer` and `optimizer_success`. These native fields are
+#' not selected-recovery success indicators and remain present in compact mode.
+#'
+#' @section Recovery warnings:
+#' The shared warning condition has classes `scrope_recovery_warning`, `warning`
+#' and `condition`, with `code="scrope_recovery_summary"`. At most one aggregate
+#' is emitted per public call when any gene selects recovery or is `"partial"`,
+#' `"point_only"` or `"unavailable"`. It is independent of `verbose` and
+#' diagnostic retention, and can report unavailable native-only results with
+#' `recovery="none"`. Optional-test failure alone does not trigger it when
+#' native coefficient Wald is complete. The preserved native component is not
+#' warned about a second time.
+#'
+#' Its `counts` vector names are `genes`, `recovered`, `all_wald`, `partial_wald`,
+#' `point_only` and `unavailable`, across analyzed genes. `recovered` includes
+#' point-only recovery and overlaps the availability categories; it is not a
+#' count of successful tests. These are fields of the warning condition, not
+#' columns in the fit. Other native control/optional-test warnings and verbose
+#' informational messages retain their own behavior. The separate research
+#' wrappers retain their own reporting contracts. See the installed guide at
+#' \code{system.file("doc", "automatic-recovery.md", package="scRoPE")} for
+#' complete filtering examples and selective handling of this warning class.
+#'
+#' @return For every model, a list containing selected `summary`,
+#'   `overdispersion`, legacy `convergence` and `algorithm`, the one-row-per-gene
+#'   `availability` table, `coefficient_availability`, per-test `test_status`,
+#'   recovery policy metadata in `recovery`, and structured `provenance`.
+#'   When recovery is assessed, `recovery` also retains native `primary` and
+#'   route/coefficient records. Shared availability tables remain present in
+#'   native-only and compact modes. Full `diagnostics` require
+#'   `keep_diagnostics=TRUE`. Other outputs include optional `random_effect`,
+#'   route-specific `lrt_details` or `hl_adj_details`, and native PGMM
+#'   `fit_provenance`. No legacy operational fallback component is generated.
+#'
+#' @examples
+#' data(sample_data)
+#' design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
+#' fit <- scrope(sample_data$count[1L, , drop = FALSE], sample_data$sid,
+#'               pred = design, offset = sample_data$offset, model = "PGMM",
+#'               recovery = "none", additional_tests = "score",
+#'               keep_diagnostics = FALSE, verbose = FALSE, ncore = 1L)
+#' # Numerical availability, not a calibration claim or convergence-code filter.
+#' wald <- subset(fit$coefficient_availability,
+#'                available & statistic_available & reference_available)
+#' wald[, c("gene", "coefficient", "p_value", "source", "route")]
+#' native_wald <- subset(wald, source == "native")
+#' point_only <- subset(fit$coefficient_availability, point_available & !available)
+#' optional <- subset(fit$test_status, test %in% c("score", "lrt") & success)
+#' optional[, c("gene", "contrast", "test", "status", "availability_status")]
 #'
 #' @useDynLib scRoPE, .registration = TRUE
 #' @importFrom Rcpp evalCpp
@@ -238,12 +359,17 @@ scrope <- function(
     lrt_contrasts = NULL,
     lrt_include_scale = FALSE,
     lrt_details = FALSE,
-    keep_diagnostics = TRUE,
+    keep_diagnostics = FALSE,
     model = c("LN", "HL", "PGMM"),
     ln_estimator = "joint_ln",
     ln_operational_fallback = "none",
     pgmm_control = NULL,
-    ln_recovery = c("auto", "none")) {
+    ln_recovery = c("auto", "none"),
+    hl_score_recovery = c("none", "stable"),
+    recovery = c("auto", "none")) {
+  recovery_missing <- missing(recovery)
+  ln_recovery_missing <- missing(ln_recovery)
+  hl_score_recovery <- match.arg(hl_score_recovery)
   ln_recovery <- match.arg(ln_recovery)
   cutoff_cell_missing <- missing(cutoff_cell)
   kappa_missing <- missing(kappa)
@@ -269,6 +395,16 @@ scrope <- function(
     ), call. = FALSE)
   }
   model <- match.arg(model)
+  recovery <- scrope_recovery_policy(model,recovery,ln_recovery,
+    recovery_missing,ln_recovery_missing)
+  if (identical(model,"LN")) ln_recovery <- recovery
+  if (!is.logical(keep_diagnostics) || length(keep_diagnostics)!=1L || is.na(keep_diagnostics))
+    stop("keep_diagnostics must be TRUE or FALSE.")
+  working_eligible <- scrope_recovery_default_box(min,max)
+  working_observation <- if(model %in% c("HL","PGMM") && recovery=="auto" && working_eligible)
+    working_observer(model,keep_diagnostics) else NULL
+  if (!identical(model, "HL") && !identical(hl_score_recovery, "none"))
+    stop("hl_score_recovery applies only to model='HL'.")
   if (!identical(model, "PGMM") && !is.null(pgmm_control)) {
     stop("pgmm_control applies only to model='PGMM'.")
   }
@@ -291,7 +427,7 @@ scrope <- function(
     if (!kappa_missing && !isTRUE(all.equal(kappa, 800))) {
       stop("kappa controls legacy LN refinement and cannot be set for model='HL'.")
     }
-    return(hl_fo_public_scrope_hl(
+    hl_result <- hl_fo_public_scrope_hl(
       count = count,
       id = id,
       pred = pred,
@@ -311,8 +447,13 @@ scrope <- function(
       lrt_contrasts = lrt_contrasts,
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
-      keep_diagnostics = keep_diagnostics
-    ))
+      keep_diagnostics = keep_diagnostics,
+      hl_score_recovery = hl_score_recovery,
+      .fit_observer = working_observation
+    )
+    return(scrope_complete_working(hl_result,"HL",recovery,working_eligible,
+      keep_diagnostics,controls=list(min=min,max=max,opt=opt,ncore=ncore,
+        requested_tests=additional_tests,lrt=lrt,hl_score_recovery=hl_score_recovery)))
   }
 
   if (identical(model, "PGMM")) {
@@ -352,30 +493,14 @@ scrope <- function(
       lrt_include_scale = lrt_include_scale,
       lrt_details = lrt_details,
       keep_diagnostics = keep_diagnostics,
-      pgmm_control = pgmm_control
+      pgmm_control = pgmm_control,
+      .fit_observer = working_observation
     )
-    pgmm_result$provenance <- list(
-      schema_version = 2L,
-      route = "PGMM",
-      requested_model = "PGMM",
-      effective_model = "PGMM",
-      estimator = "pgmm_exact_marginal",
-      optimizer = list(
-        primary_backend = "nlminb",
-        main_control = pgmm_control,
-        scope = "main_unconstrained_fit",
-        retry_requested = FALSE
-      ),
-      model_covariance = "pgmm_observed_information",
-      robust_covariance = "pgmm_donor_sandwich",
-      test_capabilities = data.frame(
-        test = c("wald", "score", "lrt"),
-        public_available = rep(TRUE, 3L),
-        status = rep("available_when_requested", 3L),
-        stringsAsFactors = FALSE
-      )
-    )
-    return(pgmm_result)
+    pgmm_result$provenance <- pmg_public_provenance(pgmm_control)
+    return(scrope_complete_working(pgmm_result,"PGMM",recovery,working_eligible,
+      keep_diagnostics,controls=list(min=min,max=max,opt=opt,ncore=ncore,
+        pgmm_control=pgmm_control,requested_tests=additional_tests,lrt=lrt,
+        recovery_budget="reviewed_independent_working_refit_policy")))
   }
 
   if (identical(ln_estimator, "joint_ln") && isTRUE(allow_per_gene_switch)) {
@@ -679,6 +804,12 @@ scrope <- function(
     coef_internal_to_public = coef_internal_to_public
   )
 
+  recovery_enabled <- identical(as.numeric(min), c(1e-4, 1e-4)) &&
+    identical(as.numeric(max), c(10, 1000)) && identical(opt, "lbfgs")
+  if (!is.null(recovery_input)) {
+    colnames(recovery_input$pred) <- if (is.null(predn)) paste0("X", seq_len(nb)) else predn
+  }
+
   gene_results <- foreach(i = gid) %dorng% {
     (function() {
     posv <- call_posindy(count, i - 1, nind)
@@ -921,6 +1052,9 @@ scrope <- function(
             score_failure_stage = if (joint_ln_route && want_score) score_res$failure_stage else NA_character_,
             score_test = if (want_score) score_res else NULL
           )
+          if (joint_ln_route && !keep_diagnostics) {
+            cache[[idx_nm]] <- ln_compact_optional(cache[[idx_nm]], lrt_details)
+          }
         }
         list(cache = cache, neg = neg_detected)
       }
@@ -992,9 +1126,18 @@ scrope <- function(
       unconstrained$lrt <- lrt_list
     }
 
-    unconstrained
+    ln_finalize_gene(unconstrained, keep_diagnostics,
+      keep_lrt_details = lrt_details, recovery_input = recovery_input,
+      gene_index = i, recovery_enabled = recovery_enabled)
     })()
   }
+
+  recovery_results <- if (!is.null(recovery_input)) {
+    lapply(gene_results, `[[`, "precomputed_recovery")
+  } else NULL
+  # The cached answer is an internal transport envelope, not native evidence.
+  # Remove it before building diagnostics or the preserved native public fit.
+  for (j in seq_along(gene_results)) gene_results[[j]]$precomputed_recovery <- NULL
 
   if (ncore > 1) {
     parallel::stopCluster(cls)
@@ -1005,7 +1148,7 @@ scrope <- function(
 
   re_mat <- do.call(cbind, lapply(gene_results, `[[`, "vec"))
   re_mat <- t(re_mat)
-  godambe_list <- lapply(gene_results, `[[`, "godambe")
+  godambe_list <- if (keep_diagnostics) lapply(gene_results, `[[`, "godambe") else NULL
   re_all <- as.data.frame(re_mat)
 
   beta_names <- paste0(
@@ -1629,7 +1772,7 @@ scrope <- function(
           if (is.null(value) || length(value) == 0L) default else value[[1L]]
         }
         data.frame(
-          gene_id = if (identical(ln_recovery, "auto")) gid[idx] else NULL,
+          gene_id = gid[idx],
           gene = gene_labels[idx],
           contrast = lrt_defs[[nm]]$label,
           stat = res$stat,
@@ -1700,6 +1843,7 @@ scrope <- function(
     })
     detail_rows <- Filter(Negate(is.null), detail_rows)
     result_list$lrt_details <- if (length(detail_rows) > 0) do.call(rbind, detail_rows) else data.frame(
+      gene_id = integer(0),
       gene = character(0),
       contrast = character(0),
       stat = numeric(0),
@@ -1773,13 +1917,16 @@ scrope <- function(
     )
     if (identical(ln_recovery, "auto")) {
       result_list <- ln_recovery_apply(result_list, gene_results, recovery_input,
-        enabled=identical(as.numeric(min), c(1e-4,1e-4)) &&
-          identical(as.numeric(max), c(10,1000)) && identical(opt,"lbfgs"),
-        keep_diagnostics=keep_diagnostics)
-    } else {
-      ln_availability_warn(result_list$availability, operational_fallback_requested=FALSE)
+        enabled=recovery_enabled, keep_diagnostics=keep_diagnostics,
+        recovery_results=recovery_results, .notify=FALSE)
     }
   }
 
-  return(result_list)
+  scrope_finish_recovery(result_list, "LN", ln_recovery,
+    eligible = scrope_recovery_default_box(min, max) && identical(opt, "lbfgs"),
+    skip_reason = if (recovery_enabled) NA_character_ else
+      "recovery_requires_default_box_and_lbfgs",
+    keep_diagnostics = keep_diagnostics,
+    controls = list(min=min, max=max, opt=opt, requested_tests=additional_tests),
+    notify = TRUE)
 }

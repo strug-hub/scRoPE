@@ -6,9 +6,9 @@ test_that("automatic covariance coordinates agree across native and recovered ro
   X[, 3L] <- 0.02 * X[, 3L]
   count <- rbind(native = x$y, recovered = fx$zero$input$y)
   fit <- suppressWarnings(scrope(count, x$id, X, offset = x$offset,
-    cpc = 0, mincp = 1, verbose = FALSE))
+    cpc = 0, mincp = 1, verbose = FALSE, keep_diagnostics = TRUE))
   strict <- suppressWarnings(scrope(count, x$id, X, offset = x$offset,
-    cpc = 0, mincp = 1, verbose = FALSE, ln_recovery = "none"))
+    cpc = 0, mincp = 1, verbose = FALSE, ln_recovery = "none", keep_diagnostics = TRUE))
   expect_identical(fit$recovery$routes$route, c("ordinary_jln", "fixed_v"))
   # Fresh native fits have different objective-instance IDs and RNG receipts.
   # Numerical results can have roundoff; all other public metadata stays exact.
@@ -17,7 +17,7 @@ test_that("automatic covariance coordinates agree across native and recovered ro
   expect_recovery_refit_table(fit$recovery$primary$summary, strict$summary)
   expect_recovery_refit_table(fit$recovery$primary$overdispersion, strict$overdispersion,
     numerical = c("Subject", "Cell"))
-  expect_recovery_refit_numeric(fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov,
+  expect_recovery_refit_matrix(fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov,
     strict$diagnostics$raw[[1L]]$robust_cov)
   expect_null(fit$recovery$primary$diagnostics$raw[[1L]]$robust_cov_public)
   expect_recovery_refit_table(fit$summary[1L, ], strict$summary[1L, ])

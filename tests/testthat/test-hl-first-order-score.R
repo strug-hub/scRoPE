@@ -274,8 +274,16 @@ test_that("locked q-zero Score case uses specification-grade cap acceptance", {
   )
   expect_true(score$success)
   expect_identical(score$status, "ok")
-  expect_identical(score$constrained_fit$inner$accepted_tier, "statistical")
-  expect_identical(score$null_fit$inner$accepted_tier, "statistical")
+  # A full solve may now attain derivative accuracy after donor polishing.
+  # The three-iteration calls above still exercise statistical-only acceptance.
+  for (inner in list(score$constrained_fit$inner, score$null_fit$inner)) {
+    expect_identical(inner$acceptance_tier_requested, "statistical")
+    derivative_grade <- inner$inner_acceptance$score_metric <= 1e-10 &&
+      inner$inner_acceptance$step_metric <= 1e-10
+    expect_identical(inner$accepted_tier,
+                     if (derivative_grade) "derivative" else "statistical")
+    if (!derivative_grade) expect_equal(inner$iterations, 100L)
+  }
   expect_lte(score$null_fit$inner$score_metric, 1e-8)
   expect_lte(score$null_fit$inner$step_metric, 1e-10)
   expect_lte(score$root_certification$constraint$scaled,

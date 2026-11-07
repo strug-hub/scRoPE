@@ -26,7 +26,9 @@ scrope_hl(
   lrt_details = FALSE,
   adj_ridge_factor = 1e-08,
   adj_cond_limit = 1e+08,
-  keep_diagnostics = TRUE
+  keep_diagnostics = FALSE,
+  hl_score_recovery = c("none", "stable"),
+  recovery = c("auto", "none")
 )
 }
 \arguments{
@@ -46,7 +48,9 @@ scrope_hl(
 The current first-order HL route uses its dedicated deterministic solver;
 requesting non-default `"trust"` is ignored with a warning.}
 
-\item{verbose}{Logical; print progress messages.}
+\item{verbose}{Logical; print progress and method-specific informational
+messages. `FALSE` does not suppress the classified recovery/availability
+warning or other native warnings.}
 
 \item{cpc}{Minimum counts-per-cell threshold for gene filtering.}
 
@@ -92,15 +96,39 @@ objective-ratio/LRT inference is unsupported.}
 implementation. A non-default value is ignored with a warning because
 objective-ratio/LRT inference is unsupported.}
 
-\item{keep_diagnostics}{Logical; defaults to `TRUE`, retaining full per-gene
-fits, solver histories and test objects. With `FALSE`, optional histories
-are not built and full fits/test objects are not accumulated across genes.
+\item{keep_diagnostics}{Logical; defaults to `FALSE`. `TRUE` retains full
+per-gene fits, solver histories and test objects. With `FALSE`, full fits
+and detailed audit rows are not accumulated across genes.
 Required solver, certification, covariance and requested test computations
 are unchanged; summaries, statuses/reasons, provenance, requested random
 effects and `hl_adj_details` remain available. `diagnostics` is `NULL`.}
+
+\item{hl_score_recovery}{Experimental HL Score numerical policy. `"none"`
+(default) preserves native results. `"stable"` retries ambiguous finite
+full-chi Score roots using stable Gamma arithmetic and cold refinement,
+retaining all native roots, the original configuration and certification
+gates. Any failed cold evaluation withholds the retry; rejected warm
+evaluations are recorded in its failure ledger. Accepted native results
+are preserved. Requires `model="HL"`;
+used only for requested Score tests. This does not repair boundary fits,
+change Wald inference or establish finite-sample calibration. Full retry
+evidence is in the Score object's `numerical_recovery` diagnostics. When
+recovery is considered, a compact `hl_score_recovery` route table is
+retained even with `keep_diagnostics=FALSE`.}
+
+\item{recovery}{Common recovery policy, `"auto"` by default or `"none"` for
+native-only estimates and inference. Supported HL/PGMM working recovery
+requires the default dispersion box and preserves the requested estimator.
+Whole-fit qualification can withhold a previously reported native PGMM
+scalar; original native outputs remain in `recovery$primary`. Recovered
+inference is coefficient-wise donor-robust Wald only. Free-dispersion HL
+nuisance limits remain point-only. Native optional tests are preserved for
+native-selected genes and segregated under `primary` for replaced genes.
+Use `availability`, `coefficient_availability` and `test_status` to aggregate
+selected results; `convergence` retains method-specific legacy meanings.}
 }
 \value{
-A list matching the structure of `scrope()` with the following HL
+A list matching the shared structure of `scrope()` with the following HL
   additions: the summary gains columns `se_robust_*`, `wald_stat_*`,
   `p_robust_*`, and their success/failure flags
   (`wald_success_*`, `wald_failure_*`). Optional score/LRT requests append
@@ -114,6 +142,35 @@ A list matching the structure of `scrope()` with the following HL
 }
 \description{
 Fits the corrected first-order nested sc-RoPE HL estimator for every gene.
-The output mirrors the core structure of `scrope()` while retaining the
-estimator state and subject-level caches required for robust HL inference.
+The output mirrors the core structure of `scrope()`. Full estimator state
+and subject-level caches are retained only with `keep_diagnostics=TRUE`;
+compact output still reports the required inference and acceptance checks.
+}
+\section{Shared status and warning contract}{
+
+Like \code{\link{scrope}}, this function returns `availability`,
+`coefficient_availability` and `test_status` in native-only and compact modes.
+Gene `status` is `"available"`, `"available_with_limitations"`, `"partial"`,
+`"point_only"` or `"unavailable"`; coefficient status omits `"partial"`.
+Test `availability_status` is `"available"`, `"available_with_limitations"`,
+`"unsupported"` or `"unavailable"`. Use coefficient/test success flags and
+keep source, route and target labels instead of filtering by `convergence`.
+
+HL's legacy `convergence` is `1` for an accepted native point fit even when
+covariance fails, and `-25` otherwise. Recovery preserves that code; the
+selected output can therefore have available Wald inference despite a
+negative native code. `recovery$primary`, when present, retains the native
+result. Free-dispersion nuisance limits remain point-only with missing SEs
+and p-values; numerical availability does not establish calibration.
+
+The common warning class `scrope_recovery_warning`, code
+`"scrope_recovery_summary"`, aggregates selected recovery or incomplete
+coefficient Wald availability even with `verbose=FALSE` or
+`recovery="none"`. Other native warnings and verbose optional-test messages
+remain separate. See \code{\link{scrope}} for complete code meanings,
+filtering examples and warning counts.
+}
+
+\seealso{
+\code{\link{scrope}} for the shared status contract and filtering examples.
 }

@@ -2,6 +2,7 @@ test_that("nbresidual works for top-level PGMM fits with one-column overdispersi
   fx <- pmg_interior_test_fixture()
 
   fit <- scrope(
+    recovery = "none",
     count = fx$count,
     id = fx$id,
     pred = fx$pred,
@@ -30,6 +31,7 @@ test_that("nbresidual PGMM conditional request warns and falls back to marginal 
   fx <- pmg_interior_test_fixture()
 
   fit <- scrope(
+    recovery = "none",
     count = fx$count,
     id = fx$id,
     pred = fx$pred,

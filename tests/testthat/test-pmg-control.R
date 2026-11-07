@@ -25,14 +25,19 @@ test_that("PGMM public controls reach its dispatcher and survive disabled diagno
   env$scrope_pmg_internal <- function(..., pgmm_control, keep_diagnostics) {
     seen <<- pgmm_control
     expect_false(keep_diagnostics)
-    list(summary = data.frame(), diagnostics = NULL)
+    list(summary = data.frame(gene_id = 1L, gene = "mock", logFC_Intercept = 0,
+      se_robust_Intercept = 1, p_robust_Intercept = 1, wald_stat_Intercept = 0,
+      wald_success_Intercept = TRUE, wald_failure_Intercept = NA_character_,
+      optimizer_success = TRUE, fit_success = TRUE),
+      convergence = 1L, overdispersion = data.frame(Subject = 0.2),
+      algorithm = "PGMM", random_effect = NULL, diagnostics = NULL)
   }
-  result <- fn(count = NULL, id = NULL, model = "PGMM", keep_diagnostics = FALSE)
+  result <- fn(count = NULL, id = NULL, model = "PGMM", keep_diagnostics = FALSE, recovery = "none")
   expect_identical(seen, list(iter.max = 500L, eval.max = 500L))
   expect_identical(result$provenance$optimizer$main_control, seen)
   expect_identical(result$provenance$optimizer$scope, "main_unconstrained_fit")
   expect_false(result$provenance$optimizer$retry_requested)
-  result <- fn(count = NULL, id = NULL, model = "PGMM", keep_diagnostics = FALSE,
+  result <- fn(count = NULL, id = NULL, model = "PGMM", keep_diagnostics = FALSE, recovery = "none",
                pgmm_control = list(iter.max = 150L, eval.max = 200L))
   expect_identical(seen, list(iter.max = 150L, eval.max = 200L))
   for (model in c("LN", "HL")) {

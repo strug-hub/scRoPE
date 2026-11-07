@@ -106,6 +106,7 @@ ln_joint_fit_fixture <- function(output_re = FALSE,
     lrt_details = "lrt" %in% additional_tests,
     keep_diagnostics = TRUE,
     ln_estimator = "joint_ln",
+    recovery = "none",
     ln_operational_fallback = ln_operational_fallback
   )
   list(fx = fx, fit = fit)

@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# Execute both installed-package PSOCK regressions; a skip is a failed gate.
+# Execute the required installed-package PSOCK regressions; a skip fails the gate.
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) != 2L) {
   stop("Usage: run_installed_parallel_gate.R OUTPUT_RDS EXPECTED_PACKAGE_PATH",
@@ -20,12 +20,15 @@ record <- list(
   r_version = R.version.string, platform = R.version$platform,
   tests = list()
 )
-# Both regression helpers write their paired receipts alongside this gate receipt,
+# The LN regression helpers write their paired receipts alongside this gate receipt,
 # where the existing CI artifact upload retains them. Paths are not saved in it.
 tryCatch({
   dir.create(dirname(output), recursive = TRUE, showWarnings = FALSE)
   output <- file.path(normalizePath(dirname(output), mustWork = TRUE), basename(output))
-  Sys.setenv(SCROPE_TEST_DIAGNOSTICS_DIR = dirname(output))
+  # This explicit release gate must exercise the opt-in PGMM regression too.
+  # Ordinary package checks retain its opt-in behavior; skips fail this gate.
+  Sys.setenv(SCROPE_TEST_DIAGNOSTICS_DIR = dirname(output), NOT_CRAN = "true",
+             SCROPE_RUN_AUTO_PGMM_PARALLEL = "true")
   saveRDS(record, output)
   expected_package_path <- normalizePath(args[[2L]], mustWork = TRUE)
   if (!file.exists(file.path(expected_package_path, "Meta", "package.rds"))) {
@@ -111,7 +114,9 @@ tryCatch({
     "test-ln-joint-psock-namespace.R" =
       "installed joint-LN PSOCK fits use the running package",
     "test-ln-joint-routes-modes.R" =
-      "joint LN single-core and multicore results agree"
+      "joint LN single-core and multicore results agree",
+    "test-auto-pgmm-stream.R" =
+      "PGMM two-worker observation preserves optional output and gene RNG streams"
   )
   record$checkpoint <- list(stage = "installed_test_validation")
   saveRDS(record, output)
@@ -142,7 +147,7 @@ tryCatch({
     sanitize = sanitize
   )
   scrope_gate_assert_passed(state)
-  cat("Installed-package two-worker gate: PASS (both required tests ran; no skips)\n")
+  cat("Installed-package two-worker gate: PASS (all three required tests ran; no skips)\n")
   cat("Saved gate and paired regression receipts in the requested output directory.\n")
 }, error = function(condition) {
   record$status <- "failed"

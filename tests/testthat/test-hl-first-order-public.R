@@ -3,6 +3,7 @@ test_that("public HL synthetic example uses the certified first-order path", {
   design <- model.matrix(~ X1 + X2 + cc, data = sample_data$pred)
 
   fit <- scrope_hl(
+    recovery = "none",
     sample_data$count[1L, , drop = FALSE],
     sample_data$sid,
     pred = design,
@@ -154,6 +155,7 @@ test_that("standalone HL compatibility arguments warn when ignored", {
 
   fit <- withCallingHandlers(
     scrope_hl(
+      recovery = "none",
       sample_data$count[1L, , drop = FALSE],
       sample_data$sid,
       pred = design,
@@ -190,6 +192,7 @@ test_that("standalone HL compatibility arguments warn when ignored", {
 
   expect_error(
     scrope_hl(
+      recovery = "none",
       sample_data$count[1L, , drop = FALSE],
       sample_data$sid,
       pred = design,
