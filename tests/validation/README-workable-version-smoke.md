@@ -19,17 +19,25 @@ then runs exactly these installed package regressions:
 
 - `installed joint-LN PSOCK fits use the running package`
 - `joint LN single-core and multicore results agree`
+- `PGMM two-worker observation preserves optional output and gene RNG streams`
 
-Both tests must execute and pass. Missing installed tests, insufficient cores,
+All three tests must execute and pass. Missing installed tests, insufficient cores,
 a skipped test, a warning, or an error makes this gate fail. Do not override
 resource detection to make it pass; use a host with the required allocation.
-The tests use deterministic one-gene fixtures and request `ncore = 2L` for the
-parallel fits. The saved receipt records resources, worker PIDs, DLL checksums,
+The LN tests use deterministic one-gene fixtures and request `ncore = 2L` for the
+parallel fits. The PGMM test uses two retained genes, requires two distinct
+gene-executing worker PIDs, and checks exact serial/parallel optional-test output,
+provenance, observer records (apart from PIDs), and gene RNG draws. The gate sets
+`SCROPE_RUN_AUTO_PGMM_PARALLEL=true` and `NOT_CRAN=true` for this required run;
+the PGMM test remains opt-in during ordinary package checks.
+The saved receipt records resources, probe-worker PIDs, DLL checksums,
 test outcomes, R/package versions and platform, without installation paths or
-host/user names. Both regressions are attempted before reporting an aggregate
-failure, so a failure in the first does not hide the second's outcome.
+host/user names. All three regressions are attempted before reporting an aggregate
+failure, so a failure in one does not hide the others' outcomes. The PGMM result
+row records whether its assertions passed; its gene-worker PIDs are asserted
+inside that test, rather than saved in the gate receipt.
 
-Each regression saves its original serial/parallel synthetic fit pair before
+Each LN regression saves its original serial/parallel synthetic fit pair before
 assertions, alongside the gate receipt. Pace diagnostic witness indices must
 point to the first certified, interior candidate matching their own endpoint's
 exact coordinates, provenance and existing objective-agreement threshold.

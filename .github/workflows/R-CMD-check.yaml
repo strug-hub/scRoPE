@@ -15,7 +15,6 @@ jobs:
     timeout-minutes: 60
     env:
       R_KEEP_PKG_SOURCE: yes
-      SCROPE_HL_HISTORY_DIAGNOSTICS: "true"
       _R_CHECK_FORCE_SUGGESTS_: "true"
       _R_CHECK_CRAN_INCOMING_: "false"
     steps:
@@ -64,7 +63,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/scrope-gate-library"
           R CMD INSTALL --install-tests --library="$RUNNER_TEMP/scrope-gate-library" "$SCROPE_ARCHIVE"
-      - name: Installed-package smoke and mandatory two-worker tests
+      - name: Installed-package smoke and mandatory LN/PGMM two-worker tests
         shell: bash
         run: |
           set -euo pipefail

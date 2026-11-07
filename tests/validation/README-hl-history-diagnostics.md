@@ -1,8 +1,8 @@
-# Temporary HL history diagnostics
+# Opt-in HL history diagnostics
 
-Set `SCROPE_HL_HISTORY_DIAGNOSTICS=true` when running `tests/testthat.R` to observe the original history-audit decisions. The Linux workflow enables this flag. Ordinary package calls do not install the observers. There are no additional fits, retries, changed acceptance rules or changed identity checks.
+Set `SCROPE_HL_HISTORY_DIAGNOSTICS=true` when running `tests/testthat.R` to observe the original history-audit decisions. The Linux workflow leaves this flag unset; enable it explicitly for a diagnostic investigation. Ordinary package calls do not install the observers. There are no additional fits, retries, changed acceptance rules or changed identity checks.
 
-The existing `linux-r-release-gates` CI artifact retains:
+When capture is enabled, the existing `linux-r-release-gates` CI artifact retains:
 
 ```
 scrope-check/scRoPE.Rcheck/tests/testthat/_diagnostics/hl-history-<pid>-<counter>.rds
@@ -31,6 +31,6 @@ Rscript --vanilla /path/to/library/scRoPE/tests/validation/run_hl_history_diagno
   /path/to/diagnostic-gate.rds /path/to/library/scRoPE
 ```
 
-The gate verifies unchanged real audit results, exact synthetic refusal results and captured inputs, both raw failure paths, write-error isolation, and binding/identity restoration. The synthetic failures are not evidence of the unresolved Linux cause.
+The gate verifies unchanged real audit results, exact synthetic refusal results and captured inputs, both raw failure paths, write-error isolation, and binding/identity restoration. The synthetic failures test the observer contract; they do not establish a solver failure mechanism.
 
-These observers add allocations, call frames and file I/O; they may affect timing or reproducibility of an intermittent numerical failure. A passing diagnostic run is evidence to compare, not a solver repair. Artifacts contain synthetic test data and runtime/library paths. Remove the temporary workflow flag after the Linux witness has been investigated.
+These observers add allocations, call frames and file I/O; they may affect timing or reproducibility of an intermittent numerical failure. A passing diagnostic run is evidence to compare, not a solver repair. Artifacts contain synthetic test data and runtime/library paths. Keep routine CI capture disabled after an investigation; the regression fixtures and this opt-in helper remain available.
