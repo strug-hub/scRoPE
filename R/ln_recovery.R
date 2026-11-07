@@ -30,19 +30,41 @@ ln_recovery_route <- function(primary,y,X,id,offset,target=2L,allow_face=TRUE) {
   ans
 }
 
-ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics) {
+ln_recovery_evaluate <- function(native, input, gene_index, enabled) {
+  if (isTRUE(native$success)) return(list(route="ordinary_jln",result=native))
+  if (!isTRUE(enabled)) return(list(route="withheld",result=list(
+    success=FALSE,reason="recovery_requires_default_box_and_lbfgs")))
+  # Limiting-face recovery invokes a nested native fit. Keep its doRNG setup
+  # local so moving recovery into foreach cannot change later native streams.
+  had_seed <- exists(".Random.seed", envir=.GlobalEnv, inherits=FALSE)
+  seed <- if (had_seed) get(".Random.seed", envir=.GlobalEnv, inherits=FALSE) else NULL
+  kind <- RNGkind()
+  on.exit({
+    if (!identical(RNGkind(), kind)) do.call(RNGkind, as.list(kind))
+    if (had_seed) assign(".Random.seed", seed, envir=.GlobalEnv) else
+      if (exists(".Random.seed", envir=.GlobalEnv, inherits=FALSE))
+        rm(".Random.seed", envir=.GlobalEnv)
+  }, add=TRUE)
+  p <- ncol(input$pred)
+  tryCatch(ln_recovery_route(native,as.numeric(input$count[gene_index,]),
+    input$pred,input$id,input$offset,target=if(p>1L)2L else 1L),error=function(e)
+      list(route="withheld",result=list(success=FALSE,
+        reason="recovery_evaluation_error",error=conditionMessage(e))))
+}
+
+ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
+                              recovery_results=NULL,.notify=TRUE) {
   primary<-result;nr<-nrow(result$summary);p<-ncol(input$pred)
   coefnames<-sub("^logFC_","",grep("^logFC_",names(result$summary),value=TRUE))
   colnames(input$pred)<-coefnames
+  if (!is.null(recovery_results) && length(recovery_results) != nr)
+    stop("Internal joint-LN recovery inputs are misaligned.")
   rows<-coefrows<-audits<-vector("list",nr)
   for(j in seq_len(nr)){
     gid<-result$summary$gene_id[j];gene<-result$summary$gene[j]
     native<-list(success=isTRUE(result$provenance$per_gene$inference_available[j]),joint=raw[[j]]$ln_joint)
-    ans<-if(native$success)list(route="ordinary_jln",result=native) else if(!enabled)
-      list(route="withheld",result=list(success=FALSE,reason="recovery_requires_default_box_and_lbfgs")) else
-      tryCatch(ln_recovery_route(native,as.numeric(input$count[gid,]),input$pred,input$id,input$offset,
-                        target=if(p>1L)2L else 1L),error=function(e)
-        list(route="withheld",result=list(success=FALSE,reason="recovery_evaluation_error",error=conditionMessage(e))))
+    ans<-if(!is.null(recovery_results)) recovery_results[[j]] else
+      ln_recovery_evaluate(native,input,gid,enabled)
     f<-ans$result;added<-isTRUE(f$success)&&!native$success;route<-ans$route
     estimable<-rep(isTRUE(f$success),p);fixed<-list();q<-NA_real_
     scope<-if(route%in%c("ordinary_jln","joint_refined"))"regular_joint_JLN_target" else
@@ -181,10 +203,10 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics) {
       "Route/face selection, scientific-target equality and FDR calibration are not established.",
       "Finite-donor undercoverage has been observed; no finite-cluster correction is applied."))
   if(keep_diagnostics)result$diagnostics$test_status<-result$test_status
-  if(any(routes$added))warning(sprintf(
+  if(.notify && any(routes$added))warning(sprintf(
     "JLN recovery: %d/%d genes have all coefficient Wald results, %d partial, %d unavailable; %d recovered. Inspect recovery$routes and recovery$coefficients for target and selection limitations.",
     sum(routes$available_coefficients==p),nr,sum(routes$available_coefficients>0&routes$available_coefficients<p),
-    sum(routes$available_coefficients==0),sum(routes$added)),call.=FALSE) else
+    sum(routes$available_coefficients==0),sum(routes$added)),call.=FALSE) else if(.notify)
       ln_availability_warn(result$availability, operational_fallback_requested=FALSE)
   result
 }

@@ -1,3 +1,38 @@
+## Automatic recovery and shared availability (local review candidate)
+
+- Make `recovery="auto"` the ordinary `scrope()` policy for LN, HL and PGMM; `recovery="none"` selects native-only behavior. `scrope_hl()` has the same policy. This supersedes the earlier opt-in-only HL/PGMM stage below; the candidate is not a published release.
+- Default detailed fit/history retention to `keep_diagnostics=FALSE`. Common gene, coefficient and test availability tables remain available in compact and native-only modes.
+- Unify `availability$status`, `coefficient_availability$status` and `test_status$availability_status`, with separate point, covariance, statistic, reference and interval flags. Preserve method-specific test labels and the original native numeric convergence and optimizer-code meanings; use the shared tables to select inference.
+- Add the classified warning `scrope_recovery_warning`, code `scrope_recovery_summary`, with aggregate analyzed-gene counts. It reports selected recovery or incomplete coefficient Wald availability even with `verbose=FALSE`; other native warnings/messages remain separate.
+- Preserve native evidence in `recovery$primary` when recovery is assessed and select whole fits. Recovered working-target inference remains coefficient-wise robust Wald only; three free-dispersion HL limits remain point-only. Numerical availability does not establish selection-adjusted coverage or general calibration.
+- Document filtering recipes, raw-code meanings, native-versus-selected results and selective warning handling in the common recovery guide and public help.
+
+## Isolated joint LRT zero-quadratic repair
+
+- Fix the shared multi-contrast adjusted-LRT error when its profile quadratic is zero or tiny. Normalize nonzero score directions before evaluating the homogeneous adjustment ratio.
+- Extend the statistic to zero only at a verified coincident, accepted null fit with positive full-rank unregularized profile matrices. Report an undefined multiplier (`scale = NA`) and `gate$small_quadratic$mode = "coincident_zero_extension"`; no direction-independent multiplier is claimed.
+- Withhold undefined new joint cases, including deficient rank or zero direction with positive LR, without a numeric fallback in the LRT column. Preserve scalar and ordinary positive-quadratic behavior. This optional-test repair changes neither fitting nor Wald covariance and does not establish finite-sample calibration.
+
+## Earlier isolated HL search-history revision
+
+- Extend opt-in HL recovery to an identified, bounded ledger of native/working outer profile and refinement probes, independent of diagnostic verbosity. Validate original scalar evidence before selected-configuration comparison; retain failed, pending and overflow evidence explicitly.
+- Require complete-root/covariance agreement for tied root-like probes and audit every generated refinement trial. Preserve ordinary native results and the free-donor-dispersion HL point-only policy. That revision changed neither PGMM fitting nor public defaults; the later automatic policy is described above.
+- Document capture/replay limits, runtime trade-offs and the method-specific differences from JLN; the audit establishes neither global optimality nor calibration.
+
+## Earlier opt-in HL and PGMM working-recovery candidate
+
+- Initially add `scrope_working(..., model="HL" or "PGMM")` for explicit working-target fits. At that stage ordinary `scrope()` defaults were unchanged; the later automatic policy is described above. The explicit long-format interface remains available and preserves accepted regular native endpoints in both the coefficient output and `primary`.
+- Refit eligible fixed-positive-dispersion systems and one-dimensional whole-zero-donor limits, with free-equation sandwiches, independent derivative checks, retained competitor audits and coefficient estimability. Free-donor-dispersion HL limits remain point-only.
+- Report fixed parameters, native preservation policy, route, computational certification, failures and selection limitations. Compact audits are the default; recovered optional tests and arbitrary contrasts are not supported. Numerical availability does not establish calibration or scientific-target equality.
+- Distinguish coefficient-level nonfinite estimates, invalid mapped variances and overflowing Wald statistics from a fit-level certificate in recovered-output failure labels; numerical gates and accepted results are unchanged.
+- Add an installed HL/PGMM working-fit guide covering route labels, fixed masks, coefficient coordinates, diagnostic provenance and the three point-only HL limits.
+
+## Isolated numerical integration candidate
+
+- Compute PGMM robust covariance directly from solved donor influences when the historical calculation fails or disagrees in variance-scaled units. Preserve agreeing native results.
+- Add opt-in `hl_score_recovery="stable"` for certified numerical refinement of ambiguous HL Score roots; the default remains `"none"`. Preserve point/Wald results and native successful Score tests; withhold genuine multiplicity and failed cold evaluations.
+- These numerical prerequisites alone do not establish small-donor calibration or enable the separately described working-fit recovery. No permutation method is included.
+
 ## scRoPE 0.3.1.9000 (draft patch candidate)
 
 - Make JLN-first recovery available through `scrope(..., ln_recovery = "auto")`, the new LN default. `ln_recovery = "none"` preserves strict native behavior. Accepted ordinary fits are retained unchanged.

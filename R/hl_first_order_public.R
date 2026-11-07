@@ -81,7 +81,10 @@ hl_fo_public_scrope_hl <- function(
     additional_tests = character(0), lrt = FALSE, lrt_contrasts = NULL,
     lrt_include_scale = FALSE, lrt_details = FALSE,
     adj_ridge_factor = 1e-8, adj_cond_limit = 1e8,
-    keep_diagnostics = TRUE) {
+    keep_diagnostics = TRUE,
+    hl_score_recovery = c("none", "stable"),
+    .fit_observer = NULL) {
+  hl_score_recovery <- match.arg(hl_score_recovery)
 
   if (length(opt) != 1L || is.na(opt) || !opt %in% c("lbfgs", "trust")) {
     stop("opt must be 'lbfgs' or 'trust'.")
@@ -159,6 +162,7 @@ hl_fo_public_scrope_hl <- function(
     hl_fo_public_contrasts(p, ctx$intcol, predictor_names, lrt_contrasts)
   } else list()
 
+  working_records <- if (!is.null(.fit_observer)) setNames(vector("list", length(gids)), as.character(gids)) else NULL
   gene_fits <- if (keep_diagnostics) vector("list", length(gids)) else NULL
   summary_rows <- vector("list", length(gids))
   overdispersion <- matrix(NA_real_, length(gids), 2L,
@@ -167,6 +171,7 @@ hl_fo_public_scrope_hl <- function(
   algorithm <- rep(2, length(gids))
   random_effect <- if (output_re) matrix(NA_real_, length(gids), ctx$k) else NULL
   test_objects <- if (keep_diagnostics) vector("list", length(gids)) else NULL
+  score_recovery_rows <- list()
   coefficient_wald <- if (keep_diagnostics) vector("list", length(gids)) else NULL
 
   for (gg in seq_along(gids)) {
@@ -175,16 +180,19 @@ hl_fo_public_scrope_hl <- function(
     posv <- call_posindy(count_t, gene_id - 1L, ctx$nind)
     y <- hl_build_counts(posv, ctx$nind)
     data <- hl_fo_make_data(y, ctx$pred, ctx$offset, ctx$id, ctx$intcol)
+    history <- if (!is.null(.fit_observer)) working_hl_history() else NULL
     fit <- hl_fo_fit(
       data,
       active = c("tau", "xi"),
       guard_min = min,
       guard_max = max,
-      keep_diagnostics = keep_diagnostics
+      keep_diagnostics = keep_diagnostics,
+      .history = history, .history_source = "native_full"
     )
     fit$gene_id <- gene_id
     fit$gene <- gene_name
     fit$design_transform <- ctx$design_transform
+    if (!is.null(.fit_observer)) working_records[[gg]] <- .fit_observer(fit, prep, gene_id, history)
     if (keep_diagnostics) gene_fits[[gg]] <- fit
     if (keep_diagnostics) test_objects[[gg]] <- list()
     if (keep_diagnostics) coefficient_wald[[gg]] <- list()
@@ -195,6 +203,28 @@ hl_fo_public_scrope_hl <- function(
         if (is.null(fit$fit_status)) fit$status else fit$fit_status,
         if (is.null(fit$fit_failure_reason)) fit$reason else fit$fit_failure_reason
       )
+      # Requested tests remain visible even when every unrestricted fit fails.
+      # A recovery adapter may subsequently replace coefficients, but these
+      # native test results must not disappear or be relabelled as recovered.
+      for(label in names(contrasts)) {
+        if(!paste0("wald_success_",label) %in% names(summary_rows[[gg]])) {
+          summary_rows[[gg]][[paste0("wald_success_",label)]] <- FALSE
+          summary_rows[[gg]][[paste0("wald_failure_",label)]] <- "unrestricted_fit_unavailable"
+        }
+        if(want_score) {
+          summary_rows[[gg]][[paste0("hl_score_adj_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("p_hl_score_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("hl_score_success_",label)]] <- FALSE
+          summary_rows[[gg]][[paste0("hl_score_failure_",label)]] <- "unrestricted_fit_unavailable"
+        }
+        if(want_lrt) {
+          summary_rows[[gg]][[paste0("hl_lrt_adj_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("p_hl_lrt_",label)]] <- NA_real_
+          summary_rows[[gg]][[paste0("hl_lrt_success_",label)]] <- FALSE
+          summary_rows[[gg]][[paste0("hl_lrt_failure_",label)]] <- "objective_ratio_unsupported"
+          summary_rows[[gg]][[paste0("hl_lrt_method_",label)]] <- "unsupported"
+        }
+      }
       next
     }
 
@@ -267,13 +297,23 @@ hl_fo_public_scrope_hl <- function(
           score <- hl_fo_score_test(
             data = data, R = R_internal, rhs = def$rhs,
             unrestricted_fit = fit, guard_min = min, guard_max = max,
-            keep_diagnostics = keep_diagnostics
+            keep_diagnostics = keep_diagnostics,
+            recovery = hl_score_recovery
           )
         } else {
           score <- list(success = FALSE, statistic = NA_real_, p_value = NA_real_,
                         status = "score_null_no_convergence",
                         reason = "score_solver_unavailable")
         }
+        recovery <- score$numerical_recovery
+        if (!is.null(recovery)) score_recovery_rows[[length(score_recovery_rows)+1L]] <- data.frame(
+          gene_id = gids[gg], contrast = label, route = recovery$route,
+          native_status = recovery$primary$status, retry_status = recovery$status,
+          backend = recovery$execution$inner,
+          cold_failures = if (is.null(recovery$attempt$evaluation_failures)) 0L else
+            sum(vapply(recovery$attempt$evaluation_failures, function(x) x$cold, logical(1))),
+          evaluations = if (is.null(recovery$attempt$evaluations)) 0L else recovery$attempt$evaluations,
+          stringsAsFactors = FALSE)
         row[[paste0("hl_score_adj_", label)]] <- score$statistic
         row[[paste0("p_hl_score_", label)]] <- score$p_value
         row[[paste0("hl_score_success_", label)]] <- isTRUE(score$success)
@@ -394,7 +434,7 @@ hl_fo_public_scrope_hl <- function(
     stringsAsFactors = FALSE
   )
 
-  list(
+  result <- list(
     summary = summary_df,
     overdispersion = overdispersion,
     convergence = convergence,
@@ -424,4 +464,7 @@ hl_fo_public_scrope_hl <- function(
       per_gene = per_gene_provenance
     )
   )
+  if (length(score_recovery_rows)) result$hl_score_recovery <- do.call(rbind, score_recovery_rows)
+  if (!is.null(.fit_observer)) attr(result,".working_records") <- working_records
+  result
 }

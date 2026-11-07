@@ -307,7 +307,8 @@ test_that("HL retention mismatches identify the field and comparison failure", {
                    zero_adverse = rep(0, length(case$y))),
     id = case$subject, pred = case$X, offset = exp(case$log_offset),
     cpc = -1, mincp = 0, ncore = 1L, verbose = FALSE,
-    additional_tests = c("score", "lrt"), lrt_details = TRUE, output_re = TRUE
+    additional_tests = c("score", "lrt"), lrt_details = TRUE, output_re = TRUE,
+    recovery = "none"
   ), keep_diagnostics)
   list(fixed = fixed, score = score, zero = zero, singular = singular,
        rank = rank, outer = outer, score_evaluator = score_evaluator,
@@ -317,8 +318,8 @@ test_that("HL retention mismatches identify the field and comparison failure", {
 }
 
 test_that("HL output retention preserves computations and avoids gene accumulation", {
-  full <- .hl_retention_collect(TRUE)
-  compact <- .hl_retention_collect(FALSE)
+  expect_warning(full <- .hl_retention_collect(TRUE), "scRoPE HL recovery: 0/3 genes recovered")
+  expect_warning(compact <- .hl_retention_collect(FALSE), "scRoPE HL recovery: 0/3 genes recovered")
 
   expect_true(full$rng_unchanged)
   expect_true(compact$rng_unchanged)
@@ -365,6 +366,10 @@ test_that("HL output retention preserves computations and avoids gene accumulati
   expected$diagnostics <- NULL
   observed <- compact$public$result
   observed$diagnostics <- NULL
+  expect_true(expected$provenance$recovery$details_retained)
+  expect_false(observed$provenance$recovery$details_retained)
+  expected$provenance$recovery$details_retained <- NULL
+  observed$provenance$recovery$details_retained <- NULL
   expect_null(.hl_retention_mismatch(observed, expected, path = "public result"))
   expect_identical(nrow(compact$public$result$summary), 3L)
   expect_identical(compact$public$result$summary$fit_status[[3L]],

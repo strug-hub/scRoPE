@@ -6,6 +6,7 @@ test_that("scrope PGMM integrates exact PMG fits and adjusted tests", {
   adj_fn <- getFromNamespace("pmg_adjusted_contrasts", "scRoPE")
 
   res <- scrope(
+    recovery = "none",
     count = fx$count,
     id = fx$id,
     pred = fx$pred,
@@ -90,12 +91,14 @@ test_that("top-level scrope PGMM matches frozen legacy PMM values for cell-level
   fx <- pmg_interior_test_fixture()
 
   current <- scrope(
+    recovery = "none",
     count = fx$count,
     id = fx$id,
     pred = fx$pred,
     model = "PGMM",
     pgmm_control = list(iter.max = 150L, eval.max = 200L),
     verbose = FALSE,
+    keep_diagnostics = TRUE,
     cpc = 0,
     mincp = 1
   )
@@ -151,6 +154,7 @@ test_that("top-level scrope PGMM matches frozen legacy PMM values for subject-le
   fx <- pmg_subject_level_test_fixture()
 
   current <- scrope(
+    recovery = "none",
     count = fx$count,
     id = fx$id,
     pred = fx$pred,
@@ -174,6 +178,7 @@ test_that("scrope PGMM allows cell-level predictors and returns results", {
   fx <- pmg_interior_test_fixture()
 
   res <- scrope(
+    recovery = "none",
     count = fx$count,
     id = fx$id,
     pred = fx$pred,
@@ -193,6 +198,7 @@ test_that("scrope PGMM messages when predictors vary within subject", {
 
   expect_message(
     scrope(
+      recovery = "none",
       count = fx$count,
       id = fx$id,
       pred = fx$pred,

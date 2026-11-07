@@ -59,7 +59,8 @@ scrope_jln_research <- function(count, id, pred, target, offset = NULL,
       primary_warnings <<- c(primary_warnings, conditionMessage(w))
       # This warning describes the native component, before research routing.
       # Other warnings (e.g. rank deficiency) are still emitted immediately.
-      if (startsWith(conditionMessage(w), "Joint-LN inference was unavailable"))
+      if (inherits(w,"scrope_recovery_warning") ||
+          startsWith(conditionMessage(w), "Joint-LN inference was unavailable"))
         invokeRestart("muffleWarning")
     }
   )

@@ -11,7 +11,8 @@ test_that("top-level HL dispatch exactly matches the compatibility wrapper", {
     ncore = 1L,
     additional_tests = c("score", "lrt"),
     lrt_details = TRUE,
-    keep_diagnostics = TRUE
+    keep_diagnostics = TRUE,
+    recovery = "none"
   )
 
   direct <- do.call(scrope_hl, args)
@@ -127,6 +128,7 @@ test_that("top-level routes expose honest method capabilities", {
     mincp = 1,
     ncore = 1L,
     model = "PGMM",
+    recovery = "none",
     keep_diagnostics = FALSE
   )
   expect_identical(pgmm$provenance$route, "PGMM")
@@ -180,6 +182,7 @@ test_that("PGMM dispatch rejects LN-only controls and warns for no-op outputs", 
     mincp = 1,
     ncore = 1L,
     model = "PGMM",
+    recovery = "none",
     keep_diagnostics = FALSE
   )
 
@@ -221,13 +224,20 @@ test_that("optional tests cannot reactivate retired legacy dispatch", {
 })
 
 test_that("shared default estimator is inert for explicit non-LN routes", {
+  native_result <- function(route) list(route = route,
+    summary = data.frame(gene_id = 1L, gene = "mock", logFC_Intercept = 0,
+      se_robust_Intercept = 1, p_robust_Intercept = 1, wald_stat_Intercept = 0,
+      wald_success_Intercept = TRUE, wald_failure_Intercept = NA_character_,
+      optimizer_success = TRUE, fit_success = TRUE),
+    convergence = 1L, algorithm = route,
+    overdispersion = data.frame(Subject = 0.2), random_effect = NULL)
   local_mocked_bindings(
-    hl_fo_public_scrope_hl = function(...) list(route = "HL"),
-    scrope_pmg_internal = function(...) list(route = "PGMM"),
+    hl_fo_public_scrope_hl = function(...) native_result("HL"),
+    scrope_pmg_internal = function(...) native_result("PGMM"),
     .package = "scRoPE"
   )
   for (model in c("HL", "PGMM")) {
-    expect_identical(scrope(NULL, NULL, model = model),
-                     scrope(NULL, NULL, model = model, ln_estimator = "joint_ln"))
+    expect_identical(scrope(NULL, NULL, model = model, recovery = "none"),
+                     scrope(NULL, NULL, model = model, ln_estimator = "joint_ln", recovery = "none"))
   }
 })
