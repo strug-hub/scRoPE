@@ -2,7 +2,8 @@ hia_get <- function(name) getFromNamespace(name, "scRoPE")
 hia_fixture <- function() readRDS(test_path("fixtures", "hl-inner-event106.rds"))
 
 hia_independent_score <- function(input, beta) {
-  # Independent scalar bracketed roots, not the production Newton polisher.
+  # Bracket each scalar root, then evaluate the score and Schur curvature
+  # directly there. No production mode solver, evaluator or primitive is used.
   data <- input$data
   rho <- input$rho_full
   base <- data$log_offset + as.numeric(data$X %*% beta)
@@ -16,10 +17,24 @@ hia_independent_score <- function(input, beta) {
     uniroot(equation, c(-20, 20), tol = 8 * .Machine$double.eps,
             maxiter = 1000L)$root
   }, numeric(1))
-  state <- hia_get("hl_fo_inner_quantities_r")(data, beta, rho, eta)
-  S <- as.numeric(crossprod(input$K, state$S_beta))
-  B <- crossprod(input$K, state$B_beta %*% input$K)
-  list(metric = sqrt(sum(S * solve(-B, S))), state = state)
+  subjects <- lapply(seq_along(data$subject_rows), function(j) {
+    rows <- data$subject_rows[[j]]
+    X <- data$X[rows, , drop = FALSE]
+    lm <- base[rows] + eta[j]
+    r <- plogis(lm - rho[2]); one_minus_r <- plogis(rho[2] - lm)
+    score <- data$y[rows] * one_minus_r - phi * r
+    curvature <- -(data$y[rows] + phi) * r * one_minus_r
+    mixed <- as.numeric(crossprod(X, curvature))
+    donor_curvature <- sum(curvature) - alpha * exp(eta[j] - v / 2)
+    list(score = as.numeric(crossprod(X, score)),
+         curvature = crossprod(X, X * curvature) -
+           tcrossprod(mixed) / donor_curvature)
+  })
+  S_beta <- Reduce(`+`, lapply(subjects, `[[`, "score"))
+  B_beta <- Reduce(`+`, lapply(subjects, `[[`, "curvature"))
+  S <- as.numeric(crossprod(input$K, S_beta))
+  B <- crossprod(input$K, B_beta %*% input$K)
+  list(metric = sqrt(sum(S * solve(-B, S))), eta = eta, S = S, B = B)
 }
 
 test_that("captured event106 cold roots satisfy independent profile scores", {
@@ -47,27 +62,32 @@ test_that("captured event106 cold roots satisfy independent profile scores", {
 })
 
 test_that("donor error cannot turn a nonroot into accepted beta convergence", {
-  fixture <- hia_fixture(); input <- fixture$input
-  false <- fixture$false_convergence
-  raw <- hia_get("hl_fo_inner_quantities")(
-    input$data, false$beta, input$rho_full, false$eta
-  )
-  geometry <- hia_get("hl_fo_inner_geometry")(raw, input$K, input$beta_star)
-  expect_lt(geometry$score_metric, 1e-10)
-  expect_true(all(vapply(raw$mode_diagnostics, function(d)
-    d$residual_scaled <= 1e-10 && d$step_scaled <= 1e-10, logical(1))))
-  accuracy <- hia_get("hl_fo_inner_mode_accuracy")(
-    input$data, raw, input$rho_full, input$K, geometry
-  )
-  expect_gt(accuracy$score_error, 1e-10)
-  expect_gt(hia_independent_score(input, false$beta)$metric, 2e-10)
-  input$beta_start <- false$beta; input$eta_start <- false$eta; input$cold <- FALSE
-  result <- do.call(hia_get("hl_fo_solve_inner"), input)
-  expect_true(result$success)
-  expect_gt(result$iterations, 1L)
-  expect_lte(hia_independent_score(input, result$beta)$metric, 1e-10)
-  expect_lte(result$inner_acceptance$score_metric, 1e-10)
-  expect_lte(result$inner_acceptance$step_metric, 1e-10)
+  for (reference in c(FALSE, TRUE)) local({
+    if (reference) local_mocked_bindings(
+      hl_fo_inner_quantities = hia_get("hl_fo_inner_quantities_r"), .package = "scRoPE"
+    )
+    fixture <- hia_fixture(); input <- fixture$input
+    false <- fixture$false_convergence
+    raw <- hia_get("hl_fo_inner_quantities")(
+      input$data, false$beta, input$rho_full, false$eta
+    )
+    geometry <- hia_get("hl_fo_inner_geometry")(raw, input$K, input$beta_star)
+    expect_lt(geometry$score_metric, 1e-10)
+    expect_true(all(vapply(raw$mode_diagnostics, function(d)
+      d$residual_scaled <= 1e-10 && d$step_scaled <= 1e-10, logical(1))))
+    accuracy <- hia_get("hl_fo_inner_mode_accuracy")(
+      input$data, raw, input$rho_full, input$K, geometry
+    )
+    expect_gt(accuracy$score_error, 1e-10)
+    expect_gt(hia_independent_score(input, false$beta)$metric, 2e-10)
+    input$beta_start <- false$beta; input$eta_start <- false$eta; input$cold <- FALSE
+    result <- do.call(hia_get("hl_fo_solve_inner"), input)
+    expect_true(result$success)
+    expect_gt(result$iterations, 1L)
+    expect_lte(hia_independent_score(input, result$beta)$metric, 1e-10)
+    expect_lte(result$inner_acceptance$score_metric, 1e-10)
+    expect_lte(result$inner_acceptance$step_metric, 1e-10)
+  })
 })
 
 test_that("donor polishing has a strict budget and refuses invalid states", {

@@ -9,7 +9,11 @@ The additional `false_convergence` beta and donor modes come from a local
 controlled experiment using those same inputs and a cancellation-first line
 search with the old donor accuracy. Its reported score is below `1e-10`, while
 independently polished donor roots give a score above `2e-10`. The regression
-uses independently bracketed scalar roots to check that discrepancy.
+uses independently bracketed scalar roots and directly summed analytic profile
+scores and curvatures to check that discrepancy. Its oracle does not call a
+production mode solver, evaluator or primitive. Both the compiled and literal R
+implementations must resolve the false-convergence state under the existing
+acceptance limits.
 
 The file contains no functions, execution identities, audit decisions or history
 seals. It is numerical input for a new local solve, never a cross-platform replay
