@@ -123,7 +123,7 @@ test_that("compact audit accounts for generated probes and overflow without drop
     working_hl_history_compare=function(state,fit)list(
       point=!isTRUE(state$needs_refinement),covariance=TRUE,
       agreement=if(isTRUE(state$needs_refinement)).1 else 0,covariance_agreement=0,F=state$F),
-    working_hl_refine=function(state,template,history,source) {
+    working_hl_refine=function(state,template,history,source,...) {
       key<-history$register(template$data,template$active,template$beta_star,
         template$K,TRUE,template$rho_full)
       for(i in 1:2)history$record(key,template$rho_full,

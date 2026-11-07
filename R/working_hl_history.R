@@ -216,7 +216,8 @@ working_hl_history_audit <- function(history,fit,max_replays=5000L,keep_details=
               max_events=history$limits$events-length(history$events),
               max_bytes=history$limits$bytes-history$bytes,
               known_configurations=names(history$configurations),parent_event=event$id)
-            refined<-working_hl_refine(replay,fit,refinement_history,"history_tied_refinement")
+            refined<-working_hl_refine(replay,fit,refinement_history,"history_tied_refinement",
+              coalesce_with_template=TRUE)
             extra<-refinement_history$snapshot()
             generated_evaluations<-generated_evaluations+extra$observed
             for(name in names(extra$configurations))

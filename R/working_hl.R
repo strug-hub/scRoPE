@@ -98,7 +98,8 @@ working_hl_profile <- function(fit,rho,active=seq_len(2L),history=NULL,source="w
 
 # Working-only refinement goes beyond native outer stopping so that complete
 # candidate roots can be compared at the prespecified coalescence tolerance.
-working_hl_refine <- function(state,template,history=NULL,source="working_refinement") {
+working_hl_refine <- function(state,template,history=NULL,source="working_refinement",
+                              coalesce_with_template=FALSE) {
   trace<-list()
   if(!length(template$active))return(list(success=TRUE,state=state,trace=trace))
   for(iteration in seq_len(12L)) {
@@ -121,7 +122,27 @@ working_hl_refine <- function(state,template,history=NULL,source="working_refine
         state<-trial;accepted<-TRUE;break
       }
     }
-    if(!accepted)return(list(success=FALSE,reason="outer_refinement_stalled",trace=trace))
+    if(!accepted) {
+      # A historical replay can already satisfy the complete target agreement
+      # required by its caller even when further strict score decrease stalls.
+      # This is not a general small-gradient exit: both roots must be stationary
+      # and certified, and the unchanged full-state/F agreement must hold.
+      # All attempted probes remain in history; covariance is checked separately
+      # by the caller. Selected/candidate-root polishing keeps its strict exit.
+      if(isTRUE(coalesce_with_template)) {
+        station<-hl_fo_outer_stationarity(state)
+        target_station<-hl_fo_outer_stationarity(template)
+        target_cert<-hl_fo_finalize_state(template)
+        comparison<-working_hl_history_compare(state,template)
+        tied<-is.finite(state$F)&&is.finite(template$F)&&
+          abs(state$F-template$F)<=1e-10*(1+max(abs(state$F),abs(template$F)))
+        if(isTRUE(station$success)&&isTRUE(target_station$success)&&
+           isTRUE(target_cert$point_success)&&isTRUE(comparison$point)&&tied)
+          return(list(success=TRUE,reason="coalesced_stalled_history_root",
+            state=state,trace=trace,stationarity=station,coalescence=comparison))
+      }
+      return(list(success=FALSE,reason="outer_refinement_stalled",trace=trace))
+    }
   }
   list(success=FALSE,reason="outer_refinement_budget",trace=trace)
 }

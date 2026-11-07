@@ -47,16 +47,22 @@ run <- function() {
   assert_restored()
   cat('PASS real audit and implementation/backend identities unchanged\n')
   failures<-list()
-  for(kind in c('profile','refinement','write'))local({
+  for(kind in c('profile','refinement','resolution','write'))local({
     on.exit(for(n in bindings)assignInNamespace(n,original[[n]],ns='scRoPE'))
-    if(kind=='refinement') {
+    if(kind%in%c('refinement','resolution')) {
       assignInNamespace('working_hl_profile',function(...) {
         ans<-original$working_hl_profile(...)
         ans$augmented$A<-ans$augmented$A*1.1
         ans
       },ns='scRoPE')
-      assignInNamespace('working_hl_refine',function(...)list(success=FALSE,
-        reason='synthetic_refinement_failure',trace=list('observer validation only')),ns='scRoPE')
+      assignInNamespace('working_hl_refine',function(...) {
+        if(kind=='resolution')return(list(success=TRUE,state=fit,
+          reason='coalesced_stalled_history_root',trace=list('observer validation only'),
+          stationarity=getfun('hl_fo_outer_stationarity')(fit),
+          coalescence=getfun('working_hl_history_compare')(fit,fit)))
+        list(success=FALSE,reason='synthetic_refinement_failure',
+          trace=list('observer validation only'))
+      },ns='scRoPE')
     } else {
       assignInNamespace('working_hl_profile',function(fit,rho,active,...) {
         ans<-list(success=FALSE,status='diagnostic_synthetic_failure',
@@ -65,7 +71,8 @@ run <- function() {
       },ns='scRoPE')
     }
     expected<-audit()
-    stopifnot(identical(expected$reason,'history_required_replay_failed'))
+    stopifnot(identical(expected$reason,if(kind=='resolution')'history_supported' else
+      'history_required_replay_failed'))
     directory<-file.path(record_dir,kind)
     restore<-.hl_history_diagnostic_install(directory)
     on.exit(restore(),add=TRUE,after=FALSE)
@@ -90,10 +97,13 @@ run <- function() {
           'injected for observer validation only'))
       if(kind=='refinement')stopifnot(length(record$original_refinement_failures)==1L,
         identical(record$original_refinement_failures[[1]]$reason,'synthetic_refinement_failure'))
+      if(kind=='resolution')stopifnot(length(record$original_refinement_resolutions)==1L,
+        identical(record$original_refinement_resolutions[[1]]$reason,'coalesced_stalled_history_root'),
+        record$original_refinement_resolutions[[1]]$coalescence$point)
       failures[[kind]]<<-list(original_reason=ans$reason,
         original_error=ans$failure_witness$observation$error,capture_verified=TRUE)
     }
-    cat('PASS ',kind,' diagnostic preserves original refusal and warning state\n',sep='')
+    cat('PASS ',kind,' diagnostic preserves original result and warning state\n',sep='')
   })
   assert_restored()
   # The test entry point uses this same finally restoration when tests error.

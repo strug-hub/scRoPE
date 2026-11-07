@@ -141,7 +141,7 @@ test_that('unadopted audit-refinement probes join the same bounded audit queue',
  d<-wh_fixture();refine<-wh('working_hl_refine');profile<-wh('working_hl_profile')
  local_mocked_bindings(working_hl_profile=function(...) {
   out<-profile(...);out$augmented$A<-out$augmented$A*1.1;out
- },working_hl_refine=function(state,template,history=NULL,source='unused') {
+ },working_hl_refine=function(state,template,history=NULL,source='unused',...) {
   out<-refine(d$fit,template)
   config<-history$register(template$data,template$active,template$beta_star,template$K,TRUE,template$rho_full)
   bad<-state;bad$F<-bad$F+1
@@ -232,7 +232,7 @@ test_that('byte and generated-event exhaustion retain complete refusal evidence'
  profile<-wh('working_hl_profile');refine<-wh('working_hl_refine')
  local_mocked_bindings(working_hl_profile=function(...) {
   out<-profile(...);out$augmented$A<-out$augmented$A*1.1;out
- },working_hl_refine=function(state,template,history=NULL,source='unused') {
+ },working_hl_refine=function(state,template,history=NULL,source='unused',...) {
   config<-history$register(template$data,template$active,template$beta_star,template$K,TRUE,template$rho_full)
   history$record(config,state$rho_full,state,TRUE,'generated_before_failure')
   history$record(config,state$rho_full,state,TRUE,'generated_over_budget')
