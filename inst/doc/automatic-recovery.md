@@ -1,6 +1,6 @@
 # Automatic recovery, availability and retained evidence
 
-This candidate uses `recovery="auto"` and `keep_diagnostics=FALSE` by default
+scRoPE uses `recovery="auto"` and `keep_diagnostics=FALSE` by default
 for public `scrope()` calls. `scrope_hl()` has the same defaults. These are
 intentional changes from the prior HL/PGMM API and prior retention default.
 
@@ -235,7 +235,7 @@ or hashes, explicit model/recovery policy, optimizer controls, requested tests,
 and endpoint-specific unavailable denominators. These dataset-level records
 belong in the simulation manifest rather than repeated cell arrays inside each
 fit. Existing pinned simulation adapters are not automatically migrated to this
-candidate. In particular, future PGMM adapters can use compact `fit_provenance`
+version. In particular, future PGMM adapters can use compact `fit_provenance`
 instead of requiring raw diagnostics. Limiting JLN recovery now isolates nested
 fit RNG state; reproducing historical post-call RNG side effects requires the
 historical version even when fitted numerical outputs agree.

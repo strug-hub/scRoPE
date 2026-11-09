@@ -1,7 +1,8 @@
 # 24-gene omitted-slope example
 
-Load `data(toy_data)` in scRoPE 0.3.0 for a 24 by 8,000 integer count matrix
-and its complete metadata. This is a teaching dataset, not paper/HLCA output.
+Load `data(toy_data)` for a 24 by 8,000 integer count matrix and its complete
+metadata, first bundled in scRoPE 0.3.0. This is a teaching dataset, not
+paper/HLCA output.
 The earlier `sample_data` / `sample_seurat` objects remain separate.
 
 ## Run the installed example
@@ -16,22 +17,27 @@ fit$availability
 fit_time
 ```
 
-The script uses one worker, JLN and no estimator fallback, with `cpc = 0` and
+The script uses one worker and the JLN engine, with `cpc = 0` and
 `mincp = 1` so all planned genes are analyzed. It writes no files, installs
 nothing, and exposes the complete `fit`, `results` and `fit_time` in the caller.
 An entire-call error remains an R error; individual unavailable genes are
 retained by the result extractor, with missing uncertainty and explicit reasons.
 
-To regenerate the data without fitting or writing files:
+To regenerate the data without fitting or writing files, load the bundled
+generator and shared verifier. The verifier is in `examples/verify_regeneration.R`,
+one directory above `examples/toy24/` in the installed package:
 
 ```r
+example_dir <- system.file("examples", package = "scRoPE", mustWork = TRUE)
 e <- new.env()
-sys.source(system.file("examples", "toy24", "generate.R", package = "scRoPE"), e)
-sys.source(system.file("examples", "verify_regeneration.R", package = "scRoPE"), e)
+sys.source(file.path(example_dir, "toy24", "generate.R"), e)
+sys.source(file.path(example_dir, "verify_regeneration.R"), e)
 regenerated <- e$generate_toy24()
 data(toy_data)
-e$verify_toy24_regeneration(regenerated, toy_data)
+stopifnot(e$verify_toy24_regeneration(regenerated, toy_data))
 ```
+
+Successful verification finishes silently; a mismatch raises an error.
 
 The verifier requires exact counts, design metadata, identifiers, RNG settings
 and stored streams, including their types and attributes. Only the continuous
