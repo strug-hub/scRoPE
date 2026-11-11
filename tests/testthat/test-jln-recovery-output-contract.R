@@ -45,7 +45,11 @@ test_that("recovery provenance describes the active fit and preserves native fai
     cpc = 0, mincp = 1, verbose = FALSE, keep_diagnostics = FALSE,
     additional_tests = c("score", "lrt"), lrt_details = TRUE, output_re = TRUE))
   active <- fit$provenance$per_gene
-  native <- fit$recovery$primary$provenance$per_gene
+  strict <- suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,
+    cpc=0,mincp=1,verbose=FALSE,recovery="none"))
+  native <- strict$provenance$per_gene
+  expect_identical(fit$recovery$native_status$enabled_failure_reason,native$enabled_failure_reason)
+  expect_identical(fit$availability$native_convergence,strict$convergence)
   expect_identical(active$enabled_route_code, "fixed_v")
   expect_true(active$inference_available)
   expect_true(is.na(active$enabled_failure_reason))
@@ -57,9 +61,9 @@ test_that("recovery provenance describes the active fit and preserves native fai
   expect_identical(active[strict_fields], native[strict_fields])
   expect_null(fit$diagnostics)
   expect_null(fit$recovery$diagnostics)
-  expect_null(fit$recovery$primary$diagnostics)
+  expect_null(fit$recovery$primary)
   expect_true(all(fit$recovery$coefficients$available))
-  wald <- fit$test_status$test == "wald"
+  wald <- fit$test_status$test %in% c("wald","wald_model")
   expect_true(all(is.na(fit$test_status$failure_stage[wald])))
   expect_true(all(fit$test_status$failure_stage[!wald] == "recovery_test_scope"))
   expect_true(all(!fit$test_status$success[!wald]))
@@ -97,7 +101,8 @@ test_that("partial recovery keeps covariance and status on the estimable coordin
   reported <- unlist(fit$summary[paste0("se_robust_", colnames(X)[keep])])^2
   expect_equal(unname(diag(raw$robust_cov_public)[keep]), unname(reported),
     tolerance = 1e-12)
-  expect_true(all(fit$test_status$failure_stage[!keep] == "coefficient_estimability"))
+  expect_true(all(fit$test_status$failure_stage[!keep] %in% c("coefficient_estimability","model_coefficient_inference")))
+  expect_true(all(grepl("nonestimable",fit$test_status$failure_reason[!keep])))
   expect_true(all(is.na(fit$test_status$failure_stage[keep])))
 })
 

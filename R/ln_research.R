@@ -121,10 +121,14 @@ ln_research_fixed_fit<-function(dat,fixed,starts,target=2L,derivatives=TRUE) {
        metrics['hessian_fd']>1e-4||metrics['hessian_half']>1e-4)
       return(fail('derivative_audit',list(state=st,spec=spec,metrics=metrics,trials=trials)))
   }
+  model_cov<-scrope_model_inverse(st$A)
+  model_Vbeta<-if(isTRUE(model_cov$success))dat$pub%*%model_cov$covariance[seq_len(p),seq_len(p),drop=FALSE]%*%t(dat$pub) else NULL
   beta<-as.numeric(dat$pub%*%st$full[seq_len(p)]);Vbeta<-dat$pub%*%V[seq_len(p),seq_len(p),drop=FALSE]%*%t(dat$pub)
   target_if<-as.numeric(dat$pub[target,]%*%IF[seq_len(p),,drop=FALSE]);se<-sqrt(Vbeta[target,target])
   list(success=TRUE,reason='certified_fixed_research_root',fixed=fixed,spec=spec,state=st,trials=trials,
     metrics=metrics,beta=beta,covariance=V,Vbeta=Vbeta,influence=IF,target_if=target_if,
+    model_covariance=model_cov$covariance,model_Vbeta=model_Vbeta,
+    model_inference_available=isTRUE(model_cov$success),model_inference_reason=model_cov$reason,
     coefficient=beta[target],se=se,p=2*pnorm(-abs(beta[target]/se)),
     fitted_log_mean=dat$ctx$offset+as.numeric(dat$ctx$pred%*%st$full[seq_len(p)]),
     max_donor_variance_share=max(target_if^2)/sum(target_if^2),
@@ -173,10 +177,14 @@ ln_research_warning_fit<-function(primary,dat,target=2L) {
  H<-ln_research_fd(function(t)ln_research_state(t,dat,spec)$g,st$full);H2<-ln_research_fd(function(t)ln_research_state(t,dat,spec)$g,st$full,.5)
  if(max(abs(Ug-st$U)/(1+abs(st$U)))>1e-5||max(abs(H-st$A)/(1+abs(st$A)))>1e-4||
     max(abs(Ug-Ug2)/(1+abs(Ug2)))>1e-4||max(abs(H-H2)/(1+abs(H2)))>1e-4)return(fail('anchor_derivatives'))
+ model_cov<-scrope_model_inverse(st$A)
+ model_Vbeta<-if(isTRUE(model_cov$success))dat$pub%*%model_cov$covariance[seq_len(p),seq_len(p),drop=FALSE]%*%t(dat$pub) else NULL
  beta<-as.numeric(dat$pub%*%st$full[seq_len(p)]);Vb<-dat$pub%*%V[seq_len(p),seq_len(p),drop=FALSE]%*%t(dat$pub)
  se<-sqrt(Vb[target,target]);if(!is.finite(se)||se<=0)return(fail('target_variance'))
  list(success=TRUE,reason='corroborated_interior_with_dominated_unresolved_boundary',coefficient=beta[target],se=se,
   p=2*pnorm(-abs(beta[target]/se)),beta=beta,Vbeta=Vb,state=st,covariance=V,observations=audit,core_starts=length(cores),
+  model_covariance=model_cov$covariance,model_Vbeta=model_Vbeta,
+  model_inference_available=isTRUE(model_cov$success),model_inference_reason=model_cov$reason,
   warning='An alternative boundary-start trajectory remains unresolved. Observed endpoints are worse; unvisited competing branches have not been excluded.')
 }
 

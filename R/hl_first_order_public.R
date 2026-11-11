@@ -53,6 +53,9 @@ hl_fo_public_failure_row <- function(p, predictor_names, gene_id, gene,
     row[[paste0("logFC_", nm)]] <- NA_real_
     row[[paste0("se_", nm)]] <- NA_real_
     row[[paste0("p_naive_", nm)]] <- NA_real_
+    row[[paste0("model_wald_stat_", nm)]] <- NA_real_
+    row[[paste0("model_wald_success_", nm)]] <- FALSE
+    row[[paste0("model_wald_failure_", nm)]] <- reason
     row[[paste0("se_robust_", nm)]] <- NA_real_
     row[[paste0("wald_stat_", nm)]] <- NA_real_
     row[[paste0("p_robust_", nm)]] <- NA_real_
@@ -192,12 +195,12 @@ hl_fo_public_scrope_hl <- function(
     fit$gene_id <- gene_id
     fit$gene <- gene_name
     fit$design_transform <- ctx$design_transform
-    if (!is.null(.fit_observer)) working_records[[gg]] <- .fit_observer(fit, prep, gene_id, history)
     if (keep_diagnostics) gene_fits[[gg]] <- fit
     if (keep_diagnostics) test_objects[[gg]] <- list()
     if (keep_diagnostics) coefficient_wald[[gg]] <- list()
 
     if (!isTRUE(fit$point_success)) {
+      if (!is.null(.fit_observer)) working_records[[gg]] <- .fit_observer(fit, prep, gene_id, history)
       summary_rows[[gg]] <- hl_fo_public_failure_row(
         p, predictor_names, gene_id, gene_name,
         if (is.null(fit$fit_status)) fit$status else fit$fit_status,
@@ -238,12 +241,20 @@ hl_fo_public_scrope_hl <- function(
     if (isTRUE(fit$covariance_success)) {
       V_report <- ctx$M_X %*% fit$covariance$V_beta %*% t(ctx$M_X)
     }
+    model_V_report <- if (isTRUE(fit$model_covariance_success))
+      ctx$M_X %*% fit$model_covariance$V_beta %*% t(ctx$M_X) else NULL
+    model_variance <- if (is.null(model_V_report)) rep(NA_real_,p) else diag(model_V_report)
+    model_wald <- pmg_coefficient_wald(beta_report,model_variance,TRUE)
     row <- list()
     for (jj in seq_len(p)) {
       nm <- predictor_names[jj]
       row[[paste0("logFC_", nm)]] <- beta_report[jj]
-      row[[paste0("se_", nm)]] <- NA_real_
-      row[[paste0("p_naive_", nm)]] <- NA_real_
+      row[[paste0("se_", nm)]] <- if(is.finite(model_variance[jj])&&model_variance[jj]>0)sqrt(model_variance[jj]) else NA_real_
+      row[[paste0("p_naive_", nm)]] <- model_wald$p_value[jj]
+      row[[paste0("model_wald_stat_", nm)]] <- model_wald$stat[jj]
+      row[[paste0("model_wald_success_", nm)]] <- model_wald$success[jj]
+      row[[paste0("model_wald_failure_", nm)]] <- if(model_wald$success[jj])NA_character_ else
+        if(!isTRUE(fit$model_covariance_success)&&!is.null(fit$model_covariance_status))fit$model_covariance_status else model_wald$failure_reason[jj]
       rr <- matrix(0, 1L, p)
       rr[1L, jj] <- 1
       wald <- if (is.null(V_report)) {
@@ -268,6 +279,10 @@ hl_fo_public_scrope_hl <- function(
         wald$status
       if (keep_diagnostics) coefficient_wald[[gg]][[nm]] <- wald
     }
+
+    fit$working_inference <- list(model=model_wald$success,robust=vapply(predictor_names,
+      function(nm)isTRUE(row[[paste0("wald_success_",nm)]]),logical(1)))
+    if (!is.null(.fit_observer)) working_records[[gg]] <- .fit_observer(fit, prep, gene_id, history)
 
     for (label in names(contrasts)) {
       def <- contrasts[[label]]
@@ -384,6 +399,7 @@ hl_fo_public_scrope_hl <- function(
   }
   status_blocks <- Filter(Negate(is.null), list(
     collect_status("wald_success_", "wald_failure_", "wald"),
+    collect_status("model_wald_success_", "model_wald_failure_", "wald_model"),
     collect_status("hl_score_success_", "hl_score_failure_", "score"),
     collect_status("hl_lrt_success_", "hl_lrt_failure_", "objective_ratio")
   ))
@@ -419,9 +435,9 @@ hl_fo_public_scrope_hl <- function(
   }
 
   test_capabilities <- data.frame(
-    test = c("wald", "score", "lrt"),
-    public_available = c(TRUE, TRUE, FALSE),
-    status = c("available", "available", "objective_ratio_unsupported"),
+    test = c("wald", "wald_model", "score", "lrt"),
+    public_available = c(TRUE, TRUE, TRUE, FALSE),
+    status = c("available", "available", "available", "objective_ratio_unsupported"),
     stringsAsFactors = FALSE
   )
   per_gene_provenance <- data.frame(
@@ -446,7 +462,8 @@ hl_fo_public_scrope_hl <- function(
       first_order = gene_fits,
       godambe = lapply(gene_fits, function(x) if (!is.null(x$augmented))
         list(A = x$augmented$A, J = x$augmented$J,
-             covariance = x$covariance, coordinate_tag = x$coordinate_tag) else NULL),
+             covariance = x$covariance, model_covariance = x$model_covariance,
+             coordinate_tag = x$coordinate_tag) else NULL),
       hl_adj = test_objects,
       wald = coefficient_wald,
       test_status = test_status,
@@ -458,7 +475,7 @@ hl_fo_public_scrope_hl <- function(
       requested_model = "HL",
       effective_model = "HL",
       estimator = "first_order_nested_hl",
-      model_covariance = "not_reported",
+      model_covariance = "profile_h_information_plugin_dispersion",
       robust_covariance = "hl_first_order_augmented_donor_sandwich",
       test_capabilities = test_capabilities,
       per_gene = per_gene_provenance

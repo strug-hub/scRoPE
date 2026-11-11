@@ -12,7 +12,7 @@ test_that("default recovery preserves successful native estimates and supports s
     if(nm=='ordinary')expect_recovery_refit_table(a$summary,n$summary)
     else {
       expect_true(a$recovery$routes$added)
-      expect_true(all(is.na(a$summary[grep('^se_',names(a$summary),value=TRUE)[!grepl('robust',grep('^se_',names(a$summary),value=TRUE))]])))
+      expect_true(all(a$coefficient_availability$model_available))
       f<-a$recovery$diagnostics[[1]]$result
       expect_equal(f$covariance,tcrossprod(solve(f$state$A,f$state$U)),tolerance=1e-12)
     }
@@ -37,10 +37,16 @@ test_that("whole-zero-donor face reports only identifiable coefficients", {
   o<-suppressWarnings(scrope(x$y[keep],x$id[keep],x$X[keep,c(1,2,4)],cpc=0,mincp=1,verbose=FALSE))
   expect_equal(a$summary$logFC_x,o$summary$logFC_x,tolerance=1e-10)
   expect_equal(a$summary$se_robust_x,o$summary$se_robust_x,tolerance=1e-10)
+  expect_equal(a$summary$se_x,o$summary$se_x,tolerance=1e-10)
+  expect_identical(a$coefficient_availability$model_available,f$face$estimable)
+  C<-f$face$public_map%*%f$derivative_map[seq_len(ncol(x$X)),,drop=FALSE]
+  model<-C%*%solve(f$A)%*%t(C);model[!f$face$estimable,]<-NA_real_;model[,!f$face$estimable]<-NA_real_
+  expect_equal(f$model_Vbeta,model,tolerance=1e-10)
   compact<-suppressWarnings(scrope(x$y,x$id,x$X,offset=x$offset,cpc=0,mincp=1,verbose=FALSE,keep_diagnostics=FALSE))
   expect_recovery_refit_table(compact$summary,a$summary)
   expect_null(compact$diagnostics);expect_null(compact$recovery$diagnostics)
-  expect_null(compact$recovery$primary$diagnostics)
+  expect_null(compact$recovery$primary)
+  expect_identical(compact$availability$native_convergence,a$availability$native_convergence)
 })
 
 test_that("face detection rejects mixed donors, approximate relations and nonunique nullspaces", {
@@ -101,7 +107,7 @@ test_that("recovery never presents native optional tests or random effects as re
     additional_tests=c('score','lrt'),lrt_details=TRUE,output_re=TRUE))
   expect_true(a$recovery$routes$added)
   expect_true(all(is.na(a$random_effect)))
-  ts<-a$test_status[a$test_status$test!='wald',]
+  ts<-a$test_status[!a$test_status$test%in%c('wald','wald_model'),]
   expect_true(all(!ts$success));expect_true(all(ts$failure_reason=='not_supported_for_recovery'))
   expect_true(all(a$lrt_details$status=='not_supported_for_recovery'))
   expect_true(all(!a$lrt_details$success))
@@ -123,6 +129,7 @@ test_that("local refinement resolves an all-free root and rejects unrelated fail
   expect_identical(f$spec$free,seq_len(ncol(x$X)+2L))
   expect_equal(f$coefficient,n$summary$logFC_x,tolerance=1e-7)
   expect_equal(f$se,n$summary$se_robust_x,tolerance=1e-7)
+  expect_equal(sqrt(f$model_Vbeta[2,2]),n$summary$se_x,tolerance=1e-7)
   expect_lt(f$metrics['newton_in_se'],1e-4)
   primary$joint$candidate_records[[1]]$interior<-FALSE
   expect_false(scRoPE:::ln_recovery_refine(primary,dat)$success)

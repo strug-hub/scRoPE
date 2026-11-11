@@ -1,6 +1,6 @@
 # Methods, inference availability and migration
 
-This guide accompanies scRoPE 0.4.0. Start with
+This guide includes the model-inference extension in candidate scRoPE 0.4.0.9007. Start with
 [the package quick start](../../README.md) for the 24-gene omitted-slope example.
 The additional route examples below use the separate, smaller `sample_data`
 teaching object (8 genes, 30 donors); they do not use `toy_data`.
@@ -18,9 +18,9 @@ inferential tests. The default engine is joint-LN. Coefficient-wise Wald
 results require no additional-test option.
 
 LN, HL and PGMM use `recovery = "auto"` by default. Qualified native fits retain
-the outputs below. Supported recovered rows return donor-robust coefficient
-Wald inference only; their model-based SE, optional Score/LRT results and random
-effects remain unavailable. Free-donor-dispersion HL limits remain point-only.
+the outputs below. Supported recovered rows return model and donor-robust
+coefficient Wald inference from the same selected fit. Optional Score/LRT results
+and random effects remain unavailable for recovered rows. Free-donor-dispersion HL limits remain point-only.
 Use `recovery = "none"` for native-only fitting; existing explicit LN
 `ln_recovery` policies remain supported. See the
 [common recovery guide](../doc/automatic-recovery.md) for qualification,
@@ -29,7 +29,7 @@ availability, retention and custom-control behavior.
 | Engine | Model-based output | Donor-robust output | Optional requests |
 |:--|:--|:--|:--|
 | Joint-LN | `se_*`, `p_naive_*` | `se_robust_*`, `p_robust_*` | Experimental scalar-zero Score: `score_adj_*`, `p_score_adj_*`; Pace ratio: `lrt_adj_*`, `p_lrt_adj_*` |
-| Corrected first-order HL | `se_*` and `p_naive_*` intentionally `NA` | `se_robust_*`, `p_robust_*` | `additional_tests="score"`: `hl_score_adj_*`, `p_hl_score_*` |
+| Corrected first-order HL | `se_*`, `p_naive_*` from inverse profile h information with fitted dispersions plugged in | `se_robust_*`, `p_robust_*` | `additional_tests="score"`: `hl_score_adj_*`, `p_hl_score_*` |
 | Exact PGMM | `se_*`, `p_naive_*` | `se_robust_*`, `p_robust_*` | Adjusted Score: `score_adj_*`, `p_score_adj_*`; scaled adjusted LRT: `lrt_adj_*`, `p_lrt_adj_*` |
 
 For example, using the separate `sample_data` and `design` defined above:
@@ -576,8 +576,11 @@ corresponding retained donor predictions.
 For each modeled predictor, `summary` includes:
 
 - `logFC_*`: estimated fixed-effect coefficient;
-- `se_*` and `p_naive_*`: model-based standard error and Wald p-value for
-  JLN/PGMM; corrected HL intentionally returns `NA` in these fields;
+- `se_*` and `p_naive_*`: model-based standard error and Wald p-value from the
+  selected fit, using free inverse curvature for JLN/PGMM and profile h-likelihood
+  coefficient information at fitted dispersions for corrected HL;
+- `model_wald_stat_*`, `model_wald_success_*` and `model_wald_failure_*`:
+  model-family Wald statistics and diagnostics;
 - `se_robust_*` and `p_robust_*`: robust standard error and Wald p-value,
   returned by default;
 - `wald_stat_*`, `wald_success_*`, and `wald_failure_*`: robust Wald statistic

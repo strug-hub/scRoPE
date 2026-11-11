@@ -92,9 +92,15 @@ scrope_jln_research <- function(count, id, pred, target, offset = NULL,
         if (!available) "No certified research inference; see reason and primary diagnostics." else ""
     beta <- if (available) f$coefficient else NA_real_
     se <- if (available) f$se else NA_real_
+    model_se <- if(ans$route=="ordinary_jln")sm[[paste0("se_",target)]] else
+      if(available&&isTRUE(f$model_inference_available))sqrt(f$model_Vbeta[target_index,target_index]) else NA_real_
+    model_available <- available&&is.finite(model_se)&&model_se>0&&is.finite((beta/model_se)^2)
     rows[[j]] <- data.frame(gene_id = gid, gene = sm$gene, target = target,
       route = ans$route, available = available, native_available = native_available,
       research_added = available && !native_available,
+      model_available=model_available,se_model=if(available&&is.finite(model_se)&&model_se>0)model_se else NA_real_,
+      p_model=if(model_available)pchisq((beta/model_se)^2,1,lower.tail=FALSE) else NA_real_,
+      model_covariance_convention=scrope_model_convention("LN"),
       coefficient = beta, se_robust = se, p_robust = if (available) f$p else NA_real_,
       ci_lower = beta - stats::qnorm(.975) * se,
       ci_upper = beta + stats::qnorm(.975) * se,

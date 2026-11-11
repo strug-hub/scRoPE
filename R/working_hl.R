@@ -258,6 +258,9 @@ working_hl_refit <- function(data,native,keep_diagnostics=FALSE,history=NULL) {
     }
   }
   list(success=TRUE,point_success=TRUE,inference_available=audit$covariance,
+       model_inference_available=isTRUE(fit$model_covariance_success),
+       model_inference_reason=if(isTRUE(fit$model_covariance_success))NA_character_ else fit$model_covariance_status,
+       model_Vbeta=fit$model_covariance$V_beta,
        reason=audit$reason,fit=fit,fixed=fixed,beta=fit$beta,Vbeta=audit$Vbeta,
        certificate=audit,competitors=competitors,terminal_audit=terminal_audit,history_audit=history_audit,
        selected_refinement=selected_refinement$trace,

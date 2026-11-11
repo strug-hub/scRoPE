@@ -55,6 +55,7 @@ ln_recovery_evaluate <- function(native, input, gene_index, enabled) {
 ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
                               recovery_results=NULL,.notify=TRUE) {
   primary<-result;nr<-nrow(result$summary);p<-ncol(input$pred)
+  attr(result,".native_reporting")<-scrope_native_snapshot(result,"LN")
   coefnames<-sub("^logFC_","",grep("^logFC_",names(result$summary),value=TRUE))
   colnames(input$pred)<-coefnames
   if (!is.null(recovery_results) && length(recovery_results) != nr)
@@ -83,18 +84,36 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
         estimable<-f$face$estimable;full<-f$reduced_full;q<-f$q
         fixed<-f$reduced$result$fixed
       }else{full<-f$state$full;q<-f$state$q;fixed<-f$fixed}
-      se<-sqrt(diag(V));ok<-estimable&is.finite(beta)&is.finite(se)&se>0
-      beta[!ok]<-NA_real_;se[!ok]<-NA_real_
+      variance<-diag(V);se<-sqrt(pmax(0,variance))
+      point<-estimable&is.finite(beta);cov<-point&is.finite(se)&se>0
+      statistic<-(beta/se)^2;ok<-cov&is.finite(statistic)
+      failure<-vapply(seq_len(p),function(k)if(ok[k])NA_character_ else
+        if(!estimable[k])"nonestimable_limiting_coefficient" else
+          if(!point[k])"nonfinite_coefficient_estimate" else
+            if(!cov[k])"mapped_variance_not_positive_finite" else "nonfinite_wald_statistic",character(1))
+      fit_failure<-if(all(ok))NA_character_ else if(all(!estimable[!ok]))"some_coefficients_nonestimable" else
+        scrope_status_reason(failure[!ok])
+      beta[!point]<-NA_real_;se[!cov]<-NA_real_
+      model_se<-if(isTRUE(f$model_inference_available))sqrt(pmax(0,diag(f$model_Vbeta))) else rep(NA_real_,p)
+      model_ok<-estimable&is.finite(beta)&is.finite(model_se)&model_se>0&is.finite((beta/model_se)^2)
       for(k in seq_len(p)){
         nm<-coefnames[k]
         result$summary[j,paste0("logFC_",nm)]<-beta[k]
         result$summary[j,paste0("se_robust_",nm)]<-se[k]
         result$summary[j,paste0("p_robust_",nm)]<-if(ok[k])2*pnorm(-abs(beta[k]/se[k]))else NA_real_
-        result$summary[j,paste0("wald_stat_",nm)]<-if(ok[k])(beta[k]/se[k])^2 else NA_real_
+        result$summary[j,paste0("wald_stat_",nm)]<-if(ok[k])statistic[k] else NA_real_
         result$summary[j,paste0("wald_success_",nm)]<-ok[k]
-        result$summary[j,paste0("wald_failure_",nm)]<-if(ok[k])NA_character_ else "nonestimable_limiting_coefficient"
-        result$summary[j,paste0("se_",nm)]<-NA_real_
-        result$summary[j,paste0("p_naive_",nm)]<-NA_real_
+        result$summary[j,paste0("wald_failure_",nm)]<-failure[k]
+        result$summary[j,paste0("se_",nm)]<-if(estimable[k]&&is.finite(beta[k])&&is.finite(model_se[k])&&model_se[k]>0)model_se[k] else NA_real_
+        result$summary[j,paste0("p_naive_",nm)]<-if(model_ok[k])pchisq((beta[k]/model_se[k])^2,1,lower.tail=FALSE) else NA_real_
+        result$summary[j,paste0("model_wald_stat_",nm)]<-if(model_ok[k])(beta[k]/model_se[k])^2 else NA_real_
+        result$summary[j,paste0("model_wald_success_",nm)]<-model_ok[k]
+        result$summary[j,paste0("model_wald_failure_",nm)]<-if(model_ok[k])NA_character_ else
+          if(!estimable[k])"nonestimable_limiting_coefficient" else
+            if(!point[k])"nonfinite_coefficient_estimate" else
+            if(!isTRUE(f$model_inference_available)) {
+              if(length(f$model_inference_reason)==1L&&!is.na(f$model_inference_reason))f$model_inference_reason else "model_covariance_unavailable"
+            } else if(!is.finite(model_se[k])||model_se[k]<=0)"mapped_model_variance_not_positive_finite" else "nonfinite_model_wald_statistic"
       }
       # Optional tests were computed for the native estimator, not the recovery.
       optional<-grep("^(p_)?(score|lrt)_",names(result$summary),value=TRUE)
@@ -103,18 +122,20 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
           if(grepl("failure|status|method",nm))"not_supported_for_recovery" else NA
       }
       result$summary$test_status[j]<-if(all(ok))"recovery_wald_available" else "recovery_wald_partially_available"
-      result$summary$test_failure_detail[j]<-"Recovery supports coefficient Wald tests only; model-based SE, Score/LRT and random effects are unavailable."
+      result$summary$test_failure_detail[j]<-"Recovery supports model and robust coefficient Wald tests only; Score/LRT and random effects are unavailable."
       ts<-which(result$test_status$gene_id==gid)
       for(ti in ts){
         iswald<-result$test_status$test[ti]=="wald";k<-match(result$test_status$contrast[ti],coefnames)
         success<-iswald&&!is.na(k)&&ok[k]
         result$test_status$success[ti]<-success
-        result$test_status$failure_reason[ti]<-if(success)NA_character_ else if(iswald)"nonestimable_limiting_coefficient" else "not_supported_for_recovery"
+        result$test_status$failure_reason[ti]<-if(success)NA_character_ else if(iswald&&!is.na(k))failure[k] else "not_supported_for_recovery"
         result$test_status$status[ti]<-if(success)"available_with_route_limitations" else "unavailable"
         result$test_status$inference[ti]<-scope
         result$test_status$method[ti]<-if(iswald)"matched_donor_robust_wald" else "not_supported_for_recovery"
         result$test_status$failure_stage[ti]<-if(success)NA_character_ else
-          if(iswald)"coefficient_estimability" else "recovery_test_scope"
+          if(iswald&&!is.na(k)) {
+            if(!estimable[k])"coefficient_estimability" else scrope_failure_stage(failure[k])
+          } else "recovery_test_scope"
       }
       result$overdispersion$Subject[j]<-exp(tail(full,2)[1]);result$overdispersion$Cell[j]<-exp(-tail(full,2)[2])
       result$convergence[j]<-1 # Certified free root; see route for full-coordinate estimability.
@@ -139,7 +160,7 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
         if(nm=="provenance"){
           tab$mode_method[j]<-"none";tab$mode_status[j]<-"not_supported_for_recovery"
           tab$mode_max_score_residual[j]<-tab$mode_max_newton_displacement[j]<-NA_real_
-          tab$inference_available[j]<-any(ok);tab$failure_reason[j]<-if(all(ok))NA_character_ else "some_coefficients_nonestimable"
+          tab$inference_available[j]<-any(ok);tab$failure_reason[j]<-fit_failure
           tab$enabled_failure_reason[j]<-tab$failure_reason[j]
           tab$resolution_mode[j]<-"automatic_recovery"
           tab$resolution_veto_classes[j]<-NA_character_
@@ -161,11 +182,14 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
         Vinternal<-V/outer(scale,scale)
         result$diagnostics$loglik[j]<- -q
         result$diagnostics$raw[[j]]<-list(route=route,inference_available=any(ok),
-          certified_full_root=fullroot,recovery=f,robust_cov=Vinternal,loglik= -q,
-          failure_reason=if(all(ok))NA_character_ else "some_coefficients_nonestimable")
+          certified_full_root=fullroot,recovery=f,robust_cov=Vinternal,
+          naive_cov=if(isTRUE(f$model_inference_available))f$model_Vbeta/outer(scale,scale) else NULL,loglik= -q,
+          failure_reason=fit_failure)
         result$diagnostics$godambe[[j]]<-list(robust_cov=Vinternal,
           robust_cov_public=V,robust_cov_coordinates="standardized_design",
-          robust_cov_public_coordinates="centered_public_design",route=route)
+          robust_cov_public_coordinates="centered_public_design",route=route,
+          model_cov=if(isTRUE(f$model_inference_available))f$model_Vbeta/outer(scale,scale) else NULL,
+          model_cov_public=f$model_Vbeta,model_covariance_convention=scrope_model_convention("LN"))
       }
     }else{
       ok<-vapply(coefnames,function(nm)isTRUE(result$summary[[paste0("wald_success_",nm)]][j]),logical(1))
@@ -178,7 +202,11 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
       result$diagnostics$raw[[j]]$robust_cov_public_coordinates<-"centered_public_design"
     }
     rows[[j]]<-data.frame(gene_id=gid,gene=gene,route=route,native_available=native$success,
-      added=added,available_coefficients=sum(ok),total_coefficients=p,
+      added=added,recovery_attempted=!native$success&&isTRUE(enabled),
+      recovery_outcome=scrope_recovery_outcome(!native$success&&isTRUE(enabled),native$success,isTRUE(f$success),native$success),
+      recovery_reason=if(native$success)NA_character_ else if(added)route else f$reason,
+      recovery_error=if(is.null(f$error))NA_character_ else as.character(f$error),
+      available_coefficients=sum(ok),total_coefficients=p,
       inferential_scope=scope,selection_adjusted=FALSE,finite_cluster_multiplier=1,
       fixed_donor_variance=if(is.null(fixed$v))NA_real_ else fixed$v,
       fixed_cell_overdispersion=if(is.null(fixed$phi))NA_real_ else fixed$phi,
@@ -190,14 +218,17 @@ ln_recovery_apply <- function(result,raw,input,enabled,keep_diagnostics,
   routes<-do.call(rbind,rows)
   if(any(routes$added)){
     result$provenance$estimator<-"jln_first_with_recovery"
-    result$provenance$model_covariance<-"native_JLN_only"
+    result$provenance$model_covariance<-scrope_model_convention("LN")
     result$provenance$robust_covariance<-"route_matched_free_parameter_donor_sandwich"
     result$provenance$random_effect<-"native_JLN_only_when_requested"
     result$provenance$inference_policy<-"route_specific_coefficient_Wald_with_recorded_limitations"
   }
   result$provenance$recovery_policy<-"jln_public_recovery_20261103"
   result$recovery<-list(policy="jln_public_recovery_20261103",mode="auto",routes=routes,
-    coefficients=do.call(rbind,coefrows),primary=primary,
+    coefficients=do.call(rbind,coefrows),primary=if(keep_diagnostics)primary else NULL,
+    native_convergence=primary$convergence,
+    native_status=primary$provenance$per_gene[intersect(c("gene_id","gene",
+      "enabled_failure_reason","resolution_veto_classes"),names(primary$provenance$per_gene))],
     diagnostics=if(keep_diagnostics)audits else NULL,
     limitations=paste("Fixed-mask and limiting-face sandwiches concern regular working targets.",
       "Route/face selection, scientific-target equality and FDR calibration are not established.",

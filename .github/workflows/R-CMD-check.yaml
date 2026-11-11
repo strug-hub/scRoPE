@@ -41,6 +41,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/scrope-release"
+          git diff --exit-code
+          git diff --cached --exit-code
+          git rev-parse HEAD > "$RUNNER_TEMP/scrope-release/source-commit.txt"
+          git rev-parse 'HEAD^{tree}' > "$RUNNER_TEMP/scrope-release/source-tree.txt"
+          git ls-files -z | xargs -0 sha256sum > "$RUNNER_TEMP/scrope-release/source-files.sha256"
+          printf '%s\n' "$GITHUB_EVENT_NAME" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" \
+            > "$RUNNER_TEMP/scrope-release/workflow-run.txt"
+          Rscript -e 'sessionInfo()' > "$RUNNER_TEMP/scrope-release/build-session.txt"
           cd "$RUNNER_TEMP/scrope-release"
           R CMD build --no-build-vignettes "$GITHUB_WORKSPACE"
           archives=(scRoPE_*.tar.gz)

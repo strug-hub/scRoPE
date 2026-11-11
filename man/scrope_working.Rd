@@ -21,8 +21,8 @@ are unchanged; native fitting is sequential in this interface.}
 \item{verbose}{Print progress messages.}
 }
 \description{
-Runs the requested native estimator first, preserving its result in
-\code{primary}. An explicit call opts into separately labelled estimates
+Runs the requested native estimator first. Its original result is retained in
+\code{primary} only with \code{keep_diagnostics=TRUE}. An explicit call opts into separately labelled estimates
 from certified positive-dispersion working fits or identifiable limiting
 equations. Ordinary \code{scrope()} and \code{scrope_hl()} now assess eligible
 working routes automatically; \code{recovery="none"} selects native-only behavior.
@@ -44,9 +44,10 @@ coordinates; PGMM preserves its centered unit-intercept convention with input-sc
 slopes. Their intercept estimability can differ. See
 \code{provenance$coefficient_coordinates}.
 
-Recovered inference is coefficient-wise donor-robust Wald only. No model-based
-covariance, optional tests, arbitrary contrasts or random effects are supplied
-for recovery. Outcomes select the route. Working-target equality to the
+Recovered inference supplies model and donor-robust coefficient Wald from the
+same selected fit. PGMM uses inverse free marginal information; HL uses inverse
+profile h-likelihood coefficient information at fitted dispersions. Optional
+tests, arbitrary contrasts and random effects are not supplied for recovery. Outcomes select the route. Working-target equality to the
 scientific target, selective coverage, finite-donor calibration and FDR control
 are not established by these computational checks. No finite-cluster multiplier
 or pseudoinverse is used. Successful regular native fits are retained exactly.
@@ -70,10 +71,11 @@ Ordinary accepted native fits retain their existing preservation policy.
 }
 \value{
 A list with long coefficient \code{summary}, per-gene \code{routes}, untouched
-native \code{primary}, compact per-gene \code{audit}, optional full
+native \code{primary} only with diagnostics (otherwise \code{NULL}), compact per-gene \code{audit}, optional full
 \code{diagnostics}, and \code{provenance}. Point, covariance and Wald
 availability are separate. \code{native_available} is the original reported Wald
-flag; \code{native_regular} records the preservation checks. Use \code{available}
+flag; \code{native_regular} records complete native qualification, whereas
+\code{routes$native_selected} also includes selected partial native fits. Use \code{available}
 together with \code{scope} and \code{sampling_target} for the selected output.
 A reported coefficient variance does not establish joint covariance rank or
 calibration.
@@ -84,7 +86,7 @@ recovery diagnostics; nonestimable entries are not reportable estimates.
 For recovered PGMM fits, selected full-system parameters and equations are at
 the top level of \code{diagnostics[[gene]]}; its \code{fit} is the native input
 endpoint. HL's recovered \code{fit} contains its selected augmented state.
-Native public results remain in \code{primary}; full fits are optional.
+Original native public results and full fits are retained only with diagnostics.
 On withheld routes, fixed values may describe an attempted mask rather than
 an available selected result. \code{failure} describes coefficient-level
 withholding separately from the fit's certificate.

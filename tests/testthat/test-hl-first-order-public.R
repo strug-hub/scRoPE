@@ -72,6 +72,7 @@ test_that("public HL synthetic example uses the certified first-order path", {
     expected_augmented_covariance[free_beta, free_beta, drop = FALSE] %*%
     t(state$K)
   expected_covariance <- map %*% expected_internal_covariance %*% t(map)
+  expected_model <- map %*% state$K %*% solve(-state$augmented$B) %*% t(state$K) %*% t(map)
   expected_se <- sqrt(diag(expected_covariance))
   expected_wald <- expected_beta^2 / diag(expected_covariance)
   expected_p <- pchisq(expected_wald, df = 1L, lower.tail = FALSE)
@@ -90,8 +91,8 @@ test_that("public HL synthetic example uses the certified first-order path", {
     expect_equal(fit$summary[[paste0("p_robust_", nm)]], expected_p[j],
                  tolerance = 1e-8)
     expect_true(fit$summary[[paste0("wald_success_", nm)]])
-    expect_true(is.na(fit$summary[[paste0("se_", nm)]]))
-    expect_true(is.na(fit$summary[[paste0("p_naive_", nm)]]))
+    expect_equal(fit$summary[[paste0("se_", nm)]],sqrt(expected_model[j,j]),tolerance=1e-10)
+    expect_equal(fit$summary[[paste0("p_naive_", nm)]],pchisq(expected_beta[j]^2/expected_model[j,j],1,lower.tail=FALSE),tolerance=1e-10)
   }
   expect_equal(fit$overdispersion$Subject,
                unname(exp(state$rho_full[1L])), tolerance = 1e-10)
@@ -114,7 +115,7 @@ test_that("public HL synthetic example uses the certified first-order path", {
   expect_identical(fit$provenance$requested_model, "HL")
   expect_identical(fit$provenance$effective_model, "HL")
   expect_identical(fit$provenance$estimator, "first_order_nested_hl")
-  expect_identical(fit$provenance$model_covariance, "not_reported")
+  expect_identical(fit$provenance$model_covariance, "profile_h_information_plugin_dispersion")
   expect_identical(
     fit$provenance$robust_covariance,
     "hl_first_order_augmented_donor_sandwich"
@@ -122,9 +123,9 @@ test_that("public HL synthetic example uses the certified first-order path", {
   expect_identical(
     fit$provenance$test_capabilities,
     data.frame(
-      test = c("wald", "score", "lrt"),
-      public_available = c(TRUE, TRUE, FALSE),
-      status = c("available", "available", "objective_ratio_unsupported"),
+      test = c("wald", "wald_model", "score", "lrt"),
+      public_available = c(TRUE, TRUE, TRUE, FALSE),
+      status = c("available", "available", "available", "objective_ratio_unsupported"),
       stringsAsFactors = FALSE
     )
   )
@@ -187,7 +188,7 @@ test_that("standalone HL compatibility arguments warn when ignored", {
   expect_identical(fit$provenance$route, "HL")
   expect_identical(
     fit$provenance$test_capabilities$public_available,
-    c(TRUE, TRUE, FALSE)
+    c(TRUE, TRUE, TRUE, FALSE)
   )
 
   expect_error(

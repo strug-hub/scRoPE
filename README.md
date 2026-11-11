@@ -21,11 +21,11 @@ R session:
 
 ```r
 install.packages("remotes")
-remotes::install_github("strug-hub/scRoPE")
+remotes::install_github("strug-hub/scRoPE@v0.4.1")
 library(scRoPE)
 ```
 
-This installs the current default branch. Numbered source releases are listed
+This pins the 0.4.1 release. Numbered source releases are listed
 on the [releases page](https://github.com/strug-hub/scRoPE/releases).
 Record the installed package version and exact source revision for reproducible
 analyses. Dependencies are listed in [DESCRIPTION](DESCRIPTION).
@@ -106,9 +106,11 @@ provides the design, provenance, all results and reproduction scripts.
 |:--|:--|
 | `fit$summary` | Per-gene coefficients, standard errors and requested test results. |
 | `fit$availability` | One status row per analyzed gene. |
-| `fit$coefficient_availability` | Per-coefficient estimates, robust uncertainty, availability and route/target labels. |
+| `fit$coefficient_availability` | Per-coefficient estimates, model/robust uncertainty, native/selected availability and route/target labels. |
 | `fit$test_status` | Test-specific availability, method labels and failure reasons. |
 
+Compact native flags/reasons and recovery attempted/outcome fields record what
+was available before selection without storing another full fit.
 Availability distinguishes complete native or recovered results, partial
 results, point-only fits and unavailable output. For example, select available
 Wald results for the condition coefficient while retaining their provenance:
@@ -135,7 +137,7 @@ exact Poisson–gamma fitting with `model = "PGMM"`.
 | Engine | Working model | Native inference |
 |:--|:--|:--|
 | **Joint-LN (JLN)** | Donor heterogeneity and cell-level overdispersion | Model-based and donor-robust Wald; optional experimental robust Score and Pace-adjusted working-objective ratio. |
-| **Corrected first-order HL** | Negative-binomial gamma mixed model | Donor-robust Wald; optional robust Score. |
+| **Corrected first-order HL** | Negative-binomial gamma mixed model | Conventional profile-h model Wald and donor-robust Wald; optional robust Score. |
 | **Exact PGMM** | Poisson–gamma mixed model, without a separate cell-overdispersion component | Model-based and donor-robust Wald; optional adjusted Score and scaled adjusted LRT. |
 
 Wald is the default. Request Score with `additional_tests = "score"`, or both
@@ -156,9 +158,12 @@ native-only fitting. Detailed fits and histories are opt-in with
 remain present by default.
 
 Recovery selects a whole fit and preserves original native results in
-`fit$recovery$primary` when recovery is assessed. Recovered inference supports
-coefficient-wise donor-robust Wald only; recovered model-based SEs, optional
-Score/LRT, arbitrary joint tests and random effects remain unavailable.
+`fit$recovery$primary` only when `keep_diagnostics = TRUE`. Supported recovery
+reports model and donor-robust coefficient Wald inference from the same selected
+fit. PGMM/JLN use inverse free information/curvature; corrected HL uses inverse
+profile h-likelihood coefficient information at fitted dispersions. Optional
+Score/LRT, arbitrary joint tests and random effects remain unavailable. See the
+[model-inference guide](inst/doc/selected-model-inference.md) for conventions.
 Free-donor-dispersion HL limits remain point-only, without recovered SEs or
 p-values.
 

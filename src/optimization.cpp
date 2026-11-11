@@ -45,9 +45,18 @@ double pmg_ll_eigen(const Eigen::Map<Eigen::MatrixXd> & X_c, const Eigen::Vector
     {term1 += lgamma(cumsumy_ca(posind_c(i)));}
     term1 -= nelem*lgamma(alpha);
 
+    // Cell terms can be numerous and small relative to the accumulated gamma
+    // contribution. Preserve their low-order bits without changing the
+    // likelihood algebra, optimizer controls, or certification tolerances.
+    double cell_compensation = 0;
     nelem = posindy_c.size();
     for(unsigned int i=0;i<nelem;i++)
-    {term1 += xtb(posindy_c(i))*Y_c(i);}
+    {
+        const double adjusted = xtb(posindy_c(i))*Y_c(i) - cell_compensation;
+        const double newer = term1 + adjusted;
+        cell_compensation = (newer - term1) - adjusted;
+        term1 = newer;
+    }
 
     term1 += k_c*alpha*log(lambda);
 

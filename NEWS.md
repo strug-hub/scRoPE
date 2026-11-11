@@ -1,3 +1,95 @@
+# scRoPE 0.4.1 (2026-11-11)
+
+- Return a complete, qualified native fit directly after its existing optimizer,
+  geometry, curvature and inference checks. Remove the extra PGMM post-acceptance
+  0.001-SE recovery trigger and redundant native recovery certificate.
+- Attempt eligible recovery for genuinely incomplete inference. A complete,
+  qualified recovered result supplies estimates and covariance from the same fit;
+  its working target is explicit. If recovery fails or remains incomplete, retain
+  usable native partial results. Full superseded native fits are retained only
+  when diagnostics are requested; compact original status and reasons remain.
+- Supply model-based and donor-robust coefficient Wald inference from the same
+  selected fit on supported PGMM, JLN and corrected HL routes. PGMM/JLN use inverse
+  free information/curvature; HL uses inverse profile h-likelihood coefficient
+  information at fitted dispersions. The HL augmented robust sandwich is unchanged.
+- Keep covariance, standard-error, interval and Wald-test availability distinct.
+  A valid standard error remains available when a squared Wald statistic overflows;
+  the statistic and p-value are withheld with an explicit reason.
+- Unify native qualification, recovery attempted/outcome and availability messages
+  across methods while preserving method-specific reasons and convergence codes.
+  Existing public tables gain compact fields; result/report schemas advance to 6/3.
+- Compensate positive-cell PGMM objective summation to reduce cancellation and
+  summation error. This arithmetic change is separately reviewed from recovery policy.
+
+Supported recovered inference now includes both model-based and donor-robust
+coefficient Wald results. Free-donor-variance HL limiting faces remain point-only;
+optional recovered Score/LRT, arbitrary joint tests and random effects are not
+added. Working targets may differ from scientific targets. Availability does not
+establish general finite-donor calibration, selection-adjusted coverage or FDR
+control. Historical analyses retain their actual package versions and policies.
+See the [selected-model inference guide](inst/doc/selected-model-inference.md)
+and [automatic recovery guide](inst/doc/automatic-recovery.md).
+
+The development entries below preserve the unpublished candidate lineage. The
+0.4.1 summary above describes the final policy and supersedes interim restrictions.
+
+# scRoPE 0.4.0.9009 (isolated status-reporting candidate)
+
+- Add compact native qualification, inference flags/counts and original reasons
+  to the existing common tables. Report actual recovery attempted/outcome,
+  caught errors, selected source and a consistent availability message.
+- Keep valid selected JLN recovery SEs when the Wald statistic overflows; withhold
+  the statistic/p-value and report the exact coefficient refusal reason.
+- Preserve existing failure normalization prefixes, method-specific codes,
+  convergence codes and optional-test metadata. Extend aggregate warning counts
+  without changing native acceptance or recovery selection.
+- Correct coefficient-partial and warning-count documentation. Full superseded
+  native fits remain diagnostics-only; no inference capability is broadened.
+
+# scRoPE 0.4.0.9008 (isolated reporting repair)
+
+- Retain a valid robust SE in working and common output when only the Wald
+  statistic overflows. Covariance, SE and interval availability remain distinct
+  from Wald statistic and p-value availability; fitting and selection are unchanged.
+- Permanently test held-cell/free-donor HL and JLN model and robust covariance
+  reconstruction at the same selected fit using existing deterministic fixtures.
+
+# scRoPE 0.4.0.9007 (isolated model-inference candidate)
+
+- Report model and robust coefficient Wald inference from the same selected fit
+  for supported PGMM, JLN and corrected HL native/recovery routes. PGMM/JLN use
+  inverse free information/curvature. HL uses inverse profile h-likelihood
+  coefficient information at fitted dispersions; its augmented sandwich is unchanged.
+- Expose both families separately in compact availability and warning summaries.
+  Genuine missing model inference may now trigger recovery; complete recovered
+  replacement requires both families. Retain native partial inference when recovery
+  is incomplete, and retain full superseded objects only with diagnostics.
+- Preserve unsupported free-donor-variance HL limiting faces as point-only.
+  No optional recovered Score/LRT, selection correction or calibration is added.
+- Mathematical reference: standalone 2026-11-06 master, source e087a14; NEBULA
+  comparison pinned to 70593f95342e623f721ec5919adc53868e25a2b0.
+
+# scRoPE 0.4.0.9006 (local review candidate)
+
+- Report native PGMM model-only inference failure as partial with the same
+  classified warning under recovery="none" and recovery="auto". The repair
+  reads existing coefficient flags and does not refit, certify, change estimates,
+  or add any model-based inference to recovered fits.
+
+# scRoPE 0.4.0.9005 (isolated candidate)
+
+- Qualify complete native HL/PGMM once. Remove PGMM post-acceptance 0.001-SE
+  recovery trigger and redundant native recovery certificate. Reuse native HL
+  geometry and existing coefficient inference flags.
+- Attempt recovery for incomplete robust inference; select complete certified
+  recovered robust output as one fit, otherwise retain qualified native partial
+  results. Missing model-only inference does not trigger robust-only recovery.
+- Store superseded native results only with `keep_diagnostics=TRUE`, including
+  explicit working output and JLN retention; preserve compact native status.
+- Use one aggregate warning contract across ordinary and explicit working output.
+- Separately: compensate positive-cell PGMM objective summation and identify
+  actual recovery-certificate failure gates without changing their tolerances.
+
 # scRoPE 0.4.0 (2026-11-07)
 
 - Make automatic recovery the default for LN, HL and PGMM through
