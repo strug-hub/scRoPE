@@ -39,10 +39,13 @@ ln_compact_optional <- function(entry, keep_details = FALSE) {
 
 ln_compact_recovery <- function(answer) {
   f <- answer$result
-  result <- ln_compact_fields(f, c("success", "reason"))
+  result <- ln_compact_fields(f, c("success", "reason", "error"))
   if (isTRUE(f$success) && !identical(answer$route, "ordinary_jln")) {
     result$beta <- f$beta
     result$Vbeta <- f$Vbeta
+    result$model_Vbeta <- f$model_Vbeta
+    result$model_inference_available <- f$model_inference_available
+    result$model_inference_reason <- f$model_inference_reason
     if (identical(answer$route, "identifiable_nuisance_limit")) {
       result$face <- ln_compact_fields(f$face, "estimable")
       result$reduced_full <- f$reduced_full

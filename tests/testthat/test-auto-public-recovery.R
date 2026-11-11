@@ -19,7 +19,7 @@
   expect_recovery_refit_table(actual$overdispersion,expected$overdispersion,
     numerical=intersect(c("Subject","Cell"),names(expected$overdispersion)))
   expect_recovery_refit_table(actual$coefficient_availability,expected$coefficient_availability,
-    numerical=c("beta","robust_se","statistic","p_value"))
+    numerical=c("beta","robust_se","statistic","p_value","model_se","model_statistic","model_p_value"))
 }
 
 test_that("automatic recovery and compact defaults have an explicit compatible opt-out", {
@@ -43,13 +43,14 @@ test_that("public native results and compact/detail inference are preserved", {
     compact<-.apr_call(d,model)
     detailed<-.apr_call(d,model,keep_diagnostics=TRUE)
     # Native output copied within this call is still preserved bit for bit.
-    expect_identical(compact$summary,compact$recovery$primary$summary)
-    expect_identical(compact$overdispersion,compact$recovery$primary$overdispersion)
-    .apr_expect_native_refit(compact$recovery$primary,native)
+    expect_null(compact$recovery$primary)
+    expect_identical(detailed$summary,detailed$recovery$primary$summary)
+    expect_identical(detailed$overdispersion,detailed$recovery$primary$overdispersion)
+    expect_recovery_refit_table(compact$summary,native$summary)
     expect_recovery_refit_table(compact$summary,detailed$summary)
     expect_identical(compact$availability,detailed$availability)
     expect_recovery_refit_table(compact$coefficient_availability,detailed$coefficient_availability,
-      numerical=c("beta","robust_se","statistic","p_value"))
+      numerical=c("beta","robust_se","statistic","p_value","model_se","model_statistic","model_p_value"))
     expect_null(compact$diagnostics);expect_null(compact$recovery$diagnostics)
     expect_true(all(compact$coefficient_availability$available))
     expect_true(all(compact$availability$selected_source=="native"))
@@ -64,14 +65,14 @@ test_that("public nuisance limits retain points and withhold unsupported inferen
     # Separate recovery fits may differ at roundoff scale across BLAS builds.
     # Every other column, including status and missingness, remains exact.
     expect_recovery_refit_table(compact$summary,detailed$summary,
-      numerical=as.vector(outer(c("logFC_","se_robust_","p_robust_","wald_stat_"),
+      numerical=as.vector(outer(c("logFC_","se_robust_","p_robust_","wald_stat_","se_","p_naive_","model_wald_stat_"),
         c("Intercept","x","region","z"),paste0)))
     expect_recovery_refit_table(compact$coefficient_availability,detailed$coefficient_availability,
-      numerical=c("beta","robust_se","statistic","p_value"))
+      numerical=c("beta","robust_se","statistic","p_value","model_se","model_statistic","model_p_value"))
     expect_true(all(compact$availability$selected_route=="identifiable_nuisance_limit"))
     expect_false(any(compact$coefficient_availability$selection_adjusted))
-    expect_true(all(is.na(compact$summary[,grep("^se_(?!robust)",names(compact$summary),perl=TRUE),drop=FALSE])))
     if(model=="HL") {
+      expect_true(all(is.na(compact$summary[,grep("^se_(?!robust)",names(compact$summary),perl=TRUE),drop=FALSE])))
       expect_identical(compact$availability$status,"point_only")
       expect_equal(sum(compact$coefficient_availability$point_available),3L)
       expect_false(any(compact$coefficient_availability$available))
@@ -82,6 +83,7 @@ test_that("public nuisance limits retain points and withhold unsupported inferen
       expect_true(length(detailed$recovery$audit[[1]]$history_audit$observations)>0L)
     } else {
       expect_equal(sum(compact$coefficient_availability$available),2L)
+      expect_equal(sum(compact$coefficient_availability$model_available),2L)
       expect_true(all(is.na(detailed$diagnostics$loglik)))
       unavailable<-!detailed$coefficient_availability$covariance_available
       V<-detailed$diagnostics$godambe[[1]]$robust_cov
@@ -95,7 +97,7 @@ test_that("public nuisance limits retain points and withhold unsupported inferen
 
 test_that("all-failed native HL requests retain explicit optional test statuses after recovery", {
   d<-.apr_fixture(combined=TRUE)
-  f<-.apr_call(d,"HL",additional_tests=c("score","lrt"),lrt_details=TRUE,output_re=TRUE)
+  f<-.apr_call(d,"HL",additional_tests=c("score","lrt"),lrt_details=TRUE,output_re=TRUE,keep_diagnostics=TRUE)
   expect_true(any(f$availability$selected_source=="recovery"))
   extra<-f$test_status[f$test_status$test%in%c("score","lrt"),,drop=FALSE]
   expect_true(nrow(extra)>0)

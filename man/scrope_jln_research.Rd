@@ -68,8 +68,9 @@ NA; native diagnostic endpoints remain in \code{primary}. Routes are
 \code{ordinary_jln}, \code{ordinary_jln_with_search_warning}, \code{fixed_v},
 \code{fixed_phi}, \code{fixed_v_phi}, or \code{withheld}.
 The native \code{scrope} result is retained in \code{primary}; diagnostic
-retention follows \code{keep_diagnostics}. No model-based SE or adjusted tests
-are manufactured for rescued fits.
+retention follows \code{keep_diagnostics}. \code{se_model}, \code{p_model} and
+\code{model_available} use the selected free inverse curvature, following the
+JLN working-model convention. Optional adjusted tests remain unsupported.
 }
 \seealso{\code{\link{scrope}}, \code{\link{group_cell}}}
 \examples{

@@ -24,11 +24,11 @@ test_that("top-level HL dispatch exactly matches the compatibility wrapper", {
   expect_identical(routed$provenance$effective_model, "HL")
   expect_identical(
     routed$provenance$test_capabilities$test,
-    c("wald", "score", "lrt")
+    c("wald", "wald_model", "score", "lrt")
   )
   expect_identical(
     routed$provenance$test_capabilities$public_available,
-    c(TRUE, TRUE, FALSE)
+    c(TRUE, TRUE, TRUE, FALSE)
   )
 
   residual <- nbresidual(

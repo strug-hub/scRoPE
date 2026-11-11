@@ -45,7 +45,7 @@ working parameters, not a zero-variance reference distribution.
 | `availability` | One row per analyzed gene, selected route/source, separate point/covariance/Wald counts, recovery eligibility, target, reason, and native convergence code. |
 | `coefficient_availability` | One row per coefficient, estimates, estimability, separate point/covariance/statistic/reference/interval availability, and exact failure reason. |
 | `test_status` | One row per requested/ordinary reported test; `availability_status` is the common status while method-specific `status` remains intact. |
-| `recovery$primary` | Native-only public result before whole-fit recovery selection, including its original estimates and requested tests. Absent when recovery was not assessed. |
+| `recovery$primary` | Native-only public result before selection, retained only when `keep_diagnostics=TRUE`; otherwise `NULL`. |
 | `recovery$routes` | Method-specific route and fixed-parameter disclosure, when recovery was assessed. |
 | `fit_provenance` | PGMM native optimizer backend/code, controls and compact convergence/covariance evidence; available without full raw diagnostics. |
 | `provenance$recovery` | Effective recovery mode, controls and retention policy. |
@@ -57,12 +57,12 @@ their own long-format schemas and reporting behavior.
 
 | Public field | Allowed status | Meaning |
 | --- | --- | --- |
-| `availability$status` | `available` | All reported coefficient Wald results are available from the native fit. |
-| | `available_with_limitations` | All reported coefficient Wald results are available from a selected recovery route. |
-| | `partial` | Some, but not all, coefficient Wald results are available. |
+| `availability$status` | `available` | All supported model and robust coefficient Wald results are available from the native fit. |
+| | `available_with_limitations` | All supported model and robust coefficient Wald results are available from a selected recovery route. |
+| | `partial` | At least one coefficient Wald result is available, but the supported model and robust families are not both complete. |
 | | `point_only` | At least one accepted coefficient estimate is available, but no coefficient Wald result is available. |
 | | `unavailable` | Neither accepted coefficient estimates nor coefficient Wald results are available. |
-| `coefficient_availability$status` | `available`, `available_with_limitations`, `point_only`, `unavailable` | The corresponding classification for a single coefficient; there is no coefficient-level `partial` value. |
+| `coefficient_availability$status` | `available`, `available_with_limitations`, `partial`, `point_only`, `unavailable` | The corresponding classification for a single coefficient; `partial` means only one supported family is available. |
 | `test_status$availability_status` | `available`, `available_with_limitations`, `unsupported`, `unavailable` | Per-test success, successful recovered inference with limitations, an unsupported requested test, or another failure. |
 
 Gene `selected_source` and coefficient `source` use `native`, `recovery` or
@@ -93,8 +93,45 @@ change the gene's coefficient-Wald classification. `summary$test_status` is
 LN also retains the compatibility column `availability$availability`, with
 values such as `"inference"` and `"partial_inference"`, plus its existing
 technical/status-message columns. Use `availability$status` for cross-model
-classification. Common reporting has `recovery$report_schema_version=1L` and
-`provenance$result_schema_version=4L`.
+classification. Common reporting has `recovery$report_schema_version=3L` and
+`provenance$result_schema_version=6L`.
+
+## Compact native and recovery status
+
+The common gene table now reports `native_qualification` (`complete`, `partial`,
+`point_only`, or `unavailable`), `native_point_qualified`, family-completeness
+flags, `native_*_coefficients` counts and `native_failure_reason`. These summarize
+existing native flags and the already computed native qualification, when present.
+They introduce no extra fit, audit, threshold or acceptance rule. Original reported
+coefficient flags are separate from whole-fit qualification: a flag alone does not
+overrule a native geometry/root refusal.
+
+Coefficient `native_point_available`, `native_covariance_available`,
+`native_model_covariance_available`, `native_available`, `native_model_available`
+and the two `native_*failure_reason` fields record what the native output reported
+before selection. `native_available` is the robust family, matching `available`.
+Per-test `native_success` and `native_failure_reason` retain native optional-test
+outcomes even when a selected recovery route does not support those tests.
+Original estimates, covariance matrices and donor arrays are not duplicated.
+
+`recovery_attempted` records actual attempted recovery, not merely `recovery="auto"`.
+`recovery_outcome` is `not_needed`, `disabled`, `ineligible`, `not_attempted`,
+`failed`, `incomplete`, or `selected`. `incomplete` means a point candidate could
+not replace a usable native partial result; that native result stays selected.
+`selected` does not imply that every coefficient or inference family is available:
+read the existing selected counts and coefficient statuses. `recovery_reason`
+preserves the route's reason and `recovery_error` preserves a caught exception's
+condition text. Native-only calls use `disabled` when native inference is incomplete.
+
+`availability_message` uses the same format across methods. Exact method-specific
+reason codes remain intact. Coefficient `failure_stage`/`model_failure_stage` and
+per-test `availability_stage` group reasons into `point_qualification`,
+`covariance`, `statistic`, `estimability`, `scope`, or `inference`. These are reporting
+categories, not extra numerical gates. Existing LN `failure_stage` is retained.
+
+These fields are compact default provenance. Full superseded native fits remain
+available only with `keep_diagnostics=TRUE`. Repeated normalization preserves an
+existing `other_` failure prefix instead of adding another one.
 
 ## Numeric convergence and native evidence
 
@@ -114,22 +151,50 @@ it is not a selected-recovery success flag. These native optimizer fields remain
 available without full diagnostics.
 
 `fit$availability$native_convergence` records the original code for each gene.
-When recovery is assessed, `fit$recovery$primary` preserves the native estimates,
-tests and convergence; `fit$summary` and the common availability tables describe
-the selected output. With `recovery="none"`, there is no separate `primary`
-result, and the shared tables describe native output directly. Do not use
-`fit$convergence == 1` as a cross-model inference filter.
+The default stores only the selected result and compact native status/provenance.
+`fit$recovery$primary` is `NULL` unless `keep_diagnostics=TRUE`; diagnostics retain
+the original native result, including its estimates, tests and convergence.
+With `recovery="none"`, the shared tables describe native output directly.
+Do not use `fit$convergence == 1` as a cross-model inference filter.
 
-Selection is for the whole gene fit. PGMM qualification includes all parameter
-variances, information and Newton displacement. A native scalar previously
-reported as available can therefore be replaced or withheld. Its original
-result remains under `primary`; coefficients from different targets are not
-combined in the selected summary.
+## Native qualification and incomplete inference
 
-Recovered output supports coefficient-wise donor-robust Wald only. Model-based
-SEs/p-values, arbitrary joint-contrast tests, optional Score/LRT and random
-effects are unavailable for selected recovered rows. Their native counterparts
-remain under `primary`. For the free-donor-dispersion HL limiting face,
+The policy `native_once_recovery_20261110` qualifies native PGMM using its existing
+optimizer acceptance, resolved unrestricted geometry, interior parameters,
+positive definite information and existing information-rcond requirement.
+Coefficient model-based and robust Wald flags come from the existing reporting
+rules, evaluated once and reused. The former full-nuisance-variance and 0.001-SE
+Newton-displacement gate is removed; no substitute threshold is introduced.
+A complete native fit returns directly, without a stricter recovery certificate,
+reference fit, finite-difference audit or post-acceptance precision comparison.
+Native HL keeps its solver's existing point/curvature/cold-replay rules and reuses
+that fit's already resolved unrestricted recession check. The independent canonical
+face detector still runs: its structural checks are not interchangeable with the
+standardized numerical rank/LP check. JLN selection rules are unchanged.
+
+Point qualification, covariance and coefficient Wald availability are distinct.
+For a qualified native point with incomplete model or robust inference, recovery is
+attempted. A certified recovery with valid model and robust Wald results for every
+estimable coefficient can replace the native fit. All selected estimates, covariance
+families, nuisance parameters and target labels come from that one recovered fit.
+If recovery fails or remains incomplete, the native partial result remains selected
+with route `native_partial`, retaining each supported family. A failed or unqualified
+native point cannot use that fallback; supported recovery points and limits may
+still be reported under the existing route rules. The new model capability means
+a model-only failure can now benefit from recovery; there is no new gate or audit
+for an accepted complete native fit.
+Optional Score/LRT or arbitrary-contrast failure does not trigger whole-fit recovery.
+
+Compact audit/route fields record native qualification, whether recovery was attempted,
+and its outcome. Superseded native coefficients, covariances, donor arrays and fit
+histories are retained only with diagnostics. A selected native partial result is
+itself the output, not an additional stored copy. `recovery$primary` is also optional
+for JLN; compact native failure codes and original convergence remain available.
+
+Recovered output supports model and donor-robust coefficient Wald results from
+the same selected fit. Arbitrary joint-contrast tests, optional Score/LRT and
+random effects remain unavailable for selected recovered rows. Their native counterparts
+remain under `primary` only with diagnostics. For the free-donor-dispersion HL limiting face,
 estimable points can be reported but every recovered SE and p-value is missing;
 the reason is `hl_limit_sampling_target_unresolved`. Numerical covariance stored
 in detailed research evidence does not override that reporting restriction.
@@ -147,9 +212,10 @@ wald[, c("gene_id", "gene", "coefficient", "beta", "robust_se", "p_value",
          "source", "route", "sampling_target")]
 
 native_wald <- subset(wald, source == "native")
-point_only <- subset(coefficient_results, point_available & !available)
+point_only <- subset(coefficient_results, point_available & !available & !model_available)
 complete_genes <- subset(fit$availability,
-                         selected_wald_coefficients == total_coefficients)
+                         selected_wald_coefficients == total_coefficients &
+                         selected_model_wald_coefficients == total_coefficients)
 
 # Empty if optional tests were not requested; keep the original status label.
 optional <- subset(fit$test_status, test %in% c("score", "lrt") & success)
@@ -190,20 +256,29 @@ fields, not additional columns in the returned fit. The message starts with
 
 At most one such aggregate is emitted per public call, across analyzed genes,
 when any selected source is recovery or any gene is `partial`, `point_only` or
-`unavailable`. It is silent when all genes have native coefficient Wald results.
+`unavailable`. It is silent when all genes have complete native inference supported by that estimator.
 It still runs with **`verbose=FALSE`**, `keep_diagnostics=FALSE`, or
 `recovery="none"`. In native-only mode its recovered count is zero: the warning
 also reports availability, and does not imply that recovery was attempted.
-Optional-test failure alone does not trigger this common warning when native
-coefficient Wald is complete. Normalizing `recovery$primary` is silent.
+Optional-test failure alone does not trigger this common warning when native inference supported by the estimator is complete. Normalizing `recovery$primary` is silent.
 
 The condition's `counts` vector has names `genes`, `recovered`, `all_wald`,
-`partial_wald`, `point_only`, and `unavailable`. `recovered` counts selected
+`partial_wald`, `all_model_wald`, `partial_model_wald`, `point_only`, `unavailable`,
+`native_incomplete`, `recovery_attempted`, `recovery_failed`,
+`recovery_incomplete` and `native_incomplete_before`. `recovered` counts selected
 recovery routes, including point-only recovery; it is not a count of successful
 Wald tests and overlaps the availability categories. `all_wald` and
-`partial_wald` count genes by coefficient availability. Genes removed by the
+`partial_wald` count genes by robust coefficient availability; the corresponding
+`model_wald` counts describe model coefficient availability. Genes removed by the
 input filters are outside these counts. A recovered result also appends the
 working-target/selection/calibration caution to the message.
+
+`native_incomplete` retains its earlier meaning: selected native fits with
+incomplete inference. `native_incomplete_before` also includes native failures
+that were subsequently recovered. `recovery_failed` counts failed attempts;
+`recovery_incomplete` counts attempts insufficient to replace a usable native
+partial fit. `recovery_attempted` includes both and selected recoveries. These
+new counts supplement the existing counts; they do not redefine them.
 
 Capture and selectively muffle only this classified summary when a pipeline
 records it elsewhere; other warnings still propagate:
@@ -244,3 +319,13 @@ Working-target equality to a scientific target, selective coverage, general
 finite-donor calibration and FDR control are not established by numerical
 availability. See the method-specific JLN and HL/PGMM guides for their distinct
 criteria and limitations.
+
+Selected native fits with incomplete supported inference have status `partial`
+when either family remains available. Under `recovery="none"`, this reports the
+native result directly. Under `recovery="auto"`, a complete recovered fit may
+replace it; unsuccessful/incomplete recovery retains the partial native result.
+The classified warning counts both families separately. Existing `available`,
+`covariance_available` and `selected_wald_coefficients` fields remain robust-family
+fields. Additive `model_*` fields and `selected_model_wald_coefficients` report
+model inference. The overall status `point_only` means neither Wald family is
+available. See `selected-model-inference.md` for equations and conventions.

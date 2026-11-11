@@ -104,11 +104,18 @@ ln_recovery_face_fit <- function(y,X,id,offset) {
   T[p+1L,r+1L]<-T[p+2L,r+2L]<-1
   C<-face$public_map%*%T[seq_len(p),free,drop=FALSE]
   beta_rep<-as.numeric(face$public_map%*%face$beta_map%*%full[seq_len(r)])
+  model_cov<-scrope_model_inverse(A)
+  model_Vbeta<-if(isTRUE(model_cov$success))C%*%model_cov$covariance%*%t(C) else NULL
+  if(!is.null(model_Vbeta)) {
+    model_Vbeta[!face$estimable,]<-NA_real_;model_Vbeta[,!face$estimable]<-NA_real_
+  }
   Vbeta<-C%*%V%*%t(C);beta<-beta_rep;beta[!face$estimable]<-NA_real_
   Vbeta[!face$estimable,]<-NA_real_;Vbeta[,!face$estimable]<-NA_real_
   Uoriginal<-matrix(0,nrow(U),face$original_donors);Uoriginal[,face$retained_donor_indices]<-U
   list(success=TRUE,reason='certified_identifiable_nuisance_limit',face=face,reduced=ans,refinement=refined,
     reduced_route=route,reduced_full=full,free=free,q=q,objective_error=objective_error,A=A,U=U,U_original=Uoriginal,
     covariance=V,beta=beta,beta_representative=beta_rep,Vbeta=Vbeta,
+    model_covariance=model_cov$covariance,model_Vbeta=model_Vbeta,
+    model_inference_available=isTRUE(model_cov$success),model_inference_reason=model_cov$reason,
     derivative_map=T[,free,drop=FALSE],full_beta_map=face$beta_map)
 }

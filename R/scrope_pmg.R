@@ -387,6 +387,12 @@ scrope_pmg_internal <- function(
       })
     }
 
+    # Compute the existing coefficient Wald rules once, for both native
+    # qualification and public reporting; recovery never adds a second gate.
+    coefficient_wald <- list(
+      model=pmg_coefficient_wald(fit$theta$beta,diag(fit$naive_cov),pmg_optimizer_converged(fit)),
+      robust=pmg_coefficient_wald(fit$theta$beta,diag(fit$robust_cov),pmg_optimizer_converged(fit)))
+    fit$working_inference <- lapply(coefficient_wald,`[[`,"success")
     candidates <- fit$working_candidates
     fit$working_candidates <- NULL
     # The observer is pure: return its record from this worker, including on
@@ -396,6 +402,7 @@ scrope_pmg_internal <- function(
     list(
       fit = if (keep_diagnostics) fit else pmg_compact_gene_result(fit),
       working_record = record,
+      coefficient_wald = coefficient_wald,
       provenance = provenance
     )
   }
@@ -412,6 +419,7 @@ scrope_pmg_internal <- function(
   } else NULL
   fit_provenance <- do.call(rbind, lapply(gene_results, `[[`, "provenance"))
   rownames(fit_provenance) <- NULL
+  native_wald <- lapply(gene_results,`[[`,"coefficient_wald")
   result_attributes <- attributes(gene_results)
   gene_results <- lapply(gene_results, `[[`, "fit")
   attributes(gene_results) <- result_attributes
@@ -447,16 +455,13 @@ scrope_pmg_internal <- function(
   for (j in seq_len(nb)) {
     coef_label <- coef_names[j]
 
-    model_wald <- pmg_coefficient_wald(
-      beta = re_all[[beta_names[j]]],
-      variance = re_all[[naive_var_names[j]]],
-      optimizer_converged = optimizer_success_vec
-    )
-    robust_wald <- pmg_coefficient_wald(
-      beta = re_all[[beta_names[j]]],
-      variance = re_all[[robust_var_names[j]]],
-      optimizer_converged = optimizer_success_vec
-    )
+    collect_wald <- function(family) {
+      fields <- names(native_wald[[1L]][[family]])
+      setNames(lapply(fields,function(field)unlist(lapply(native_wald,
+        function(x)x[[family]][[field]][j]),use.names=FALSE)),fields)
+    }
+    model_wald <- collect_wald("model")
+    robust_wald <- collect_wald("robust")
     re_all[[paste0("p_naive_", coef_label)]] <- model_wald$p_value
     re_all[[paste0("model_wald_stat_", coef_label)]] <- model_wald$stat
     re_all[[paste0("model_wald_success_", coef_label)]] <- model_wald$success

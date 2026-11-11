@@ -113,7 +113,8 @@ normalise_failure <- function(reason, type = c("wald", "lrt", "score")) {
     return(if (length(out) == 1) out[[1]] else out)
   }
 
-  known_idx <- reason_vec %in% failure_codes[[type]]
+  known_idx <- reason_vec %in% failure_codes[[type]] |
+    (!missing_idx & startsWith(reason_vec, "other_"))
   out[known_idx] <- reason_vec[known_idx]
   other_idx <- !(known_idx | missing_idx)
   out[other_idx] <- paste0("other_", reason_vec[other_idx])

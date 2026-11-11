@@ -6,8 +6,9 @@ or method-comparison claims. Paper simulation and HLCA workflows are separate.
 
 `run_workable_version_smoke.R` fits two bundled genes through default JLN,
 explicit JLN, and PGMM, and one through first-order HL. It checks route-specific
-provenance schemas (JLN version 3; HL and PGMM version 2), agreement between the
-default and explicit JLN calls, test availability, complete saved-result
+provenance schemas (JLN version 3; HL and PGMM version 2), common result/report
+schemas (6/3), the method-specific capability rows (including HL model Wald),
+agreement between default and explicit JLN calls, test availability, complete saved-result
 round-tripping, and elapsed times. Five error checks verify retirement of the
 legacy estimator, legacy fallback, default `nebula()`, explicit `nebula()` LN,
 and `nebula()` PMM with LN. An unrelated input error does not satisfy them.
@@ -53,7 +54,7 @@ command after installing the exact source archive with its tests:
 
 ```sh
 mkdir -p /tmp/scrope-rc-library
-R CMD INSTALL --install-tests --library=/tmp/scrope-rc-library scRoPE_0.4.0.tar.gz
+R CMD INSTALL --install-tests --library=/tmp/scrope-rc-library scRoPE_0.4.1.tar.gz
 Rscript /tmp/scrope-rc-library/scRoPE/tests/validation/run_workable_version_smoke.R \
   /tmp/scrope-workable-smoke.rds /tmp/scrope-rc-library/scRoPE
 Rscript /tmp/scrope-rc-library/scRoPE/tests/validation/run_installed_parallel_gate.R \

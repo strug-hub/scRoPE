@@ -20,6 +20,12 @@ The detector uses the same centered/scaled design as JLN. A unique one-dimension
 
 For the actual free vector a (reduced coefficients and all free dispersions), u_i(a) = −d q_i/da, A = sum_i d²q_i/da da', B_score = sum_i u_i u_i'. The covariance is A^−1 B_score A^−T, evaluated as tcrossprod(solve(A,U)); there is no extra 1/G and no finite-cluster multiplier. Free derivative blocks are selected before inversion. Removed donors have exactly zero limiting scores; embedding their zero columns changes neither A nor B_score. No singular full inverse, generalized inverse, ridge or pinned nuisance value is used.
 
+The model covariance uses A^(-1) under the established JLN working-model
+inverse-curvature convention, with the same free mask, selected point and public
+map as the robust covariance. This does not turn the JLN approximation into an
+exact lognormal likelihood or establish selective coverage. See
+`selected-model-inference.md` for both families and their availability fields.
+
 A requested coefficient/contrast c is estimable only if c annihilates d in the corresponding coordinate scale. Map the free covariance by the actual linear derivative map, D V D'. Nonestimable coefficients and their covariance rows/columns are NA; a finite arbitrary representative is retained only internally for objective checks. A finite slope does not make an escaping intercept or region coefficient estimable.
 
 ## Inferential scope
@@ -37,3 +43,13 @@ A separate bounded all-free refinement is allowed only with at least two distinc
 The fresh 300-dataset nuisance-face screen used 100 datasets per setting. With 54 total donors (52 retained donors × 18 cells and two singleton donors), automatic recovery reported 97/100 structural-zero datasets, rejecting 7/97 reported (7/100 generated), and 100/100 finite rare-mean datasets, rejecting 5/100. With 24 total donors (22 × 6 cells and two rare singletons), it reported 99/100 and rejected 10/99 reported (10/100 generated). The oracle retained-donor procedure also rejected 10/99 in the sparse setting. The automatic robust RMS SE / empirical SD ratios were 0.961, 0.982 and 0.904 respectively. Thus the sparse setting shows undercoverage; this implementation is not a promise of nominal finite-sample coverage.
 
 Three structural-zero fits were withheld because a reduced local root lost to a known full boundary competitor. One sparse fit was also unavailable to the oracle. Failures are retained in generated-dataset denominators. This small screen does not establish general post-selection or FDR validity. Earlier fixed-dispersion studies also showed finite-donor undercoverage (65/1000 null rejections in the 60-donor zero-variance development setting, including 54/900 in its fresh follow-up). No correction was selected by searching these p-values.
+
+## Reporting unavailable coefficient tests
+
+Selected JLN recovery now keeps a valid robust SE when the squared Wald statistic
+overflows. Its statistic and p-value are withheld with `nonfinite_wald_statistic`.
+Nonestimable coordinates, missing estimates and invalid mapped variances retain
+distinct reasons. This is output validation, not a change to root certification
+or route selection. The common native/recovery status fields are described in
+`automatic-recovery.md`; native partial results and diagnostic retention policies
+are unchanged.

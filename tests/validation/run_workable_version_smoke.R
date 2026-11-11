@@ -113,6 +113,14 @@ results <- list(
 expected_routes <- c(ln_default = "LN", ln_joint_explicit = "LN",
                      hl = "HL", pgmm = "PGMM")
 expected_schemas <- c(ln_default = 3L, ln_joint_explicit = 3L, hl = 2L, pgmm = 2L)
+# HL exposes its conventional model Wald family as a separate capability row.
+# JLN/PGMM retain their established combined Wald capability label.
+expected_tests <- list(
+  ln_default = c("wald", "score", "lrt"),
+  ln_joint_explicit = c("wald", "score", "lrt"),
+  hl = c("wald", "wald_model", "score", "lrt"),
+  pgmm = c("wald", "score", "lrt")
+)
 expected_estimators <- c(
   ln_default = "ln_joint_root", ln_joint_explicit = "ln_joint_root",
   hl = "first_order_nested_hl", pgmm = "pgmm_exact_marginal"
@@ -129,7 +137,9 @@ for (name in names(expected_routes)) {
     identical(fit$provenance$route, unname(expected_routes[[name]])),
     identical(fit$provenance$estimator, unname(expected_estimators[[name]])),
     is.data.frame(fit$provenance$test_capabilities),
-    identical(fit$provenance$test_capabilities$test, c("wald", "score", "lrt"))
+    identical(fit$provenance$test_capabilities$test, expected_tests[[name]]),
+    identical(fit$provenance$result_schema_version, 6L),
+    identical(fit$recovery$report_schema_version, 3L)
   )
 }
 default <- results$routes$ln_default$fit
@@ -177,7 +187,8 @@ hl_objective_rows <- hl$hl_adj_details$test == "objective_ratio"
 stopifnot(
   all(c("score", "objective_ratio") %in% hl$hl_adj_details$test),
   any(hl_objective_rows),
-  identical(hl$provenance$test_capabilities$public_available, c(TRUE, TRUE, FALSE)),
+  identical(hl$provenance$test_capabilities$public_available,
+            c(TRUE, TRUE, TRUE, FALSE)),
   all(!hl$hl_adj_details$success[hl_objective_rows]),
   all(hl$hl_adj_details$failure_reason[hl_objective_rows] ==
         "objective_ratio_unsupported")

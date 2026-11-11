@@ -1569,6 +1569,9 @@ hl_fo_rank_limit_diagnostics <- function(data, k_free, q,
 hl_fo_finalize_state <- function(state, constraint_C = NULL, constraint_rhs = NULL) {
   k_free <- ncol(state$K)
   q <- length(state$active)
+  state$model_covariance <- NULL
+  state$model_covariance_success <- FALSE
+  state$model_covariance_status <- "point_not_qualified"
   B <- state$augmented$B
   H <- state$H_F
   diagnostics <- hl_fo_rank_limit_diagnostics(
@@ -1640,6 +1643,12 @@ hl_fo_finalize_state <- function(state, constraint_C = NULL, constraint_rhs = NU
     return(state)
   }
 
+  # The coefficient information has already passed the native B gate.
+  # Model availability is separate from the augmented sandwich calculation.
+  state$model_covariance <- hl_fo_model_covariance(state)
+  state$model_covariance_success <- isTRUE(state$model_covariance$success)
+  state$model_covariance_status <- if(state$model_covariance_success) "ok" else
+    state$model_covariance$reason
   sandwich <- hl_fo_sandwich(state$augmented$A, state$augmented$J)
   state$point_success <- TRUE
   state$fit_status <- if (identical(state$status, "multiple_near_tied_maxima"))

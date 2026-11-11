@@ -121,7 +121,7 @@ native-only estimates and inference. Supported HL/PGMM working recovery
 requires the default dispersion box and preserves the requested estimator.
 Whole-fit qualification can withhold a previously reported native PGMM
 scalar; original native outputs remain in `recovery$primary`. Recovered
-inference is coefficient-wise donor-robust Wald only. Free-dispersion HL
+inference supplies model and donor-robust coefficient Wald results from the same fit. Free-dispersion HL
 nuisance limits remain point-only. Native optional tests are preserved for
 native-selected genes and segregated under `primary` for replaced genes.
 Use `availability`, `coefficient_availability` and `test_status` to aggregate

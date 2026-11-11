@@ -8,7 +8,8 @@
 # HL and PGMM working fits
 
 `scrope_working()` is the explicit long-format working-fit entry point. It first
-runs the requested estimator and preserves that native result in `primary`.
+runs the requested estimator; the native result is retained in `primary` only
+when `keep_diagnostics=TRUE`.
 Supported recovery can supply an estimable coefficient from a refitted working
 model or a limiting face. It never switches between HL and PGMM. Ordinary
 `scrope()` now assesses the same eligible working routes automatically; use
@@ -26,7 +27,7 @@ working$summary[, c("gene", "coefficient", "beta", "robust_se", "p_value",
                     "available", "route", "scope", "sampling_target", "failure")]
 working$routes
 working$audit[[1]]
-native <- working$primary
+native <- working$primary # NULL unless keep_diagnostics=TRUE
 ```
 
 Counts, donors and design follow `scrope()` conventions: genes by cells, one
@@ -41,13 +42,16 @@ slow. Full histories with `keep_diagnostics=TRUE` can consume substantial memory
 
 | Component/field | Meaning |
 |---|---|
-| `primary` | Native result from this package build, before working recovery. |
+| `primary` | Native result before working recovery, retained only with diagnostics; otherwise `NULL`. |
 | `summary` | One row per retained gene and reported coefficient. |
 | `point_available` | A finite selected point exists for an estimable coefficient. |
-| `covariance_available` | The coefficient covariance passes the applicable output gate. |
-| `available` | The selected coefficient Wald result is reported; read its target and route too. |
+| `covariance_available` | The robust coefficient covariance passes the applicable output gate. |
+| `available` | The selected robust coefficient Wald result is reported; read its target and route too. |
+| `model_covariance_available`, `model_available` | Model coefficient covariance and Wald availability, respectively. |
+| `model_se`, `model_p_value`, `model_failure` | Selected model-family uncertainty and its specific refusal reason. |
 | `native_available` | Original native Wald flag, not the preservation or recovery decision. |
-| `native_regular` | Native preservation decision under the recorded numerical policy. |
+| `native_regular` | Whether native point and all supported coefficient inference are complete. |
+| `native_selected` | Native output is selected, including `native_partial` when recovery is incomplete or cannot help. |
 | `estimable` | The reported functional annihilates any verified escaping direction. |
 | `failure` | Coefficient-level withholding reason; it is separate from fit-level certification. |
 | `routes` | Per-gene route, fixed parameters, native preservation, scope and timing. |
@@ -66,7 +70,8 @@ system; it does not turn a fixed-mask or selected-face fit into the native targe
 
 | Route | Interpretation |
 |---|---|
-| `native` | Preserve an accepted regular native endpoint and its coefficient output. |
+| `native` | Preserve an accepted complete native endpoint and its coefficient output. |
+| `native_partial` | Keep a qualified native point with supported native inference when recovery is incomplete or cannot supply the missing capability. |
 | `certified_free_refit` | Numerical refit with all dispersions free, passing recovery checks. |
 | `fixed_positive_dispersion` | Actual refit with an eligible positive dispersion held fixed. |
 | `identifiable_nuisance_limit` | Verified one-dimensional face removes whole all-zero donors; only estimable coefficients can be reported. |
@@ -211,16 +216,23 @@ derivative perturbations are not competing HL profile observations. Held-coordin
 boundary checks remain separate. Neither audit proves global optimality,
 scientific-target equality, selection-adjusted inference or general calibration.
 
-Native preservation also has a recorded policy. PGMM keeps qualified native
-fits under its existing 1e-3-SE Newton displacement limit; recovery uses the
-stricter 1e-4-SE and scaled-root checks. A stricter recovery diagnostic alone
-does not replace an accepted native result.
-HL preserves an accepted native point when there is no unresolved face or
-recession. It retains the native inference flags; it does not impose the new
-recovery finite-difference audit on an already accepted native result.
+Native qualification uses policy `native_once_recovery_20261110`. Complete native
+fits return directly; there is no native recovery certificate, 0.001-SE trigger,
+reference refit or precision-comparison warning. PGMM reuses optimizer, interior,
+geometry, positive information and existing rcond rules plus the native coefficient
+Wald flags. HL reuses its already qualified unrestricted recession check and
+native coefficient inference. The separate canonical face detector still runs;
+its structural check is not interchangeable with the numerical rank/LP test. See `automatic-recovery.md` for the partial-result decision table in prose.
+
+A native point with incomplete model or robust inference may be replaced by a
+certified recovered fit with both families complete for its estimable coefficients.
+Unsuccessful/incomplete recovery retains the native partial fit without splicing.
+Both public interfaces emit one aggregate classified warning, with counts for both
+families. Full original native results require `keep_diagnostics=TRUE`; the default
+keeps compact status/provenance only.
 
 Selected public coordinates are in the masked `summary`. Unmasked
-`beta_report`/`V_report` and full system objects are available only with full
+`beta_report`/`V_report`/`model_V_report` and full system objects are available only with full
 diagnostics. For PGMM, top-level `par`, `beta`, `A`, `U`, `V`, `mapping` and `fixed`
 describe the selected recovered system; its nested `fit` is the native input
 endpoint. HL's recovered `fit` is its selected augmented state. Preserved native
@@ -246,9 +258,11 @@ donor coverage. The subsequent limited HL null study found 50/59 coverage at
 compatible with 95% but imprecise. It is research evidence, not an API calibration
 guarantee or a validated threshold based only on donor count.
 
-Recovered output supplies coefficient-wise donor-robust Wald inference only.
-Recovered model-based SEs, Score/LRT, arbitrary joint contrasts and random effects
-are not provided. Genuine nonexistence, nonidentifiability, unresolved competitors
+Recovered output supplies model and donor-robust coefficient Wald inference from
+the same selected fit. PGMM inverts the free marginal information; HL inverts the
+profile h-likelihood coefficient information with dispersions plugged in. See
+`selected-model-inference.md`. Score/LRT, arbitrary joint contrasts and random
+effects are not provided. Genuine nonexistence, nonidentifiability, unresolved competitors
 or failed numerical checks remain explicit outcomes.
 
 ## Numerical prerequisites and review evidence

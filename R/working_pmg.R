@@ -73,10 +73,18 @@ working_pmg_certificate <- function(st, problem, derivatives=TRUE) {
     interior=all(st$x>problem$lower+margin & st$x<problem$upper-margin),
     scalar_identity=abs(st$q-st$native_q)/st$scalar_tolerance,
     stable_objective=st$q,native_objective=st$native_q,scalar_tolerance=st$scalar_tolerance)
-  if (!isTRUE(metrics$interior) || !isTRUE(curvature$positive_definite) ||
-      curvature$scaled_min_eigenvalue<=1e-8 || curvature$scaled_condition_number>=1e10 ||
-      metrics$root>1e-6 || metrics$additivity>1e-10 || metrics$native_gradient_agreement>1e-10 || metrics$scalar_identity>1)
-    return(fail("free_root_or_curvature",metrics))
+  # Record the actual failing gates; numerical scalar disagreement is distinct
+  # from failure to obtain an interior root with supported curvature.
+  checks <- c(interior=isTRUE(metrics$interior),
+    curvature=isTRUE(curvature$positive_definite) &&
+      isTRUE(curvature$scaled_min_eigenvalue>1e-8) &&
+      isTRUE(curvature$scaled_condition_number<1e10),
+    root=isTRUE(metrics$root<=1e-6),
+    additivity=isTRUE(metrics$additivity<=1e-10),
+    native_gradient_agreement=isTRUE(metrics$native_gradient_agreement<=1e-10),
+    scalar_identity=isTRUE(metrics$scalar_identity<=1))
+  metrics$failed_checks <- names(checks)[!checks]
+  if (!all(checks)) return(fail(paste0("free_",metrics$failed_checks[[1L]]),metrics))
   delta <- solve(st$A,st$g)
   metrics$newton <- max(abs(delta)/(1+abs(st$x)))
   if (metrics$newton>1e-6) return(fail("free_newton_displacement",metrics))
@@ -212,7 +220,12 @@ working_pmg_refit <- function(y,X,id,offset,native=NULL,candidates=NULL,allow_fi
        boundary$derivative_error>1e-5)
       return(fail("working_mask_direction_not_supported",boundary=boundary,fixed=fixed,trials=trials))
   }
+  model_cov <- scrope_model_inverse(st$A)
   list(success=TRUE,point_success=TRUE,inference_available=cert$covariance,
+       model_inference_available=isTRUE(model_cov$success),
+       model_inference_reason=model_cov$reason,
+       model_covariance=model_cov$covariance,
+       model_Vbeta=if(isTRUE(model_cov$success))model_cov$covariance[seq_len(p),seq_len(p),drop=FALSE] else NULL,
        reason=cert$reason,fit=native,par=st$par,beta=st$par[seq_len(p)],
        Vbeta=cert$V[seq_len(p),seq_len(p),drop=FALSE],A=st$A,U=st$U,V=cert$V,
        fixed=fixed,free=problem$free,objective=st$q,ctx=problem$ctx,
