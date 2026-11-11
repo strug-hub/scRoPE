@@ -1,6 +1,6 @@
 # Model and robust coefficient inference from the selected fit
 
-Candidate 0.4.0.9007 extends model coefficient Wald output to supported recovery
+scRoPE 0.4.1 provides model coefficient Wald output on supported recovery
 routes and corrected native HL. It preserves the requested estimator, selected
 point, free-parameter mask, coordinate map and estimability mask. `se_*`,
 `p_naive_*` and `model_wald_*` identify model inference. `se_robust_*`,
@@ -16,8 +16,8 @@ The primary mathematical reference is the 61-page standalone
 `e087a14fb90ed124381b867b99261ac07e597dc7`. It supersedes the October 22 reference.
 The November 6 reference describes the joint LN working criterion, corrected
 nested HL estimator, PGMM and working-recovery routes. Its descriptions of
-then-current public availability are historical; this candidate adds the model
-output authorized here without changing those estimators.
+then-current public availability are historical; version 0.4.1 includes the model
+output developed in candidate 0.4.0.9007 without changing those estimators.
 
 For HL, the reference's profile h-likelihood derivatives (Section 6.1, equations
 82–87 on PDF page 24) supply the coefficient information. The conventional
@@ -100,7 +100,7 @@ each supported family, without splicing points or covariance between fits.
 Failure of an added model calculation does not erase valid robust inference or
 invalidate an otherwise qualified point. Existing strict native JLN qualification
 is unchanged; this extension does not revive native candidates rejected by that
-policy. This candidate adds no condition-number threshold.
+policy. This model-inference extension adds no condition-number threshold.
 
 `coefficient_availability` reports `model_available`, `model_covariance_available`,
 `model_se`, `model_statistic`, `model_p_value`, `model_interval_available`,

@@ -1,6 +1,6 @@
 # Methods, inference availability and migration
 
-This guide includes the model-inference extension in candidate scRoPE 0.4.0.9007. Start with
+This guide describes model inference and availability in scRoPE 0.4.1. Start with
 [the package quick start](../../README.md) for the 24-gene omitted-slope example.
 The additional route examples below use the separate, smaller `sample_data`
 teaching object (8 genes, 30 donors); they do not use `toy_data`.
